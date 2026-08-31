@@ -1,0 +1,3 @@
+ALTER TABLE "Customer" ADD COLUMN "documentType" TEXT;
+ALTER TABLE "Customer" ADD COLUMN "segment" TEXT;
+ALTER TABLE "Customer" ADD COLUMN "loyaltyPoints" INTEGER NOT NULL DEFAULT 0;

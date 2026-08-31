@@ -1,0 +1,48 @@
+"use client";
+
+import { Children, isValidElement, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, useMemo, useState } from "react";
+import { Search } from "lucide-react";
+
+export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return <label className="field"><span>{label}</span>{children}{hint ? <small>{hint}</small> : null}</label>;
+}
+
+export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+  return <input className="input" {...props} />;
+}
+
+type OptionElement = ReactElement<{ value?: string | number; children?: ReactNode }>;
+
+function optionText(value: ReactNode): string {
+  return Children.toArray(value).map((item) => typeof item === "string" || typeof item === "number" ? String(item) : "").join(" ");
+}
+
+export function Select({ children, className, onChange, value, defaultValue, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const options = useMemo(() => Children.toArray(children).filter((child): child is OptionElement => isValidElement(child) && child.type === "option"), [children]);
+  const [query, setQuery] = useState("");
+  const [internalValue, setInternalValue] = useState(() => String(defaultValue ?? ""));
+
+  if (options.length <= 10) return <select className={`input${className ? ` ${className}` : ""}`} value={value} defaultValue={defaultValue} onChange={onChange} {...props}>{children}</select>;
+
+  const selectedValue = String(value ?? internalValue);
+  const normalizedQuery = query.trim().toLocaleLowerCase("es");
+  const visibleOptions = options.filter((option) => {
+    const optionValue = String(option.props.value ?? "");
+    return !normalizedQuery || optionValue === "" || optionValue === selectedValue || optionText(option.props.children).toLocaleLowerCase("es").includes(normalizedQuery);
+  });
+  const searchName = typeof props["aria-label"] === "string" ? props["aria-label"] : typeof props.name === "string" ? props.name : "opciones";
+
+  return <div className="searchable-select">
+    <label className="searchable-select__search"><Search size={14} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label={`Buscar en ${searchName}`} placeholder="Buscar opción…" autoComplete="off" /></label>
+    <select className={`input${className ? ` ${className}` : ""}`} value={value} defaultValue={defaultValue} onChange={(event) => { setInternalValue(event.target.value); onChange?.(event); }} {...props}>{visibleOptions}</select>
+    <small className="searchable-select__count">{visibleOptions.length} de {options.length} opciones</small>
+  </div>;
+}
+
+export function DatePicker(props: InputHTMLAttributes<HTMLInputElement>) {
+  return <Input type="date" {...props} />;
+}
+
+export function Filters({ children }: { children: ReactNode }) {
+  return <div className="filters">{children}</div>;
+}

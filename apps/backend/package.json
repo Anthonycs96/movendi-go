@@ -1,0 +1,46 @@
+{
+  "name": "@movendi/backend",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "node ../../scripts/dev-service.mjs backend 3001 --network",
+    "dev:local": "node ../../scripts/dev-service.mjs backend 3001 --local",
+    "dev:network": "node ../../scripts/dev-service.mjs backend 3001 --network",
+    "build": "next build",
+    "postbuild": "node ../../scripts/prepare-standalone.mjs backend",
+    "start": "node ../../scripts/start-service.mjs backend 3001",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:seed": "prisma db seed",
+    "db:schema:prod": "node ../../scripts/prepare-postgres-schema.mjs",
+    "db:generate:prod": "npm run db:schema:prod && prisma generate --schema prisma/postgresql/schema.prisma",
+    "db:deploy:prod": "npm run db:schema:prod && prisma migrate deploy --schema prisma/postgresql/schema.prisma",
+    "db:bootstrap:prod": "npm run db:generate:prod && tsx prisma/bootstrap.ts",
+    "db:bootstrap:runtime": "npm run db:schema:prod && tsx prisma/bootstrap.ts",
+    "db:studio": "prisma studio",
+    "jobs:worker": "tsx --conditions=react-server --tsconfig tsconfig.json src/modules/transport/server/jobs-worker.ts",
+    "jobs:once": "tsx --conditions=react-server --tsconfig tsconfig.json src/modules/transport/server/jobs-worker.ts --once"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1111.0",
+    "@aws-sdk/s3-request-presigner": "^3.1111.0",
+    "@google-cloud/storage": "^8.0.0",
+    "@movendi/contracts": "*",
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "next": "16.3.1",
+    "prisma": "^5.22.0",
+    "server-only": "^0.0.1",
+    "stripe": "^22.5.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "@movendi/frontend",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "node ../../scripts/dev-service.mjs frontend 3000 --network",
+    "dev:local": "node ../../scripts/dev-service.mjs frontend 3000 --local",
+    "dev:network": "node ../../scripts/dev-service.mjs frontend 3000 --network",
+    "build": "next build",
+    "postbuild": "node ../../scripts/prepare-standalone.mjs frontend",
+    "start": "node ../../scripts/start-service.mjs frontend 3000",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@movendi/contracts": "*",
+    "@zxing/browser": "^0.1.5",
+    "lucide-react": "^0.468.0",
+    "next": "16.3.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.env
+.env.*
+!.env.example
+apps/backend/prisma/*.db
+apps/backend/prisma/*.db-journal
+apps/backend/prisma/postgresql/schema.prisma
+test-results
+playwright-report
+*.log
+*.tsbuildinfo
