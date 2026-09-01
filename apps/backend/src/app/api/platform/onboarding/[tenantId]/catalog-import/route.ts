@@ -20,7 +20,10 @@ export async function POST(request: Request, context: Context) {
     const source = await loadRestaurantCatalogWorkbookContext(tenantId);
     let result;
     try { result = await parseRestaurantCatalogWorkbook(Buffer.from(await file.arrayBuffer()), tenantId, source.areas); }
-    catch (error) { throw new AppError("WORKBOOK_INVALID", 400, error instanceof Error ? error.message : "No pudimos leer la plantilla Excel."); }
+    catch (error) {
+      const expectedMessage = error instanceof Error && ["El archivo Excel supera los límites seguros permitidos.", "Usa la plantilla de Carta descargada desde MOVENDI GO.", "La plantilla pertenece a otro negocio.", "La plantilla está incompleta. No cambies los nombres de las hojas.", "El archivo contiene demasiadas hojas."].includes(error.message) ? error.message : "No pudimos interpretar el archivo. Descarga una plantilla nueva, complétala sin cambiar sus hojas y vuelve a subirla.";
+      throw new AppError("WORKBOOK_INVALID", 400, expectedMessage);
+    }
     return Response.json({ ok: result.valid, ...result, message: result.valid ? "Plantilla validada y cargada en la interfaz. Revisa y guarda el paso Carta." : "Corrige los errores indicados y vuelve a subir la plantilla." }, { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
   } catch (error) { return errorResponse(error); }
 }

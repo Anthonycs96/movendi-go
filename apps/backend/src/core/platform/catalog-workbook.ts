@@ -7,6 +7,7 @@ import { normalizeRestaurantArea, normalizeRestaurantCatalogLabel } from "@moven
 export const RESTAURANT_CATALOG_TEMPLATE_VERSION = "MOVENDI_RESTAURANT_CATALOG_V1";
 const MAX_UNCOMPRESSED_BYTES = 24 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 500;
+const SPREADSHEET_MAIN_NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
 export type CatalogWorkbookDraft = {
   categories: Array<{ name: string; preparationArea: string }>;
@@ -178,7 +179,11 @@ export async function buildRestaurantCatalogWorkbook(source: WorkbookSource) {
   return Buffer.from(buffer);
 }
 
-async function assertSafeArchive(buffer: Buffer) {
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function prepareSafeWorkbookBuffer(buffer: Buffer) {
   const archive = await JSZip.loadAsync(buffer, { checkCRC32: false });
   let entries = 0;
   let uncompressed = 0;
@@ -188,6 +193,21 @@ async function assertSafeArchive(buffer: Buffer) {
     uncompressed += size;
   });
   if (entries > MAX_ARCHIVE_ENTRIES || uncompressed > MAX_UNCOMPRESSED_BYTES) throw new Error("El archivo Excel supera los límites seguros permitidos.");
+  let changed = false;
+  for (const [path, entry] of Object.entries(archive.files)) {
+    if (entry.dir || !path.startsWith("xl/") || !path.endsWith(".xml")) continue;
+    const content = await entry.async("string");
+    const prefixes = [...content.matchAll(new RegExp(`xmlns:([A-Za-z_][\\w.-]*)=["']${escapeRegExp(SPREADSHEET_MAIN_NAMESPACE)}["']`, "g"))].map((match) => match[1]);
+    if (!prefixes.length) continue;
+    let normalized = content;
+    for (const prefix of prefixes) normalized = normalized.replace(new RegExp(`<(\\/?)${escapeRegExp(prefix)}:`, "g"), "<$1");
+    if (normalized !== content) {
+      archive.file(path, normalized);
+      changed = true;
+    }
+  }
+  if (!changed) return buffer;
+  return Buffer.from(await archive.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } }));
 }
 
 function cellText(cell: Cell, issues: CatalogWorkbookIssue[], sheet: string, row: number, column: string) {
@@ -217,9 +237,9 @@ function moneyValue(cell: Cell, issues: CatalogWorkbookIssue[], sheet: string, r
 }
 
 export async function parseRestaurantCatalogWorkbook(buffer: Buffer, expectedTenantId: string, allowedAreas: string[]) {
-  await assertSafeArchive(buffer);
+  const safeBuffer = await prepareSafeWorkbookBuffer(buffer);
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  await workbook.xlsx.load(safeBuffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
   if (workbook.worksheets.length > 10) throw new Error("El archivo contiene demasiadas hojas.");
   const meta = workbook.getWorksheet("_Control");
   if (!meta || meta.getCell("B1").text !== RESTAURANT_CATALOG_TEMPLATE_VERSION) throw new Error("Usa la plantilla de Carta descargada desde MOVENDI GO.");

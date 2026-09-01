@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 import { buildRestaurantCatalogWorkbook, parseRestaurantCatalogWorkbook } from "./catalog-workbook";
 
 const source = {
@@ -37,4 +38,23 @@ test("marca fórmulas como errores y no las ejecuta durante la importación", as
   const parsed = await parseRestaurantCatalogWorkbook(changed, source.tenantId, source.areas);
   assert.equal(parsed.valid, false);
   assert.ok(parsed.issues.some((issue) => issue.sheet === "Productos" && issue.row === 5 && issue.column === "A" && issue.message.includes("fórmulas")));
+});
+
+test("acepta archivos guardados con elementos OOXML prefijados", async () => {
+  const file = await buildRestaurantCatalogWorkbook(source);
+  const archive = await JSZip.loadAsync(file);
+  const namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+  for (const [path, entry] of Object.entries(archive.files)) {
+    if (entry.dir || !path.startsWith("xl/") || !path.endsWith(".xml")) continue;
+    const content = await entry.async("string");
+    if (!content.includes(`xmlns="${namespace}"`)) continue;
+    const prefixed = content
+      .replace(`xmlns="${namespace}"`, `xmlns:x="${namespace}"`)
+      .replace(/<(\/?)((?!\?xml)[A-Za-z][\w.-]*)(?=[\s>])/g, "<$1x:$2");
+    archive.file(path, prefixed);
+  }
+  const prefixedFile = Buffer.from(await archive.generateAsync({ type: "nodebuffer" }));
+  const parsed = await parseRestaurantCatalogWorkbook(prefixedFile, source.tenantId, source.areas);
+  assert.equal(parsed.valid, true);
+  assert.equal(parsed.catalog.products[0]?.name, "Lomo saltado");
 });
