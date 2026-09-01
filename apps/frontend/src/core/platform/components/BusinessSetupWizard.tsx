@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, Circle, Copy, Plus, Rocket, Save, Trash2, WandSparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, Circle, Copy, Download, FileSpreadsheet, Plus, Rocket, Save, Trash2, Upload, WandSparkles } from "lucide-react";
 import { Button, Dialog, Field, Input, Select, StatusBadge } from "@/shared/components/ui";
 import type { PlatformBusinessView, PlatformPlanView, PlatformSetupTemplate } from "../types";
 import { detectRestaurantAreas, normalizeRestaurantArea, normalizeRestaurantCatalogLabel, type DetectedRestaurantArea, type RestaurantAreaAssignmentMode, type RestaurantAreaDispatchMode, type RestaurantConfiguration, type TransportConfiguration } from "@movendi/contracts";
@@ -419,7 +419,7 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
           <header><div><span className="section-kicker">PASO {visibleSteps.findIndex((item) => item.key === activeStep) + 1} DE {visibleSteps.length}</span><h3>{visibleSteps.find((item) => item.key === activeStep)?.label}</h3></div>{completed.includes(activeStep) ? <StatusBadge tone="success" dot>Completo</StatusBadge> : <StatusBadge tone="warning" dot>Pendiente</StatusBadge>}</header>
           {activeStep === "BUSINESS" ? <div className="form-grid"><Field label="Nombre comercial"><Input value={general.name} onChange={(event) => setGeneral((state) => ({ ...state, name: event.target.value }))} /></Field><Field label="Nombre corto"><Input value={general.shortName} onChange={(event) => setGeneral((state) => ({ ...state, shortName: event.target.value }))} /></Field><Field label="Sede principal"><Input value={general.branchName} onChange={(event) => setGeneral((state) => ({ ...state, branchName: event.target.value }))} /></Field><Field label="Correo comercial"><Input type="email" value={general.email} onChange={(event) => setGeneral((state) => ({ ...state, email: event.target.value }))} /></Field><Field label="Teléfono"><Input value={general.phone} onChange={(event) => setGeneral((state) => ({ ...state, phone: event.target.value }))} /></Field><Field label="Dirección"><Input value={general.address} onChange={(event) => setGeneral((state) => ({ ...state, address: event.target.value }))} /></Field><Field label="Moneda"><Select value={general.currency} onChange={(event) => setGeneral((state) => ({ ...state, currency: event.target.value }))}><option value="PEN">Sol peruano</option><option value="USD">Dólar</option><option value="COP">Peso colombiano</option><option value="MXN">Peso mexicano</option></Select></Field><Field label="Zona horaria"><Input value={general.timezone} onChange={(event) => setGeneral((state) => ({ ...state, timezone: event.target.value }))} /></Field></div> : null}
           {activeStep === "MODULES" ? <div className="setup-module-grid">{modulesByType[type].map((module) => <label key={module.key} className={enabledModules.includes(module.key) ? "selected" : ""}><input type="checkbox" checked={enabledModules.includes(module.key)} disabled={module.required} onChange={(event) => setEnabledModules((values) => event.target.checked ? [...new Set([...values, module.key])] : values.filter((item) => item !== module.key))} /><span>{enabledModules.includes(module.key) ? <CheckCircle2 size={18} /> : <Circle size={18} />}<strong>{module.label}</strong>{module.required ? <small>Esencial</small> : null}</span></label>)}</div> : null}
-          {activeStep === "CATALOG" ? <CatalogStep type={type} skip={skipCatalog} setSkip={setSkipCatalog} categories={categories} setCategories={setCategories} products={products} setProducts={setProducts} addons={addons} setAddons={setAddons} services={services} setServices={setServices} areas={enabledPreparationAreas} /> : null}
+          {activeStep === "CATALOG" ? <CatalogStep tenantId={current?.id ?? null} type={type} skip={skipCatalog} setSkip={setSkipCatalog} categories={categories} setCategories={setCategories} products={products} setProducts={setProducts} addons={addons} setAddons={setAddons} services={services} setServices={setServices} areas={enabledPreparationAreas} /> : null}
           {activeStep === "TEAM" ? <TeamStep type={type} users={users} setUsers={setUsers} transportRoles={transportRoles} setTransportRoles={setTransportRoles} restaurantRoles={restaurantRoles} setRestaurantRoles={setRestaurantRoles} detectedAreas={detectedAreas} /> : null}
           {activeStep === "OPERATIONS" ? <OperationsStep type={type} areas={preparationAreas} setAreas={setPreparationAreas} methods={paymentMethods} setMethods={setPaymentMethods} hours={hours} setHours={setHours} /> : null}
           {activeStep === "TABLES" ? <TablesStep skip={skipTables} setSkip={setSkipTables} zones={zones} setZones={setZones} /> : null}
@@ -438,7 +438,11 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
 }
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
-function CatalogStep({ type, skip, setSkip, categories, setCategories, products, setProducts, addons, setAddons, services, setServices, areas }: { type: BusinessType; skip: boolean; setSkip: (value: boolean) => void; categories: Array<{ name: string; preparationArea: string }>; setCategories: Setter<Array<{ name: string; preparationArea: string }>>; products: Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>; setProducts: Setter<Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>>; addons: Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>; setAddons: Setter<Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>>; services: Array<{ name: string; category: string; durationMinutes: number; price: number }>; setServices: Setter<Array<{ name: string; category: string; durationMinutes: number; price: number }>>; areas: PreparationAreaDraft[] }) {
+function CatalogStep({ tenantId, type, skip, setSkip, categories, setCategories, products, setProducts, addons, setAddons, services, setServices, areas }: { tenantId: string | null; type: BusinessType; skip: boolean; setSkip: (value: boolean) => void; categories: Array<{ name: string; preparationArea: string }>; setCategories: Setter<Array<{ name: string; preparationArea: string }>>; products: Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>; setProducts: Setter<Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>>; addons: Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>; setAddons: Setter<Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>>; services: Array<{ name: string; category: string; durationMinutes: number; price: number }>; setServices: Setter<Array<{ name: string; category: string; durationMinutes: number; price: number }>>; areas: PreparationAreaDraft[] }) {
+  const excelInput = useRef<HTMLInputElement>(null);
+  const [excelPending, setExcelPending] = useState<"download" | "upload" | null>(null);
+  const [excelMessage, setExcelMessage] = useState("");
+  const [excelIssues, setExcelIssues] = useState<Array<{ sheet: string; row: number; column: string; message: string; severity: "ERROR" | "WARNING" }>>([]);
   if (type === "TRANSPORT") return <div className="setup-empty-step"><CheckCircle2 size={28} /><strong>Sin catálogo inicial obligatorio</strong><span>Los maestros de transporte se completan según contratos, flota y rutas del cliente.</span></div>;
   const areaOptions = areas.map((area) => ({ value: area.name, label: area.name }));
   const categoryOptions = categories.filter((category) => category.name.trim() && category.preparationArea).map((category) => ({ value: category.name, label: category.name }));
@@ -453,9 +457,45 @@ function CatalogStep({ type, skip, setSkip, categories, setCategories, products,
     setCategories((items) => items.filter((_, itemIndex) => itemIndex !== index));
     if (removed) setProducts((items) => items.map((item) => item.category === removed ? { ...item, category: "" } : item));
   };
+  const downloadExcel = async () => {
+    if (!tenantId) return;
+    setExcelPending("download"); setExcelMessage(""); setExcelIssues([]);
+    try {
+      const response = await fetch(`/api/platform/onboarding/${tenantId}/catalog-template`, { cache: "no-store" });
+      if (!response.ok) { const result = await response.json().catch(() => ({})); throw new Error(result.error?.message ?? "No pudimos generar la plantilla."); }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url; link.download = `movendi-carta-${tenantId.slice(0, 8)}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+      setExcelMessage("Plantilla descargada con las áreas y datos actuales del restaurante.");
+    } catch (reason) { setExcelMessage(reason instanceof Error ? reason.message : "No pudimos descargar la plantilla."); }
+    finally { setExcelPending(null); }
+  };
+  const uploadExcel = async (file: File) => {
+    if (!tenantId) return;
+    setExcelPending("upload"); setExcelMessage(""); setExcelIssues([]);
+    try {
+      const form = new FormData(); form.set("file", file);
+      const response = await fetch(`/api/platform/onboarding/${tenantId}/catalog-import`, { method: "POST", body: form });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error?.message ?? "No pudimos leer la plantilla.");
+      const issues = Array.isArray(result.issues) ? result.issues : [];
+      setExcelIssues(issues);
+      if (!result.valid) { setExcelMessage(result.message ?? "Corrige los errores del archivo."); return; }
+      setCategories(result.catalog.categories); setProducts(result.catalog.products); setAddons(result.catalog.addons); setSkip(false);
+      setExcelMessage(`${result.summary.categories} categorías, ${result.summary.products} productos y ${result.summary.addons} adicionales cargados. Revisa y guarda para confirmar.`);
+    } catch (reason) { setExcelMessage(reason instanceof Error ? reason.message : "No pudimos subir la plantilla."); }
+    finally { setExcelPending(null); if (excelInput.current) excelInput.current.value = ""; }
+  };
   return <div className="setup-stack">
     <label className="platform-check"><input type="checkbox" checked={skip} onChange={(event) => setSkip(event.target.checked)} /><span><strong>Completar esta información después</strong><small>El progreso quedará guardado como paso omitido.</small></span></label>
     {!skip && type === "RESTAURANT" ? <>
+      <section className="setup-excel-import" aria-label="Carga rápida con Excel">
+        <div><FileSpreadsheet size={22} /><span><strong>Carga rápida con Excel</strong><small>Descarga la plantilla conectada a tus áreas, complétala y vuelve a subirla. Los datos válidos aparecerán aquí antes de guardar.</small></span></div>
+        <div><Button type="button" variant="secondary" loading={excelPending === "download"} disabled={!tenantId || Boolean(excelPending)} onClick={() => void downloadExcel()}><Download size={15} />Descargar plantilla</Button><Button type="button" disabled={!tenantId || Boolean(excelPending)} loading={excelPending === "upload"} onClick={() => excelInput.current?.click()}><Upload size={15} />Subir Excel</Button><input ref={excelInput} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadExcel(file); }} /></div>
+        {excelMessage ? <p>{excelMessage}</p> : null}
+        {excelIssues.length ? <ul>{excelIssues.slice(0, 12).map((issue, index) => <li className={issue.severity === "ERROR" ? "error" : "warning"} key={`${issue.sheet}-${issue.row}-${issue.column}-${index}`}><b>{issue.sheet} {issue.column}{issue.row}</b><span>{issue.message}</span></li>)}</ul> : null}
+      </section>
       <section className="setup-catalog-foundation"><strong>1. Áreas operativas confirmadas</strong><small>La carta solo puede usar estas áreas. Así evitamos variantes como Cocina, cocinas o COCINA.</small><div>{areas.map((area) => <span key={area.normalizedKey || area.name}>{area.name}</span>)}</div></section>
       <SetupRows title="2. Categorías" addLabel="Agregar categoría" rows={categories} setRows={setCategories} empty={{ name: "", preparationArea: "" }} fields={[{ key: "name", label: "Categoría" }, { key: "preparationArea", label: "Área operativa", options: areaOptions, placeholder: "Selecciona un área" }]} onFieldChange={changeCategory} onRemove={removeCategory} />
       <SetupRows title="3. Productos y precios" addLabel="Agregar producto" addDisabled={!categoryOptions.length} rows={products} setRows={setProducts} empty={{ name: "", category: "", description: "", price: 0, cost: 0, preparationArea: "" }} fields={[{ key: "name", label: "Producto" }, { key: "category", label: "Categoría", options: categoryOptions, placeholder: "Selecciona una categoría" }, { key: "price", label: "Precio", type: "number" }, { key: "cost", label: "Costo", type: "number" }, { key: "preparationArea", label: "Área", options: areaOptions, placeholder: "Heredar de la categoría" }]} />

@@ -141,31 +141,32 @@ async function persistRestaurantCatalog(tenantId: string, branchId: string, inpu
     itemKeys.add(normalized.key);
   }
 
-  const storedBefore = await prisma.category.findMany({ where: { tenantId, branchId }, select: { id: true, name: true } });
-
-  await runInBatches([...categories.values()], async (category) => {
-    const reference = category.name === "Adicionales" ? { key: null, areaId: null } : areaReference(category.preparationArea, `La categoría “${category.name}”`);
-    const existing = storedBefore.find((item) => normalizeRestaurantCatalogLabel(item.name).key === normalizeRestaurantCatalogLabel(category.name).key);
-    if (existing) await prisma.category.update({ where: { id: existing.id }, data: { name: category.name, active: true, detectedAreaKey: reference.key, preparationAreaId: reference.areaId } });
-    else await prisma.category.create({ data: { tenantId, branchId, name: category.name, detectedAreaKey: reference.key, preparationAreaId: reference.areaId } });
-  });
-
-  const storedCategories = await prisma.category.findMany({ where: { tenantId, branchId, active: true }, select: { id: true, name: true } });
-  const categoryIds = new Map(storedCategories.map((category) => [normalizeRestaurantCatalogLabel(category.name).key, category.id]));
   const products = [
     ...input.products.map((product) => ({ ...product, productType: "FOOD", areaAssignmentMode: "SPECIFIC_AREA" as const })),
     ...input.addons.map((addon) => ({ ...addon, category: "Adicionales", description: "Adicional", productType: "ADDON", areaAssignmentMode: addon.areaAssignmentMode })),
   ];
-  const storedProducts = await prisma.product.findMany({ where: { tenantId, branchId }, select: { id: true, name: true } });
-  await runInBatches(products, async (product) => {
-    const categoryId = categoryIds.get(normalizeRestaurantCatalogLabel(product.category).key);
-    if (!categoryId) throw new AppError("CATALOG_CATEGORY_UNRESOLVED", 409, `No se pudo resolver la categoría “${product.category}”.`);
-    const reference = product.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? { key: null, areaId: null } : areaReference(product.preparationArea, `“${product.name}”`, product.productType !== "ADDON" || !product.preparationArea.trim());
-    const data = { categoryId, description: product.description || null, priceCents: Math.round(product.price * 100), costCents: Math.round(product.cost * 100), productType: product.productType, areaAssignmentMode: product.areaAssignmentMode, detectedAreaKey: reference.key, preparationAreaId: reference.areaId, active: true };
-    const existing = storedProducts.find((item) => normalizeRestaurantCatalogLabel(item.name).key === normalizeRestaurantCatalogLabel(product.name).key);
-    if (existing) await prisma.product.update({ where: { id: existing.id }, data: { ...data, name: normalizeRestaurantCatalogLabel(product.name).name } });
-    else await prisma.product.create({ data: { tenantId, branchId, name: normalizeRestaurantCatalogLabel(product.name).name, ...data } });
-  });
+  await prisma.$transaction(async (tx) => {
+    const storedBefore = await tx.category.findMany({ where: { tenantId, branchId }, select: { id: true, name: true } });
+    await runInBatches([...categories.values()], async (category) => {
+      const reference = category.name === "Adicionales" ? { key: null, areaId: null } : areaReference(category.preparationArea, `La categoría “${category.name}”`);
+      const existing = storedBefore.find((item) => normalizeRestaurantCatalogLabel(item.name).key === normalizeRestaurantCatalogLabel(category.name).key);
+      if (existing) await tx.category.update({ where: { id: existing.id }, data: { name: category.name, active: true, detectedAreaKey: reference.key, preparationAreaId: reference.areaId } });
+      else await tx.category.create({ data: { tenantId, branchId, name: category.name, detectedAreaKey: reference.key, preparationAreaId: reference.areaId } });
+    });
+
+    const storedCategories = await tx.category.findMany({ where: { tenantId, branchId, active: true }, select: { id: true, name: true } });
+    const categoryIds = new Map(storedCategories.map((category) => [normalizeRestaurantCatalogLabel(category.name).key, category.id]));
+    const storedProducts = await tx.product.findMany({ where: { tenantId, branchId }, select: { id: true, name: true } });
+    await runInBatches(products, async (product) => {
+      const categoryId = categoryIds.get(normalizeRestaurantCatalogLabel(product.category).key);
+      if (!categoryId) throw new AppError("CATALOG_CATEGORY_UNRESOLVED", 409, `No se pudo resolver la categoría “${product.category}”.`);
+      const reference = product.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? { key: null, areaId: null } : areaReference(product.preparationArea, `“${product.name}”`, product.productType !== "ADDON" || !product.preparationArea.trim());
+      const data = { categoryId, description: product.description || null, priceCents: Math.round(product.price * 100), costCents: Math.round(product.cost * 100), productType: product.productType, areaAssignmentMode: product.areaAssignmentMode, detectedAreaKey: reference.key, preparationAreaId: reference.areaId, active: true };
+      const existing = storedProducts.find((item) => normalizeRestaurantCatalogLabel(item.name).key === normalizeRestaurantCatalogLabel(product.name).key);
+      if (existing) await tx.product.update({ where: { id: existing.id }, data: { ...data, name: normalizeRestaurantCatalogLabel(product.name).name } });
+      else await tx.product.create({ data: { tenantId, branchId, name: normalizeRestaurantCatalogLabel(product.name).name, ...data } });
+    });
+  }, { maxWait: 10_000, timeout: 60_000 });
   return detectedAreasForCatalog(input);
 }
 

@@ -22,7 +22,7 @@
     "start:frontend": "npm run start -w @movendi/frontend",
     "typecheck": "npm run typecheck -w @movendi/contracts && npm run typecheck -w @movendi/backend && npm run typecheck -w @movendi/frontend",
     "lint": "eslint apps packages e2e scripts",
-    "test": "npm run test -w @movendi/frontend",
+    "test": "npm run test -w @movendi/frontend && npm run test -w @movendi/backend",
     "db:generate": "npm run db:generate -w @movendi/backend",
     "db:migrate": "npm run db:migrate -w @movendi/backend",
     "db:deploy": "npm run db:deploy -w @movendi/backend",

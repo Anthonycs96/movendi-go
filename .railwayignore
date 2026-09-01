@@ -16,3 +16,6 @@ apps/backend/prisma/postgresql/schema.prisma
 *.tsbuildinfo
 .env
 .env.*
+.codex_tmp/
+*.pptx
+*.inspect.ndjson
