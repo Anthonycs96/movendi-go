@@ -1,4 +1,4 @@
-# Ejecución local y despliegue de los dos servicios
+# Ejecución local y arquitectura de producción
 
 ## Localhost e IP de red
 
@@ -50,13 +50,13 @@ El archivo se guarda en `backups/sqlite/`. `SQLITE_BACKUP_SOURCE` y `SQLITE_BACK
 
 ## Railway
 
-Railway soporta workspaces npm compartidos y un archivo Config as Code distinto por servicio. Crea `Backend`, `Frontend`, `TransportWorker`, PostgreSQL y un Bucket privado dentro del mismo proyecto. Los servicios usan el repositorio raíz; configura:
+Railway aloja únicamente el servicio `backend`. El frontend público se despliega
+en Google Cloud Run y `DATABASE_URL` apunta al PostgreSQL de Supabase. No deben
+crearse en Railway servicios de frontend, workers, bases de datos ni buckets.
 
 | Servicio | Config file | Dominio público |
 | --- | --- | --- |
-| Backend | `/railway.backend.json` | No necesario |
-| Frontend | `/railway.frontend.json` | Sí |
-| TransportWorker | `/railway.worker.json` | No |
+| Backend | `/railway.backend.json` | Sí, consumido por Cloud Run |
 
 Variables de Backend:
 
@@ -69,7 +69,7 @@ STRIPE_WEBHOOK_SECRET=${{STRIPE_WEBHOOK_SECRET}}
 EMAIL_PROVIDER=webhook
 EMAIL_WEBHOOK_URL=${{EMAIL_WEBHOOK_URL}}
 EMAIL_WEBHOOK_TOKEN=${{EMAIL_WEBHOOK_TOKEN}}
-DATABASE_URL=${{Postgres.DATABASE_URL}}
+DATABASE_URL=<cadena de conexión de Supabase almacenada como secreto>
 SESSION_COOKIE_NAME=movendi_go_session
 SESSION_TTL_HOURS=12
 LOGIN_RATE_MAX_ATTEMPTS=5
@@ -77,13 +77,7 @@ LOGIN_RATE_WINDOW_MINUTES=15
 LOGIN_RATE_BLOCK_MINUTES=15
 SLOW_WORKSPACE_MS=500
 JOB_RUNNER_SECRET=una-clave-aleatoria-de-32-o-mas-caracteres
-OBJECT_STORAGE_PROVIDER=s3
-S3_BUCKET=${{Files.BUCKET}}
-S3_REGION=${{Files.REGION}}
-S3_ENDPOINT=${{Files.ENDPOINT}}
-S3_ACCESS_KEY_ID=${{Files.ACCESS_KEY_ID}}
-S3_SECRET_ACCESS_KEY=${{Files.SECRET_ACCESS_KEY}}
-S3_FORCE_PATH_STYLE=false
+OBJECT_STORAGE_PROVIDER=local-o-proveedor-externo-configurado
 SIGNED_URL_TTL_SECONDS=300
 DOCUMENT_MAX_MB=10
 BOOTSTRAP_TENANT_SLUG=mi-empresa
@@ -97,30 +91,16 @@ BOOTSTRAP_ADMIN_PASSWORD=una-clave-unica-de-12-o-mas-caracteres
 
 `BOOTSTRAP_TENANT_TYPE` acepta `BARBERSHOP`, `RESTAURANT` o `TRANSPORT`.
 
-El ejemplo supone que el Bucket se llama `Files`. Usa `BUCKET`, no `RAILWAY_BUCKET_NAME`, porque Railway distingue el nombre visual del nombre S3 global. Los buckets son privados; la API comprueba sesión, tenant y permiso antes de emitir una URL prefirmada corta. Si la pestaña Credentials indica URL estilo path para un bucket antiguo, configura `S3_FORCE_PATH_STYLE=true`.
-
-Variables de Frontend (si el servicio backend se llama `Backend`):
-
-```text
-PORT=8080
-API_INTERNAL_URL=http://${{Backend.RAILWAY_PRIVATE_DOMAIN}}:${{Backend.PORT}}
-```
-
-Usa `http` en la red privada de Railway. Publica solamente el dominio del Frontend. `railway.backend.json` sincroniza el esquema pre-deploy y comprueba `/api/ready`; el frontend comprueba `/api/frontend-health`, que a su vez valida al backend.
+`railway.backend.json` ejecuta las migraciones y comprueba `/api/ready`. En Cloud
+Run, `API_INTERNAL_URL` debe usar la URL HTTPS pública del backend de Railway.
+`APP_PUBLIC_URL` debe ser `https://web.movendi-go.com` para cookies, redirecciones
+y CORS coherentes.
 
 En Stripe registra el webhook público `https://DOMINIO_PUBLICO_DEL_FRONTEND/api/billing/webhooks/stripe`. El proxy del frontend conserva el cuerpo y la cabecera `stripe-signature` y los reenvía al backend privado. Suscribe `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated` y `customer.subscription.deleted`. `APP_PUBLIC_URL` debe ser el dominio HTTPS exacto del frontend. Nunca habilites `ALLOW_MOCK_BILLING` ni `ALLOW_LOG_EMAIL` en producción.
 
-Variables de `TransportWorker` (si el servicio backend se llama `Backend`):
-
-```text
-JOB_RUNNER_API_URL=http://${{Backend.RAILWAY_PRIVATE_DOMAIN}}:${{Backend.PORT}}
-JOB_RUNNER_SECRET=${{Backend.JOB_RUNNER_SECRET}}
-JOB_POLL_MS=2000
-```
-
-El worker usa la misma imagen del backend, no abre un puerto y procesa la cola durable mediante un endpoint protegido. La clave debe ser idéntica en Backend y Worker y no debe llegar al frontend.
-
-Activa los backups automáticos de PostgreSQL en Railway y realiza una restauración de prueba antes de incorporar clientes. Las respuestas de workspace exponen `Server-Timing`; envía los eventos `slow_workspace` y los errores del contenedor al sistema de logs/alertas del proyecto.
+Configura backups y recuperación a un punto en el tiempo en Supabase. Las
+respuestas del backend exponen `Server-Timing`; envía los eventos
+`slow_workspace` y los errores del contenedor a observabilidad.
 
 Tras el primer despliegue, ejecuta una sola vez en el servicio Backend:
 
@@ -130,7 +110,7 @@ railway run npm run db:bootstrap:prod
 
 No configures el seed demo como pre-deploy.
 
-Referencias oficiales: [monorepos](https://docs.railway.com/deployments/monorepo), [Config as Code](https://docs.railway.com/config-as-code), [red privada](https://docs.railway.com/networking/private-networking) y [Storage Buckets S3 compatibles](https://docs.railway.com/storage-buckets).
+Referencias oficiales: [monorepos](https://docs.railway.com/deployments/monorepo), [Config as Code](https://docs.railway.com/config-as-code) y [Supabase Database](https://supabase.com/docs/guides/database/overview).
 
 ## Google Cloud Run + Cloud SQL PostgreSQL
 
