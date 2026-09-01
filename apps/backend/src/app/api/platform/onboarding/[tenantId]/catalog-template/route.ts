@@ -13,7 +13,7 @@ export async function GET(_request: Request, context: Context) {
     const { tenantId } = await context.params;
     const source = await loadRestaurantCatalogWorkbookContext(tenantId);
     const workbook = await buildRestaurantCatalogWorkbook(source);
-    const filename = `movendi-carta-${source.tenantSlug}.xlsx`;
+    const filename = `movendi-restaurante-${source.tenantSlug}.xlsx`;
     return new Response(workbook, { headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": `attachment; filename="${filename}"`, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
   } catch (error) { return errorResponse(error); }
 }

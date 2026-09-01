@@ -9,6 +9,7 @@ import type { AuthSession } from "@/core/auth/types";
 import { defaultTransportConfiguration, saveTransportConfigurationSection, type TransportConfigurationSection } from "@/modules/transport/server/configuration";
 import { defaultRestaurantConfiguration, saveRestaurantConfigurationSection, type RestaurantConfigurationSection } from "@/modules/restaurant/server/configuration";
 import { getRestaurantReadiness } from "@/modules/restaurant/server/readiness";
+import { persistRestaurantControlMasterData, persistRestaurantSalesMasterData } from "./restaurant-master-data";
 import { detectRestaurantAreas, normalizeRestaurantArea, normalizeRestaurantCatalogLabel, type DetectedRestaurantArea } from "@movendi/contracts";
 import { existingPreparationAreasByKey, reconcilePreparationAreas, type PreparationAreaInput } from "@/modules/restaurant/server/areas";
 
@@ -36,6 +37,7 @@ const catalogStep = z.object({
   products: z.array(z.object({ name: text.min(2).max(140), category: text.min(2).max(100), description: z.string().trim().max(400).optional().default(""), price: z.coerce.number().min(0).max(100000), cost: z.coerce.number().min(0).max(100000).default(0), preparationArea: text.optional().default("") })).max(500).default([]),
   addons: z.array(z.object({ name: text.min(2).max(140), price: z.coerce.number().min(0).max(100000), cost: z.coerce.number().min(0).max(100000).default(0), preparationArea: text.optional().default(""), areaAssignmentMode: z.enum(["INHERIT_FROM_PRODUCT", "SPECIFIC_AREA"]).default("INHERIT_FROM_PRODUCT") })).max(200).default([]),
   services: z.array(z.object({ name: text.min(2).max(120), category: text.optional().default(""), durationMinutes: z.coerce.number().int().min(5).max(720), price: z.coerce.number().positive().max(100000) })).max(300).default([]),
+  masterData: z.unknown().optional(), importedUsers: z.unknown().optional(), importedZones: z.unknown().optional(),
   ...draftField,
 });
 const teamStep = z.object({
@@ -51,7 +53,7 @@ const preparationAreaInput = z.union([
 const operationsStep = z.object({ step: z.literal("OPERATIONS"), preparationAreas: z.array(preparationAreaInput).max(30).default([]), paymentMethods: z.array(z.enum(["CASH", "CARD", "TRANSFER", "YAPE", "PLIN", "OTHER"])).min(1), hours: z.array(z.object({ weekday: z.number().int().min(0).max(6), open: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), close: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), closed: z.boolean() })).length(7), ...draftField });
 const tablesStep = z.object({ step: z.literal("TABLES"), skip: z.boolean().optional().default(false), zones: z.array(z.object({ name: text.min(2).max(80), prefix: text.min(1).max(20), count: z.coerce.number().int().min(1).max(200), seats: z.coerce.number().int().min(1).max(50) })).max(20).default([]), ...draftField });
 const printingStep = z.object({ step: z.literal("PRINTING"), skip: z.boolean().optional().default(false), mode: z.enum(["SIMPLE", "ADVANCED"]).default("SIMPLE"), automatic: z.boolean().default(true), areaDestinations: z.array(z.object({ areaName: text.min(2).max(80), dispatchMode: z.enum(["KDS", "PRINTER", "NONE"]) })).max(30).default([]), printers: z.array(z.object({ name: text.min(2).max(100), connectionType: z.enum(["BROWSER", "LOCAL_AGENT"]), paperWidthMm: z.union([z.literal(58), z.literal(80)]), copies: z.coerce.number().int().min(1).max(5), areas: z.array(text.min(2).max(80)).max(30) })).max(20).default([]), ...draftField });
-const transportStep = <TStep extends Exclude<StepKey, "BUSINESS" | "MODULES" | "CATALOG" | "TEAM" | "OPERATIONS" | "TABLES" | "PRINTING" | "REVIEW">>(step: TStep) => z.object({ step: z.literal(step), sections: z.record(z.string(), z.unknown()), ...draftField });
+const transportStep = <TStep extends Exclude<StepKey, "BUSINESS" | "MODULES" | "CATALOG" | "TEAM" | "OPERATIONS" | "TABLES" | "PRINTING" | "REVIEW">>(step: TStep) => z.object({ step: z.literal(step), sections: z.record(z.string(), z.unknown()), masterData: z.unknown().optional(), ...draftField });
 const restaurantOperationStep = transportStep("RESTAURANT_OPERATION");
 const restaurantKitchenStep = transportStep("RESTAURANT_KITCHEN");
 const restaurantSalesStep = transportStep("RESTAURANT_SALES");
@@ -300,7 +302,7 @@ export async function saveBusinessSetupStep(tenantId: string, raw: unknown, sess
     await markStep(tenantId, input.step, tenant.type === "RESTAURANT" ? "CATALOG" : "REVIEW", session, { ...input, unresolved });
   } else if (input.step.startsWith("RESTAURANT_")) {
     if (tenant.type !== "RESTAURANT") throw new AppError("INVALID_SETUP_STEP", 400, "Este paso solo corresponde a restaurantes.");
-    const restaurantInput = input as { step: string; sections: Record<string, unknown> };
+    const restaurantInput = input as { step: string; sections: Record<string, unknown>; masterData?: unknown };
     const routing: Record<string, { sections: RestaurantConfigurationSection[]; next: StepKey }> = {
       RESTAURANT_OPERATION: { sections: ["general", "orders", "delivery"], next: "OPERATIONS" },
       RESTAURANT_KITCHEN: { sections: ["kitchen"], next: "RESTAURANT_SALES" },
@@ -314,6 +316,8 @@ export async function saveBusinessSetupStep(tenantId: string, raw: unknown, sess
       if (!(section in restaurantInput.sections)) throw new AppError("VALIDATION_ERROR", 400, `Falta la configuración ${section}.`);
       await saveRestaurantConfigurationSection(tenantId, section, restaurantInput.sections[section], { tenantId, branchId: branch.id, actorId: session.userId, permissions: session.permissions });
     }
+    if (restaurantInput.step === "RESTAURANT_SALES" && restaurantInput.masterData) await persistRestaurantSalesMasterData(tenantId, branch.id, restaurantInput.masterData);
+    if (restaurantInput.step === "RESTAURANT_CONTROL" && restaurantInput.masterData) await persistRestaurantControlMasterData(tenantId, branch.id, session.userId, restaurantInput.masterData);
     await markStep(tenantId, input.step, route.next, session, input);
   } else if (input.step.startsWith("TRANSPORT_")) {
     if (tenant.type !== "TRANSPORT") throw new AppError("INVALID_SETUP_STEP", 400, "Este paso solo corresponde a empresas de Transporte.");

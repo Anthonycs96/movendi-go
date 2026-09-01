@@ -13,12 +13,18 @@ type BusinessType = PlatformBusinessView["type"];
 type StepKey = "BUSINESS" | "MODULES" | "CATALOG" | "TEAM" | "OPERATIONS" | "TABLES" | "PRINTING" | "RESTAURANT_OPERATION" | "RESTAURANT_KITCHEN" | "RESTAURANT_SALES" | "RESTAURANT_CONTROL" | "RESTAURANT_INTEGRATIONS" | "TRANSPORT_OPERATION" | "TRANSPORT_CUSTOMERS" | "TRANSPORT_FLEET" | "TRANSPORT_DRIVERS" | "TRANSPORT_RULES" | "TRANSPORT_FINANCE" | "TRANSPORT_MAINTENANCE" | "TRANSPORT_SAFETY" | "TRANSPORT_INTEGRATIONS" | "REVIEW";
 type LocalBusiness = Pick<PlatformBusinessView, "id" | "slug" | "name" | "shortName" | "type" | "country" | "currency" | "timezone" | "email" | "phone" | "address" | "branchName" | "enabledModules" | "setup">;
 type GeneralDraft = { name: string; shortName: string; branchName: string; email: string; phone: string; address: string; country: string; currency: string; timezone: string };
-type CatalogDraft = { skip: boolean; categories: Array<{ name: string; preparationArea: string }>; products: Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>; addons: Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>; services: Array<{ name: string; category: string; durationMinutes: number; price: number }> };
+type CatalogDraft = { skip: boolean; categories: Array<{ name: string; preparationArea: string }>; products: Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>; addons: Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>; services: Array<{ name: string; category: string; durationMinutes: number; price: number }>; masterData?: RestaurantMasterData; importedUsers?: TeamDraft["users"]; importedZones?: TablesDraft["zones"] };
 type TeamDraft = { roles: Array<{ key: string; name: string; permissions: string[] }>; users: Array<{ name: string; email: string; roleKey: string; password: string }> };
 type PreparationAreaDraft = { name: string; normalizedKey: string; type: string; source: string; dispatchMode: RestaurantAreaDispatchMode; enabled: boolean };
 type OperationsDraft = { preparationAreas: Array<string | PreparationAreaDraft>; paymentMethods: string[]; hours: Array<{ weekday: number; open: string; close: string; closed: boolean }> };
 type TablesDraft = { skip: boolean; zones: Array<{ name: string; prefix: string; count: number; seats: number }> };
 type PrintingDraft = { skip: boolean; mode: "SIMPLE" | "ADVANCED"; automatic: boolean; areaDestinations: Array<{ areaName: string; dispatchMode: RestaurantAreaDispatchMode }>; printers: Array<{ name: string; connectionType: "LOCAL_AGENT" | "BROWSER"; paperWidthMm: 58 | 80; copies: number; areas: string[] }> };
+type RestaurantMasterData = {
+  customers: Array<{ name: string; documentType: string; documentNumber: string; segment: string; phone: string; email: string; notes: string }>;
+  inventoryItems: Array<{ sku: string; barcode: string; name: string; kind: string; unit: string; openingStock: number; minimumStock: number; unitCost: number; trackStock: boolean; notes: string }>;
+  recipes: Array<{ product: string; yieldQuantity: number; ingredientSku: string; quantity: number; wastePercent: number }>;
+  promotions: Array<{ name: string; code: string; kind: string; value: number; buyQuantity: number; freeQuantity: number; scope: string; target: string; minSubtotal: number; maxDiscount: number; automatic: boolean; weekdays: string; startTime: string; endTime: string }>;
+};
 
 function preparationAreaDraft(value: string | PreparationAreaDraft): PreparationAreaDraft | null {
   if (typeof value !== "string") return value;
@@ -202,6 +208,8 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
   const operationsDraft = savedStep<OperationsDraft>(business, "OPERATIONS");
   const tablesDraft = savedStep<TablesDraft>(business, "TABLES");
   const printingDraft = savedStep<PrintingDraft>(business, "PRINTING");
+  const restaurantSalesDraft = savedStep<{ masterData?: Pick<RestaurantMasterData, "promotions"> }>(business, "RESTAURANT_SALES");
+  const restaurantControlDraft = savedStep<{ masterData?: Pick<RestaurantMasterData, "customers" | "inventoryItems" | "recipes"> }>(business, "RESTAURANT_CONTROL");
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -225,7 +233,7 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
   const [addons, setAddons] = useState(catalogDraft.addons?.length ? catalogDraft.addons.map((addon) => ({ ...addon, areaAssignmentMode: addon.areaAssignmentMode ?? "INHERIT_FROM_PRODUCT" as RestaurantAreaAssignmentMode })) : []);
   const [services, setServices] = useState(catalogDraft.services?.length ? catalogDraft.services : [{ name: "", category: "", durationMinutes: 30, price: 0 }]);
   const [skipCatalog, setSkipCatalog] = useState(catalogDraft.skip ?? false);
-  const [users, setUsers] = useState(teamDraft.users?.length ? teamDraft.users.map((user) => ({ ...user, password: "" })) : [{ name: "", email: "", roleKey: rolesByType[defaultType][0].key, password: "" }]);
+  const [users, setUsers] = useState(teamDraft.users?.length ? teamDraft.users.map((user) => ({ ...user, password: "" })) : catalogDraft.importedUsers?.length ? catalogDraft.importedUsers.map((user) => ({ ...user, password: "" })) : [{ name: "", email: "", roleKey: rolesByType[defaultType][0].key, password: "" }]);
   const [transportRoles, setTransportRoles] = useState(teamDraft.roles?.length ? teamDraft.roles : defaultTransportRoles);
   const [restaurantRoles, setRestaurantRoles] = useState(teamDraft.roles?.length ? teamDraft.roles : defaultRestaurantRoles);
   const [restaurantConfiguration, setRestaurantConfiguration] = useState<RestaurantConfiguration>(() => {
@@ -243,13 +251,14 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
   });
   const [paymentMethods, setPaymentMethods] = useState(operationsDraft.paymentMethods?.length ? operationsDraft.paymentMethods : ["CASH", "CARD", "YAPE", "PLIN"]);
   const [hours, setHours] = useState(operationsDraft.hours?.length === 7 ? operationsDraft.hours : weekdayNames.map((_, weekday) => ({ weekday, open: "09:00", close: "22:00", closed: false })));
-  const [zones, setZones] = useState(tablesDraft.zones?.length ? tablesDraft.zones : [{ name: "Salón principal", prefix: "Mesa", count: 10, seats: 4 }]);
+  const [zones, setZones] = useState(tablesDraft.zones?.length ? tablesDraft.zones : catalogDraft.importedZones?.length ? catalogDraft.importedZones : [{ name: "Salón principal", prefix: "Mesa", count: 10, seats: 4 }]);
   const [skipTables, setSkipTables] = useState(tablesDraft.skip ?? false);
   const [skipPrinting, setSkipPrinting] = useState(printingDraft.skip ?? false);
   const [printMode, setPrintMode] = useState<"SIMPLE" | "ADVANCED">(printingDraft.mode ?? "SIMPLE");
   const [automaticPrint, setAutomaticPrint] = useState(printingDraft.automatic ?? true);
   const [areaDestinations, setAreaDestinations] = useState<Array<{ areaName: string; dispatchMode: RestaurantAreaDispatchMode }>>(printingDraft.areaDestinations ?? []);
   const [printers, setPrinters] = useState(printingDraft.printers?.length ? printingDraft.printers : [{ name: "Impresora principal", connectionType: "LOCAL_AGENT" as "LOCAL_AGENT" | "BROWSER", paperWidthMm: 80 as 58 | 80, copies: 1, areas: [] }]);
+  const [restaurantMasterData, setRestaurantMasterData] = useState<RestaurantMasterData>({ customers: restaurantControlDraft.masterData?.customers ?? catalogDraft.masterData?.customers ?? [], inventoryItems: restaurantControlDraft.masterData?.inventoryItems ?? catalogDraft.masterData?.inventoryItems ?? [], recipes: restaurantControlDraft.masterData?.recipes ?? catalogDraft.masterData?.recipes ?? [], promotions: restaurantSalesDraft.masterData?.promotions ?? catalogDraft.masterData?.promotions ?? [] });
   const type = current?.type ?? create.type;
   const detectedAreas = useMemo(() => detectRestaurantAreas([
     ...categories.map((item) => item.preparationArea),
@@ -324,7 +333,7 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
   function payloadFor(step: StepKey, preserveIncomplete = false) {
     if (step === "BUSINESS") return { step, ...general };
     if (step === "MODULES") return { step, enabledModules };
-    if (step === "CATALOG") return { step, skip: skipCatalog, categories: preserveIncomplete ? categories : categories.filter((item) => item.name.trim()), products: preserveIncomplete ? products : products.filter((item) => item.name.trim() && item.category.trim()), addons: preserveIncomplete ? addons : addons.filter((item) => item.name.trim()), services: preserveIncomplete ? services : services.filter((item) => item.name.trim() && item.price >= 0) };
+    if (step === "CATALOG") return { step, skip: skipCatalog, categories: preserveIncomplete ? categories : categories.filter((item) => item.name.trim()), products: preserveIncomplete ? products : products.filter((item) => item.name.trim() && item.category.trim()), addons: preserveIncomplete ? addons : addons.filter((item) => item.name.trim()), services: preserveIncomplete ? services : services.filter((item) => item.name.trim() && item.price >= 0), ...(type === "RESTAURANT" ? { masterData: restaurantMasterData, importedUsers: users.filter((item) => item.name.trim() && item.email.trim()).map((item) => ({ name: item.name, email: item.email, roleKey: item.roleKey })), importedZones: zones.filter((item) => item.name.trim() && item.prefix.trim()) } : {}) };
     if (step === "TEAM") return { step, roles: type === "TRANSPORT" ? transportRoles.filter((role) => role.key.trim() && role.name.trim() && role.permissions.length) : type === "RESTAURANT" ? restaurantRoles.filter((role) => role.key.trim() && role.name.trim() && role.permissions.length) : [], users: preserveIncomplete ? users : users.filter((item) => item.name.trim() && item.email.trim()) };
     if (step === "OPERATIONS") {
       const normalizedAreas = new Map<string, PreparationAreaDraft>();
@@ -338,8 +347,8 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
     if (step === "PRINTING") return { step, skip: skipPrinting, mode: printMode, automatic: automaticPrint, areaDestinations, printers: preserveIncomplete ? printers : printers.filter((item) => item.name.trim()) };
     if (step === "RESTAURANT_OPERATION") return { step, sections: { general: restaurantConfiguration.general, orders: restaurantConfiguration.orders, delivery: restaurantConfiguration.delivery } };
     if (step === "RESTAURANT_KITCHEN") return { step, sections: { kitchen: restaurantConfiguration.kitchen } };
-    if (step === "RESTAURANT_SALES") return { step, sections: { sales: restaurantConfiguration.sales, promotions: restaurantConfiguration.promotions } };
-    if (step === "RESTAURANT_CONTROL") return { step, sections: { floor: restaurantConfiguration.floor, menu: restaurantConfiguration.menu, customers: restaurantConfiguration.customers, inventory: restaurantConfiguration.inventory, notifications: restaurantConfiguration.notifications, reports: restaurantConfiguration.reports } };
+    if (step === "RESTAURANT_SALES") return { step, sections: { sales: restaurantConfiguration.sales, promotions: restaurantConfiguration.promotions }, masterData: { promotions: restaurantMasterData.promotions } };
+    if (step === "RESTAURANT_CONTROL") return { step, sections: { floor: restaurantConfiguration.floor, menu: restaurantConfiguration.menu, customers: restaurantConfiguration.customers, inventory: restaurantConfiguration.inventory, notifications: restaurantConfiguration.notifications, reports: restaurantConfiguration.reports }, masterData: { customers: restaurantMasterData.customers, inventoryItems: restaurantMasterData.inventoryItems, recipes: restaurantMasterData.recipes } };
     if (step === "RESTAURANT_INTEGRATIONS") return { step, sections: { integrations: restaurantConfiguration.integrations } };
     if (step === "TRANSPORT_OPERATION") return { step, sections: { general: transportConfiguration.general, operations: transportConfiguration.operations } };
     if (step === "TRANSPORT_CUSTOMERS") return { step, sections: { customers: transportConfiguration.customers } };
@@ -419,13 +428,13 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
           <header><div><span className="section-kicker">PASO {visibleSteps.findIndex((item) => item.key === activeStep) + 1} DE {visibleSteps.length}</span><h3>{visibleSteps.find((item) => item.key === activeStep)?.label}</h3></div>{completed.includes(activeStep) ? <StatusBadge tone="success" dot>Completo</StatusBadge> : <StatusBadge tone="warning" dot>Pendiente</StatusBadge>}</header>
           {activeStep === "BUSINESS" ? <div className="form-grid"><Field label="Nombre comercial"><Input value={general.name} onChange={(event) => setGeneral((state) => ({ ...state, name: event.target.value }))} /></Field><Field label="Nombre corto"><Input value={general.shortName} onChange={(event) => setGeneral((state) => ({ ...state, shortName: event.target.value }))} /></Field><Field label="Sede principal"><Input value={general.branchName} onChange={(event) => setGeneral((state) => ({ ...state, branchName: event.target.value }))} /></Field><Field label="Correo comercial"><Input type="email" value={general.email} onChange={(event) => setGeneral((state) => ({ ...state, email: event.target.value }))} /></Field><Field label="Teléfono"><Input value={general.phone} onChange={(event) => setGeneral((state) => ({ ...state, phone: event.target.value }))} /></Field><Field label="Dirección"><Input value={general.address} onChange={(event) => setGeneral((state) => ({ ...state, address: event.target.value }))} /></Field><Field label="Moneda"><Select value={general.currency} onChange={(event) => setGeneral((state) => ({ ...state, currency: event.target.value }))}><option value="PEN">Sol peruano</option><option value="USD">Dólar</option><option value="COP">Peso colombiano</option><option value="MXN">Peso mexicano</option></Select></Field><Field label="Zona horaria"><Input value={general.timezone} onChange={(event) => setGeneral((state) => ({ ...state, timezone: event.target.value }))} /></Field></div> : null}
           {activeStep === "MODULES" ? <div className="setup-module-grid">{modulesByType[type].map((module) => <label key={module.key} className={enabledModules.includes(module.key) ? "selected" : ""}><input type="checkbox" checked={enabledModules.includes(module.key)} disabled={module.required} onChange={(event) => setEnabledModules((values) => event.target.checked ? [...new Set([...values, module.key])] : values.filter((item) => item !== module.key))} /><span>{enabledModules.includes(module.key) ? <CheckCircle2 size={18} /> : <Circle size={18} />}<strong>{module.label}</strong>{module.required ? <small>Esencial</small> : null}</span></label>)}</div> : null}
-          {activeStep === "CATALOG" ? <CatalogStep tenantId={current?.id ?? null} type={type} skip={skipCatalog} setSkip={setSkipCatalog} categories={categories} setCategories={setCategories} products={products} setProducts={setProducts} addons={addons} setAddons={setAddons} services={services} setServices={setServices} areas={enabledPreparationAreas} /> : null}
+          {activeStep === "CATALOG" ? <CatalogStep tenantId={current?.id ?? null} type={type} skip={skipCatalog} setSkip={setSkipCatalog} categories={categories} setCategories={setCategories} products={products} setProducts={setProducts} addons={addons} setAddons={setAddons} services={services} setServices={setServices} areas={enabledPreparationAreas} setUsers={setUsers} setZones={setZones} setMasterData={setRestaurantMasterData} /> : null}
           {activeStep === "TEAM" ? <TeamStep type={type} users={users} setUsers={setUsers} transportRoles={transportRoles} setTransportRoles={setTransportRoles} restaurantRoles={restaurantRoles} setRestaurantRoles={setRestaurantRoles} detectedAreas={detectedAreas} /> : null}
           {activeStep === "OPERATIONS" ? <OperationsStep type={type} areas={preparationAreas} setAreas={setPreparationAreas} methods={paymentMethods} setMethods={setPaymentMethods} hours={hours} setHours={setHours} /> : null}
           {activeStep === "TABLES" ? <TablesStep skip={skipTables} setSkip={setSkipTables} zones={zones} setZones={setZones} /> : null}
           {activeStep === "PRINTING" ? <PrintingStep skip={skipPrinting} setSkip={setSkipPrinting} mode={printMode} setMode={setPrintMode} automatic={automaticPrint} setAutomatic={setAutomaticPrint} printers={printers} setPrinters={setPrinters} areas={preparationAreas.filter((area) => area.enabled).map((area) => area.name)} areaDestinations={areaDestinations} setAreaDestinations={setAreaDestinations} /> : null}
           {activeStep.startsWith("TRANSPORT_") ? <TransportWizardStep step={activeStep} configuration={transportConfiguration} setConfiguration={setTransportConfiguration} /> : null}
-          {activeStep.startsWith("RESTAURANT_") ? <RestaurantWizardStep step={activeStep as RestaurantSetupStep} configuration={restaurantConfiguration} setConfiguration={setRestaurantConfiguration} roleKeys={restaurantRoles.map((role) => role.key)} /> : null}
+          {activeStep.startsWith("RESTAURANT_") ? <><RestaurantMasterSummary step={activeStep} data={restaurantMasterData} /><RestaurantWizardStep step={activeStep as RestaurantSetupStep} configuration={restaurantConfiguration} setConfiguration={setRestaurantConfiguration} roleKeys={restaurantRoles.map((role) => role.key)} /></> : null}
           {activeStep === "REVIEW" ? <div className="setup-review"><Rocket size={36} /><h3>{progress === 100 && !reviewIssues.length ? "Todo está configurado" : "Revisa los puntos pendientes"}</h3><p>La validación confirma dependencias reales, no solo que se haya visitado cada paso.</p>{reviewIssues.length ? <section className="setup-review-issues" aria-label="Bloqueos operativos">{reviewIssues.map((issue) => <span key={issue}><Circle size={15} /><strong>{issue}</strong></span>)}</section> : null}<div>{visibleSteps.filter((item) => item.key !== "REVIEW").map((step) => <span key={step.key}>{completed.includes(step.key) ? <CheckCircle2 size={17} /> : <Circle size={17} />}<strong>{step.label}</strong><small>{completed.includes(step.key) ? "Completo" : "Pendiente"}</small></span>)}</div></div> : null}
           {secrets.length ? <div className="setup-secrets"><strong>Guarda estas credenciales ahora</strong><small>Las claves y tokens se muestran una sola vez.</small>{secrets.map((item, index) => <span key={`${item.label}-${index}`}><div><b>{item.label}</b><code>{item.value}</code></div><button type="button" onClick={() => copy(item.value)} aria-label={`Copiar ${item.label}`}><Copy size={15} /></button></span>)}</div> : null}
           {stepValidation ? <p className="setup-validation" role="alert">{stepValidation}</p> : null}
@@ -438,7 +447,14 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
 }
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
-function CatalogStep({ tenantId, type, skip, setSkip, categories, setCategories, products, setProducts, addons, setAddons, services, setServices, areas }: { tenantId: string | null; type: BusinessType; skip: boolean; setSkip: (value: boolean) => void; categories: Array<{ name: string; preparationArea: string }>; setCategories: Setter<Array<{ name: string; preparationArea: string }>>; products: Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>; setProducts: Setter<Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>>; addons: Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>; setAddons: Setter<Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>>; services: Array<{ name: string; category: string; durationMinutes: number; price: number }>; setServices: Setter<Array<{ name: string; category: string; durationMinutes: number; price: number }>>; areas: PreparationAreaDraft[] }) {
+function RestaurantMasterSummary({ step, data }: { step: StepKey; data: RestaurantMasterData }) {
+  if (step !== "RESTAURANT_SALES" && step !== "RESTAURANT_CONTROL") return null;
+  const items = step === "RESTAURANT_SALES" ? [{ label: "promociones", value: data.promotions.length }] : [{ label: "clientes", value: data.customers.length }, { label: "insumos", value: data.inventoryItems.length }, { label: "líneas de receta", value: data.recipes.length }];
+  if (!items.some((item) => item.value)) return null;
+  return <section className="setup-catalog-foundation" aria-label="Datos preparados con Excel"><strong>Datos preparados con la plantilla maestra</strong><small>Se validaron en el paso Carta y se guardarán al confirmar este paso. Puedes volver a Carta para reemplazar la carga.</small><div>{items.map((item) => <span key={item.label}>{item.value} {item.label}</span>)}</div></section>;
+}
+
+function CatalogStep({ tenantId, type, skip, setSkip, categories, setCategories, products, setProducts, addons, setAddons, services, setServices, areas, setUsers, setZones, setMasterData }: { tenantId: string | null; type: BusinessType; skip: boolean; setSkip: (value: boolean) => void; categories: Array<{ name: string; preparationArea: string }>; setCategories: Setter<Array<{ name: string; preparationArea: string }>>; products: Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>; setProducts: Setter<Array<{ name: string; category: string; description: string; price: number; cost: number; preparationArea: string }>>; addons: Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>; setAddons: Setter<Array<{ name: string; price: number; cost: number; preparationArea: string; areaAssignmentMode: RestaurantAreaAssignmentMode }>>; services: Array<{ name: string; category: string; durationMinutes: number; price: number }>; setServices: Setter<Array<{ name: string; category: string; durationMinutes: number; price: number }>>; areas: PreparationAreaDraft[]; setUsers: Setter<Array<{ name: string; email: string; roleKey: string; password: string }>>; setZones: Setter<Array<{ name: string; prefix: string; count: number; seats: number }>>; setMasterData: Setter<RestaurantMasterData> }) {
   const excelInput = useRef<HTMLInputElement>(null);
   const [excelPending, setExcelPending] = useState<"download" | "upload" | null>(null);
   const [excelMessage, setExcelMessage] = useState("");
@@ -466,8 +482,8 @@ function CatalogStep({ tenantId, type, skip, setSkip, categories, setCategories,
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = url; link.download = `movendi-carta-${tenantId.slice(0, 8)}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
-      setExcelMessage("Plantilla descargada con las áreas y datos actuales del restaurante.");
+      link.href = url; link.download = `movendi-restaurante-${tenantId.slice(0, 8)}.xlsx`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+      setExcelMessage("Plantilla maestra descargada con las áreas, listas y datos actuales del restaurante.");
     } catch (reason) { setExcelMessage(reason instanceof Error ? reason.message : "No pudimos descargar la plantilla."); }
     finally { setExcelPending(null); }
   };
@@ -483,15 +499,20 @@ function CatalogStep({ tenantId, type, skip, setSkip, categories, setCategories,
       setExcelIssues(issues);
       if (!result.valid) { setExcelMessage(result.message ?? "Corrige los errores del archivo."); return; }
       setCategories(result.catalog.categories); setProducts(result.catalog.products); setAddons(result.catalog.addons); setSkip(false);
-      setExcelMessage(`${result.summary.categories} categorías, ${result.summary.products} productos y ${result.summary.addons} adicionales cargados. Revisa y guarda para confirmar.`);
+      if (result.masterData) {
+        if (result.masterData.users?.length) setUsers(result.masterData.users.map((item: { name: string; email: string; roleKey: string }) => ({ ...item, password: "" })));
+        if (result.masterData.zones?.length) setZones(result.masterData.zones);
+        setMasterData({ customers: result.masterData.customers ?? [], inventoryItems: result.masterData.inventoryItems ?? [], recipes: result.masterData.recipes ?? [], promotions: result.masterData.promotions ?? [] });
+      }
+      setExcelMessage(`${result.summary.categories} categorías, ${result.summary.products} productos, ${result.summary.users ?? 0} usuarios, ${result.summary.zones ?? 0} zonas, ${result.summary.customers ?? 0} clientes, ${result.summary.inventoryItems ?? 0} insumos, ${result.summary.recipes ?? 0} líneas de receta y ${result.summary.promotions ?? 0} promociones preparados. Revisa cada paso y guarda para confirmar.`);
     } catch (reason) { setExcelMessage(reason instanceof Error ? reason.message : "No pudimos subir la plantilla."); }
     finally { setExcelPending(null); if (excelInput.current) excelInput.current.value = ""; }
   };
   return <div className="setup-stack">
     <label className="platform-check"><input type="checkbox" checked={skip} onChange={(event) => setSkip(event.target.checked)} /><span><strong>Completar esta información después</strong><small>El progreso quedará guardado como paso omitido.</small></span></label>
     {!skip && type === "RESTAURANT" ? <>
-      <section className="setup-excel-import" aria-label="Carga rápida con Excel">
-        <div><FileSpreadsheet size={22} /><span><strong>Carga rápida con Excel</strong><small>Descarga la plantilla conectada a tus áreas, complétala y vuelve a subirla. Los datos válidos aparecerán aquí antes de guardar.</small></span></div>
+      <section className="setup-excel-import" aria-label="Carga maestra con Excel">
+        <div><FileSpreadsheet size={22} /><span><strong>Plantilla maestra del restaurante</strong><small>Carga carta, equipo, salón, clientes, inventario, recetas y promociones en un solo archivo conectado. Los datos válidos aparecerán en sus pasos antes de guardar.</small></span></div>
         <div><Button type="button" variant="secondary" loading={excelPending === "download"} disabled={!tenantId || Boolean(excelPending)} onClick={() => void downloadExcel()}><Download size={15} />Descargar plantilla</Button><Button type="button" disabled={!tenantId || Boolean(excelPending)} loading={excelPending === "upload"} onClick={() => excelInput.current?.click()}><Upload size={15} />Subir Excel</Button><input ref={excelInput} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadExcel(file); }} /></div>
         {excelMessage ? <p>{excelMessage}</p> : null}
         {excelIssues.length ? <ul>{excelIssues.slice(0, 12).map((issue, index) => <li className={issue.severity === "ERROR" ? "error" : "warning"} key={`${issue.sheet}-${issue.row}-${issue.column}-${index}`}><b>{issue.sheet} {issue.column}{issue.row}</b><span>{issue.message}</span></li>)}</ul> : null}
