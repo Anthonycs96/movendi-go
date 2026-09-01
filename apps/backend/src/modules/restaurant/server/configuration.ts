@@ -40,8 +40,15 @@ export const defaultRestaurantConfiguration: RestaurantConfiguration = {
 };
 
 const catalogOptionSchema = z.object({ key: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]+$/).min(1).max(60), label: z.string().trim().min(1).max(100), active: z.boolean() });
-const catalog = z.array(catalogOptionSchema).min(1).max(100);
-const statusCatalog = z.array(catalogOptionSchema.extend({ terminal: z.boolean(), allowedNext: z.array(z.string().trim().toUpperCase().max(60)).max(30) })).min(1).max(50);
+const uniqueCodes = <T extends { key: string }>(items: T[], context: z.RefinementCtx) => {
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    if (seen.has(item.key)) context.addIssue({ code: z.ZodIssueCode.custom, message: `El código interno ${item.key} está repetido.`, path: [index, "key"] });
+    seen.add(item.key);
+  });
+};
+const catalog = z.array(catalogOptionSchema).min(1).max(100).superRefine(uniqueCodes);
+const statusCatalog = z.array(catalogOptionSchema.extend({ terminal: z.boolean(), allowedNext: z.array(z.string().trim().toUpperCase().max(60)).max(30) })).min(1).max(50).superRefine(uniqueCodes);
 const sectionSchemas = {
   general: z.object({ orderPrefix: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{1,10}$/), salePrefix: z.string().trim().toUpperCase().regex(/^[A-Z0-9-]{1,10}$/), taxIncluded: z.boolean(), taxRatePct: z.coerce.number().min(0).max(100), serviceChargePct: z.coerce.number().min(0).max(100), defaultLanguage: z.string().trim().min(2).max(20) }),
   orders: z.object({ sources: catalog, statuses: statusCatalog, cancellationReasons: catalog, requireCancellationReason: z.boolean(), allowItemNotes: z.boolean(), allowAddItemsAfterKitchen: z.boolean() }),
