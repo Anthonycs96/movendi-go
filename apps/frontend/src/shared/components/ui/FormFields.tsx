@@ -17,12 +17,14 @@ function optionText(value: ReactNode): string {
   return Children.toArray(value).map((item) => typeof item === "string" || typeof item === "number" ? String(item) : "").join(" ");
 }
 
-export function Select({ children, className, onChange, value, defaultValue, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & { searchable?: boolean };
+
+export function Select({ children, className, onChange, value, defaultValue, searchable = true, ...props }: SelectProps) {
   const options = useMemo(() => Children.toArray(children).filter((child): child is OptionElement => isValidElement(child) && child.type === "option"), [children]);
   const [query, setQuery] = useState("");
   const [internalValue, setInternalValue] = useState(() => String(defaultValue ?? ""));
 
-  if (options.length <= 10) return <select className={`input${className ? ` ${className}` : ""}`} value={value} defaultValue={defaultValue} onChange={onChange} {...props}>{children}</select>;
+  if (!searchable || options.length <= 10) return <select className={`input${className ? ` ${className}` : ""}`} value={value} defaultValue={defaultValue} onChange={onChange} {...props}>{children}</select>;
 
   const selectedValue = String(value ?? internalValue);
   const normalizedQuery = query.trim().toLocaleLowerCase("es");
