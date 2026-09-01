@@ -330,7 +330,7 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
       const normalizedAreas = new Map<string, PreparationAreaDraft>();
       for (const area of preparationAreas.filter((item) => item.name.trim())) {
         const normalized = normalizeRestaurantArea(area.name);
-        if (normalized) normalizedAreas.set(normalized.key, { ...area, name: normalized.name, normalizedKey: normalized.key, type: normalized.type });
+        if (normalized) normalizedAreas.set(normalized.key, { ...area, name: normalizeRestaurantCatalogLabel(area.name).name, normalizedKey: normalized.key, type: normalized.type });
       }
       return { step, preparationAreas: [...normalizedAreas.values()], paymentMethods, hours };
     }
@@ -519,7 +519,7 @@ function OperationsStep({ type, areas, setAreas, methods, setMethods, hours, set
     for (const item of items) {
       const normalized = normalizeRestaurantArea(item.name);
       if (!normalized) { invalid.push(item); continue; }
-      const canonical = { ...item, name: normalized.name, normalizedKey: normalized.key, type: normalized.type };
+      const canonical = { ...item, name: normalizeRestaurantCatalogLabel(item.name).name, normalizedKey: normalized.key, type: normalized.type };
       const previous = merged.get(normalized.key);
       merged.set(normalized.key, previous ? { ...previous, enabled: previous.enabled || canonical.enabled } : canonical);
     }
@@ -532,7 +532,7 @@ function OperationsStep({ type, areas, setAreas, methods, setMethods, hours, set
       <div>{areas.map((area, index) => <article key={index} className={area.enabled ? "selected" : ""}>
         <label className="platform-check"><input type="checkbox" checked={area.enabled} onChange={(event) => setAreas((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, enabled: event.target.checked } : item))} /><span><strong>Usar área</strong><small>{area.source === "TEMPLATE" ? "Incluida en plantilla" : "Configuración operativa"}</small></span></label>
         <Field label="Nombre operativo"><Input aria-label={`Nombre del área ${index + 1}`} placeholder="Ej. Cocina" value={area.name} onBlur={normalizeAndMergeAreas} onChange={(event) => { const normalized = normalizeRestaurantArea(event.target.value); setAreas((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value, normalizedKey: normalized?.key ?? "", type: normalized?.type ?? "CUSTOM" } : item)); }} /></Field>
-        <span><b>{normalizeRestaurantArea(area.name)?.name ?? "Sin nombre"}</b><small>{area.enabled ? "Disponible para seleccionar" : "No se utilizará"}</small></span>
+        <span><b>{normalizeRestaurantCatalogLabel(area.name).name || "Sin nombre"}</b><small>{area.enabled ? "Disponible para seleccionar" : "No se utilizará"}</small></span>
         <button type="button" className="remove-setup-row" onClick={() => setAreas((items) => items.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Eliminar área ${area.name || index + 1}`}><Trash2 size={15} /></button>
       </article>)}</div>
     </section> : null}
