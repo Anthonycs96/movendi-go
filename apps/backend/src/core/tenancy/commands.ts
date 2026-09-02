@@ -1,6 +1,8 @@
 import "server-only";
 import { hash } from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import { nextAutomaticRoleKey } from "@movendi/contracts";
 import { prisma } from "@/core/database/prisma";
 import { AppError } from "@/core/auth/errors";
 import type { TenantScope } from "@/core/auth/types";
@@ -8,7 +10,7 @@ import { audit } from "@/core/audit/audit";
 import { assertTenantUserLimit } from "@/core/platform/entitlements";
 
 const branchSchema = z.object({ name: z.string().trim().min(2).max(100), address: z.string().trim().max(200).optional(), phone: z.string().trim().max(30).optional() });
-const roleSchema = z.object({ key: z.string().trim().toUpperCase().regex(/^[A-Z][A-Z0-9_]{1,30}$/), name: z.string().trim().min(2).max(80), permissions: z.string().trim().min(1) });
+const roleSchema = z.object({ name: z.string().trim().min(2).max(80), permissions: z.string().trim().min(1) });
 const userSchema = z.object({ name: z.string().trim().min(2).max(120), email: z.string().trim().toLowerCase().email(), password: z.string().min(8).max(100), roleId: z.string().min(1), branchId: z.string().min(1) });
 const activeValue = z.enum(["true", "false"]).transform((value) => value === "true");
 const branchUpdateSchema = branchSchema.extend({ active: activeValue });
@@ -105,8 +107,18 @@ export async function handleCoreCommand(method: string, segments: string[], body
     const input = parse(roleSchema, body);
     const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: scope.tenantId }, select: { type: true } });
     const permissions = parseRolePermissions(input.permissions, tenant.type);
-    const entity = await prisma.role.create({ data: { tenantId: scope.tenantId, key: input.key, name: input.name, permissions: JSON.stringify(permissions) } });
-    await audit(scope, "CREATE", "Role", entity.id, { permissions });
+    let entity = null;
+    for (let attempt = 0; attempt < 5 && !entity; attempt += 1) {
+      const roles = await prisma.role.findMany({ where: { tenantId: scope.tenantId }, select: { key: true } });
+      const key = nextAutomaticRoleKey(roles);
+      try {
+        entity = await prisma.role.create({ data: { tenantId: scope.tenantId, key, name: input.name, permissions: JSON.stringify(permissions) } });
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+      }
+    }
+    if (!entity) throw new AppError("ROLE_KEY_CONFLICT", 409, "No se pudo reservar la siguiente clave del rol. Inténtalo nuevamente.");
+    await audit(scope, "CREATE", "Role", entity.id, { key: entity.key, permissions });
     return { ok: true, id: entity.id, message: "Rol creado correctamente." };
   }
   if (method === "PATCH" && resource === "roles" && id) {
@@ -114,9 +126,8 @@ export async function handleCoreCommand(method: string, segments: string[], body
     const role = await prisma.role.findFirst({ where: { id, tenantId: scope.tenantId }, select: { id: true, key: true, tenant: { select: { type: true } } } });
     if (!role) throw new AppError("NOT_FOUND", 404, "El rol no pertenece a esta empresa.");
     const permissions = parseRolePermissions(input.permissions, role.tenant.type, role.key === "ADMIN");
-    if (role.key === "ADMIN" && input.key !== "ADMIN") throw new AppError("ADMIN_GUARD", 409, "La clave del rol Administrador no puede modificarse.");
-    const entity = await prisma.role.update({ where: { id }, data: { key: input.key, name: input.name, permissions: JSON.stringify(permissions) } });
-    await audit(scope, "UPDATE", "Role", entity.id, { permissions });
+    const entity = await prisma.role.update({ where: { id }, data: { name: input.name, permissions: JSON.stringify(permissions) } });
+    await audit(scope, "UPDATE", "Role", entity.id, { key: role.key, permissions });
     return { ok: true, id: entity.id, message: "Rol y permisos actualizados." };
   }
   if (method === "POST" && resource === "users" && !id) {

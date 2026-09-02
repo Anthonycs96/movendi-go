@@ -10,6 +10,7 @@ import { defaultTransportConfiguration, saveTransportConfigurationSection, type 
 import { defaultRestaurantConfiguration, saveRestaurantConfigurationSection, type RestaurantConfigurationSection } from "@/modules/restaurant/server/configuration";
 import { getRestaurantReadiness } from "@/modules/restaurant/server/readiness";
 import { persistRestaurantControlMasterData, persistRestaurantSalesMasterData } from "./restaurant-master-data";
+import { persistTransportCustomerMasterData, persistTransportDriverMasterData, persistTransportFleetMasterData } from "./transport-master-data";
 import { detectRestaurantAreas, normalizeRestaurantArea, normalizeRestaurantCatalogLabel, type DetectedRestaurantArea } from "@movendi/contracts";
 import { existingPreparationAreasByKey, reconcilePreparationAreas, type PreparationAreaInput } from "@/modules/restaurant/server/areas";
 
@@ -229,7 +230,7 @@ export async function initializeBusinessSetup(tenantId: string, branchId: string
 export async function saveBusinessSetupStep(tenantId: string, raw: unknown, session: AuthSession) {
   const draft = z.object({ step: z.enum(["BUSINESS", "MODULES", "CATALOG", "TEAM", "OPERATIONS", "TABLES", "PRINTING", "RESTAURANT_OPERATION", "RESTAURANT_KITCHEN", "RESTAURANT_SALES", "RESTAURANT_CONTROL", "RESTAURANT_INTEGRATIONS", "TRANSPORT_OPERATION", "TRANSPORT_CUSTOMERS", "TRANSPORT_FLEET", "TRANSPORT_DRIVERS", "TRANSPORT_RULES", "TRANSPORT_FINANCE", "TRANSPORT_MAINTENANCE", "TRANSPORT_SAFETY", "TRANSPORT_INTEGRATIONS", "REVIEW"]), draft: z.literal(true) }).passthrough().safeParse(raw);
   if (draft.success) {
-    if (JSON.stringify(raw).length > 200_000) throw new AppError("VALIDATION_ERROR", 400, "El borrador supera el tamaño permitido.");
+    if (JSON.stringify(raw).length > 2_000_000) throw new AppError("VALIDATION_ERROR", 400, "El borrador supera el tamaño permitido de 2 MB.");
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, include: { branches: { where: { active: true }, orderBy: { createdAt: "asc" }, take: 1 } } });
     if (!tenant) throw new AppError("TENANT_NOT_FOUND", 404, "El negocio no existe.");
     const branch = tenant.branches[0];
@@ -321,7 +322,7 @@ export async function saveBusinessSetupStep(tenantId: string, raw: unknown, sess
     await markStep(tenantId, input.step, route.next, session, input);
   } else if (input.step.startsWith("TRANSPORT_")) {
     if (tenant.type !== "TRANSPORT") throw new AppError("INVALID_SETUP_STEP", 400, "Este paso solo corresponde a empresas de Transporte.");
-    const transportInput = input as { step: string; sections: Record<string, unknown> };
+    const transportInput = input as { step: string; sections: Record<string, unknown>; masterData?: unknown };
     const routing: Record<string, { sections: TransportConfigurationSection[]; next: StepKey }> = {
       TRANSPORT_OPERATION: { sections: ["general", "operations"], next: "TRANSPORT_CUSTOMERS" },
       TRANSPORT_CUSTOMERS: { sections: ["customers"], next: "TRANSPORT_FLEET" },
@@ -339,6 +340,9 @@ export async function saveBusinessSetupStep(tenantId: string, raw: unknown, sess
       if (!(section in transportInput.sections)) throw new AppError("VALIDATION_ERROR", 400, `Falta la configuración ${section}.`);
       await saveTransportConfigurationSection(tenantId, section, transportInput.sections[section]);
     }
+    if (transportInput.step === "TRANSPORT_CUSTOMERS" && transportInput.masterData) await persistTransportCustomerMasterData(tenantId, transportInput.masterData);
+    if (transportInput.step === "TRANSPORT_FLEET" && transportInput.masterData) await persistTransportFleetMasterData(tenantId, transportInput.masterData);
+    if (transportInput.step === "TRANSPORT_DRIVERS" && transportInput.masterData) await persistTransportDriverMasterData(tenantId, transportInput.masterData);
     await markStep(tenantId, input.step, route.next, session, input);
   } else if (input.step === "TABLES") {
     if (!input.skip && tenant.type === "RESTAURANT") for (const zone of input.zones) { const area = await prisma.diningArea.upsert({ where: { tenantId_branchId_name: { tenantId, branchId: branch.id, name: zone.name } }, create: { tenantId, branchId: branch.id, name: zone.name }, update: { active: true } }); for (let index = 1; index <= zone.count; index += 1) { const name = `${zone.prefix} ${index}`; await prisma.diningTable.upsert({ where: { tenantId_branchId_name: { tenantId, branchId: branch.id, name } }, create: { tenantId, branchId: branch.id, areaId: area.id, name, seats: zone.seats }, update: { areaId: area.id, seats: zone.seats, active: true } }); } }

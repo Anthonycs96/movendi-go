@@ -4,7 +4,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { BellRing, ChefHat, CircleDollarSign, PlugZap, ReceiptText, Settings2, Store, UtensilsCrossed } from "lucide-react";
 import type { RestaurantConfiguration } from "@movendi/contracts";
 import { Field, Input, Select } from "@/shared/components/ui";
-import { CatalogEditor, NotificationRulesEditor, StatusEditor } from "@/modules/restaurant/components/ConfigurationEditors";
+import { CatalogEditor, NotificationRulesEditor, StatusEditor } from "@/shared/components/ConfigurationEditors";
 
 export type RestaurantSetupStep = "RESTAURANT_OPERATION" | "RESTAURANT_KITCHEN" | "RESTAURANT_SALES" | "RESTAURANT_CONTROL" | "RESTAURANT_INTEGRATIONS";
 

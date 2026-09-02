@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { BellRing, Boxes, CheckCircle2, ChefHat, CircleDollarSign, History, PlugZap, ReceiptText, RotateCcw, Settings2, ShieldCheck, ShoppingBasket, Store, Tags, TriangleAlert, Truck, UsersRound, UtensilsCrossed } from "lucide-react";
 import type { RestaurantConfiguration, RestaurantReadiness } from "@movendi/contracts";
 import { Button, Card, Field, Input, Select } from "@/shared/components/ui";
-import { CatalogEditor, NotificationRulesEditor, StatusEditor } from "./ConfigurationEditors";
+import { CatalogEditor, NotificationRulesEditor, StatusEditor } from "@/shared/components/ConfigurationEditors";
 
 type Section = Exclude<keyof RestaurantConfiguration, "version">;
 type Setter = React.Dispatch<React.SetStateAction<RestaurantConfiguration>>;

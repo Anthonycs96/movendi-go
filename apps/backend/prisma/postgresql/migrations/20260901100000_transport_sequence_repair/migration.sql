@@ -1,0 +1,8 @@
+-- Idempotent repair based on immutable codes; also covers databases imported from SQLite.
+INSERT INTO "TransportSequence" ("id", "tenantId", "branchId", "kind", "year", "prefix", "nextNumber", "createdAt", "updatedAt")
+SELECT 'seq_trip_code_' || "tenantId" || '_' || "branchId" || '_' || CAST(substring("code" from position('-' in "code") + 1 for 4) AS INTEGER), "tenantId", "branchId", 'TRIP', CAST(substring("code" from position('-' in "code") + 1 for 4) AS INTEGER), substring("code" from 1 for position('-' in "code") - 1), MAX(CAST(replace(right("code", 6), '-', '') AS INTEGER)) + 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM "TransportTrip" WHERE position('-' in "code") > 0 GROUP BY "tenantId", "branchId", CAST(substring("code" from position('-' in "code") + 1 for 4) AS INTEGER), substring("code" from 1 for position('-' in "code") - 1) ON CONFLICT DO NOTHING;
+
+INSERT INTO "TransportSequence" ("id", "tenantId", "branchId", "kind", "year", "prefix", "nextNumber", "createdAt", "updatedAt")
+SELECT 'seq_operation_code_' || "tenantId" || '_' || "branchId" || '_' || CAST(substring("code" from position('-' in "code") + 1 for 4) AS INTEGER), "tenantId", "branchId", 'OPERATION', CAST(substring("code" from position('-' in "code") + 1 for 4) AS INTEGER), substring("code" from 1 for position('-' in "code") - 1), MAX(CAST(replace(right("code", 6), '-', '') AS INTEGER)) + 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+FROM "TransportOperation" WHERE position('-' in "code") > 0 GROUP BY "tenantId", "branchId", CAST(substring("code" from position('-' in "code") + 1 for 4) AS INTEGER), substring("code" from 1 for position('-' in "code") - 1) ON CONFLICT DO NOTHING;

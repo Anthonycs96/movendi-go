@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
-import type { CoreTenantData } from "@movendi/contracts";
+import { nextAutomaticRoleKey, type CoreTenantData } from "@movendi/contracts";
 import {
   Card,
   DataTable,
@@ -466,8 +466,8 @@ export function CoreSettingsWorkspace({
           triggerLabel="Rol"
           transform={rolePayload}
         >
-          <Field label="Clave">
-            <Input name="key" placeholder="RECEPTION" required />
+          <Field label="Clave automática">
+            <Input name="key" value={nextAutomaticRoleKey(core.roles)} readOnly aria-readonly="true" required />
           </Field>
           <Field label="Nombre">
             <Input name="name" placeholder="Recepción" required />
@@ -756,11 +756,12 @@ export function CoreSettingsWorkspace({
                   submitLabel="Actualizar"
                   transform={rolePayload}
                 >
-                  <Field label="Clave">
+                  <Field label="Clave automática">
                     <Input
                       name="key"
                       defaultValue={row.key}
-                      readOnly={row.key === "ADMIN"}
+                      readOnly
+                      aria-readonly="true"
                       required
                     />
                   </Field>

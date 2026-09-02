@@ -35,7 +35,7 @@ function requiredPermission(moduleName: string, resource: string, method: string
     return method === "GET" ? "restaurant:menu:read" : "restaurant:menu:write";
   }
   if (moduleName === "transport") {
-    if (resource === "configuration") return "settings:write";
+    if (["configuration", "custom-fields", "workflows", "resource-presets", "import-profiles", "document-templates", "dispatch-views"].includes(resource)) return "settings:write";
     if (["parties", "locations", "routes"].includes(resource)) return method === "GET" ? "transport:masters:read" : "transport:masters:write";
     if (["vehicles", "trailers"].includes(resource)) return method === "GET" ? "transport:fleet:read" : "transport:fleet:write";
     if (["drivers", "leaves", "work-logs"].includes(resource)) return method === "GET" ? "transport:drivers:read" : "transport:drivers:write";

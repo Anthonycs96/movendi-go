@@ -11,6 +11,9 @@ export function Dashboard({ data }: { data: TransportData }) {
   const alerts = [
     ...(data.metrics.openIncidents ? [{ text: `${data.metrics.openIncidents} incidentes requieren atención`, tone: "danger" as BadgeTone }] : []),
     ...(data.metrics.expiringDocuments ? [{ text: `${data.metrics.expiringDocuments} documentos vencen en 30 días`, tone: "warning" as BadgeTone }] : []),
+    ...(data.metrics.appointmentRisk ? [{ text: `${data.metrics.appointmentRisk} citas requieren atención`, tone: "warning" as BadgeTone }] : []),
+    ...(data.metrics.unassignedTrips ? [{ text: `${data.metrics.unassignedTrips} viajes próximos sin unidad`, tone: "danger" as BadgeTone }] : []),
+    ...(data.metrics.delayedTrips ? [{ text: `${data.metrics.delayedTrips} viajes superaron su llegada estimada`, tone: "danger" as BadgeTone }] : []),
     ...data.inventory.filter((item) => item.stock <= item.minimumStock).slice(0, 3).map((item) => ({ text: `Stock bajo: ${item.name} (${item.stock} ${item.unit})`, tone: "warning" as BadgeTone })),
   ];
   return <>
@@ -27,4 +30,3 @@ export function Dashboard({ data }: { data: TransportData }) {
     </div>
   </>;
 }
-

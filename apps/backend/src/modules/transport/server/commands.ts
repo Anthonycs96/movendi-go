@@ -11,9 +11,11 @@ import { handleOperationsCommand } from "./commands/operations";
 import { handleTireCommand } from "./commands/tires";
 import { handleWorkforceCommand } from "./commands/workforce";
 import { handleConfigurationCommand } from "./commands/configuration";
+import { handlePlanningCommand } from "./commands/planning";
 
 const handlers: TransportCommandHandler[] = [
   handleConfigurationCommand,
+  handlePlanningCommand,
   handleMasterCommand,
   handleFleetCommand,
   handleWorkforceCommand,

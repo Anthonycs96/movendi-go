@@ -15,6 +15,30 @@ async function transportConfiguration(page: Page) {
 }
 
 test.describe.serial("Configuración integral de Transporte", () => {
+  test("la plantilla maestra se descarga y vuelve a validar sin perder su contexto", async ({ page }) => {
+    await login(page, "superadmin@multisaas.local", "nova-studio");
+    const platform = await page.request.get("/api/data/platform");
+    expect(platform.status(), await platform.text()).toBe(200);
+    const platformBody = await platform.json() as { data: { businesses: Array<{ id: string; slug: string }> } };
+    const business = platformBody.data.businesses.find((item) => item.slug === "andes-cargo");
+    expect(business).toBeDefined();
+
+    const template = await page.request.get(`/api/platform/onboarding/${business!.id}/transport-template`);
+    expect(template.status(), await template.text()).toBe(200);
+    expect(template.headers()["content-type"]).toContain("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    const buffer = await template.body();
+    expect(buffer.byteLength).toBeGreaterThan(1_000);
+
+    const imported = await page.request.post(`/api/platform/onboarding/${business!.id}/transport-import`, {
+      multipart: { file: { name: "movendi-transporte.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer } },
+    });
+    expect(imported.status(), await imported.text()).toBe(200);
+    const result = await imported.json() as { valid: boolean; summary: Record<string, number>; masterData: { parties: unknown[]; vehicles: unknown[]; drivers: unknown[] } };
+    expect(result.valid).toBe(true);
+    expect(result.summary).toEqual(expect.objectContaining({ parties: expect.any(Number), vehicles: expect.any(Number), drivers: expect.any(Number) }));
+    expect(result.masterData).toEqual(expect.objectContaining({ parties: expect.any(Array), vehicles: expect.any(Array), drivers: expect.any(Array) }));
+  });
+
   test("el Super Admin completa las 13 etapas del nuevo negocio de Transporte", async ({ page }) => {
     await login(page, "superadmin@multisaas.local", "nova-studio");
     await page.goto("/platform/businesses");
