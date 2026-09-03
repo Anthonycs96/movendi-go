@@ -14,10 +14,10 @@ test("permite revisar y editar la carga de flota antes de guardarla", async ({ p
       body: JSON.stringify({
         valid: true,
         issues: [],
-        summary: { users: 0, parties: 0, locations: 0, routes: 0, vehicles: 1, trailers: 1, drivers: 0 },
+        summary: { users: 0, parties: 0, locations: 0, routes: 0, vehicles: 30, trailers: 1, drivers: 0 },
         masterData: {
           users: [], parties: [], locations: [], routes: [], drivers: [],
-          vehicles: [{ plate: "TRK001", brand: "SCANIA", model: "P450", year: 2022, type: "TRACTOR", capacityKg: null, odometerKm: 120000, status: "AVAILABLE", technicalDueAt: "", soatDueAt: "", gpsDeviceId: "GPS-1" }],
+          vehicles: Array.from({ length: 30 }, (_, index) => ({ plate: `TRK${String(index + 1).padStart(3, "0")}`, brand: "SCANIA", model: "P450", year: 2022, type: "TRACTOR", capacityKg: null, odometerKm: 120000, status: "AVAILABLE", technicalDueAt: "", soatDueAt: "", gpsDeviceId: `GPS-${index + 1}` })),
           trailers: [{ plate: "CAR001", brand: "", model: "", type: "PARIHUELERO", capacityKg: null, status: "AVAILABLE" }],
         },
       }),
@@ -42,17 +42,23 @@ test("permite revisar y editar la carga de flota antes de guardarla", async ({ p
   const uploadSection = dialog.getByRole("region", { name: "Carga de flota con Excel" });
   await uploadSection.locator('input[type="file"]').setInputFiles({ name: "flota.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from("test") });
   const summary = dialog.getByRole("region", { name: "Datos de Transporte preparados con Excel" });
-  await expect(summary.getByText("1 vehículos", { exact: true })).toBeVisible();
+  await expect(summary.getByText("30 vehículos", { exact: true })).toBeVisible();
   await expect(summary.getByText("1 carretas", { exact: true })).toBeVisible();
 
   await dialog.getByRole("button", { name: "Ver y editar datos" }).click();
   const editor = dialog.getByRole("region", { name: "Vista editable de los datos preparados" });
   await expect(editor).toBeVisible();
   await expect(editor.getByRole("tab", { name: /Vehículos y tractos/ })).toHaveAttribute("aria-selected", "true");
-  await expect(editor.getByLabel("Placa, fila 1")).toHaveValue("TRK001");
-  await editor.getByLabel("Marca, fila 1").fill("SCANIA EDITADA");
-  await expect(editor.getByLabel("Marca, fila 1")).toHaveValue("SCANIA EDITADA");
+  await expect(editor.getByLabel("Filas por página")).toHaveValue("ALL");
+  await expect(editor.getByLabel(/^Placa, fila/)).toHaveCount(30);
+  await expect(editor.getByText("Mostrando 1–30 de 30", { exact: true })).toBeVisible();
+  await editor.getByLabel("Filas por página").selectOption("25");
+  await expect(editor.getByLabel(/^Placa, fila/)).toHaveCount(25);
+  await editor.getByLabel("Filas por página").selectOption("ALL");
+  await expect(editor.getByLabel("Placa, fila 1", { exact: true })).toHaveValue("TRK001");
+  await editor.getByLabel("Marca, fila 1", { exact: true }).fill("SCANIA EDITADA");
+  await expect(editor.getByLabel("Marca, fila 1", { exact: true })).toHaveValue("SCANIA EDITADA");
 
   await editor.getByRole("tab", { name: /Carretas y remolques/ }).click();
-  await expect(editor.getByLabel("Placa, fila 1")).toHaveValue("CAR001");
+  await expect(editor.getByLabel("Placa, fila 1", { exact: true })).toHaveValue("CAR001");
 });

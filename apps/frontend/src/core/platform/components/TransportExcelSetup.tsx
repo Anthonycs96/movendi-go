@@ -124,14 +124,15 @@ function TransportPreparedDataEditor({ sections, data, setData }: { sections: Ed
   const [activeKey, setActiveKey] = useState<TransportCollection>(sections[0].key);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState<25 | 50 | 100 | "ALL">("ALL");
   const active = sections.find((section) => section.key === activeKey) ?? sections[0];
   const rows = data[active.key] as unknown as EditableRow[];
   const normalizedQuery = query.trim().toLocaleLowerCase("es");
   const filtered = rows.map((row, index) => ({ row, index })).filter(({ row }) => !normalizedQuery || Object.values(row).some((value) => String(value ?? "").toLocaleLowerCase("es").includes(normalizedQuery)));
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const effectivePageSize = pageSize === "ALL" ? Math.max(1, filtered.length) : pageSize;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / effectivePageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const visibleRows = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  const visibleRows = pageSize === "ALL" ? filtered : filtered.slice(safePage * effectivePageSize, (safePage + 1) * effectivePageSize);
 
   const updateRow = (rowIndex: number, field: EditorField, raw: string) => setData((current) => {
     const nextRows = [...(current[active.key] as unknown as EditableRow[])];
@@ -146,19 +147,19 @@ function TransportPreparedDataEditor({ sections, data, setData }: { sections: Ed
   return <section className="transport-master-editor" aria-label="Vista editable de los datos preparados">
     <div className="transport-master-editor__tabs" role="tablist" aria-label="Catálogos importados">{sections.map((section) => <button type="button" role="tab" aria-selected={section.key === active.key} className={section.key === active.key ? "active" : ""} key={section.key} onClick={() => { setActiveKey(section.key); setQuery(""); setPage(0); }}>{section.label}<span>{data[section.key].length}</span></button>)}</div>
     <div className="transport-master-editor__toolbar">
-      <label><Search size={15} /><Input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} placeholder={`Buscar en ${active.label.toLocaleLowerCase("es")}…`} aria-label={`Buscar en ${active.label}`} /></label>
-      <small>Los cambios se aplican a la carga pendiente. Se guardarán al confirmar este paso.</small>
+      <label className="transport-master-editor__search"><Search size={15} /><Input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} placeholder={`Buscar en ${active.label.toLocaleLowerCase("es")}…`} aria-label={`Buscar en ${active.label}`} /></label>
+      <div><label className="transport-master-editor__page-size"><span>Mostrar</span><Select searchable={false} aria-label="Filas por página" value={String(pageSize)} onChange={(event) => { const value = event.target.value; setPageSize(value === "ALL" ? "ALL" : Number(value) as 25 | 50 | 100); setPage(0); }}><option value="ALL">Todos</option><option value="25">25 filas</option><option value="50">50 filas</option><option value="100">100 filas</option></Select></label><small>Los cambios se guardarán al confirmar este paso.</small></div>
     </div>
     <div className="transport-master-editor__table-wrap">
       <table>
         <thead><tr><th>#</th>{active.fields.map((field) => <th key={field.key}>{field.label}</th>)}<th aria-label="Acciones" /></tr></thead>
-        <tbody>{visibleRows.length ? visibleRows.map(({ row, index }, visibleIndex) => <tr key={`${active.key}-${index}`}><td>{safePage * pageSize + visibleIndex + 1}</td>{active.fields.map((field) => {
+        <tbody>{visibleRows.length ? visibleRows.map(({ row, index }, visibleIndex) => <tr key={`${active.key}-${index}`}><td>{safePage * effectivePageSize + visibleIndex + 1}</td>{active.fields.map((field) => {
           const value = row[field.key];
           return <td key={field.key}>{field.type === "select" ? <Select searchable={false} value={String(value ?? "")} aria-label={`${field.label}, fila ${index + 1}`} onChange={(event) => updateRow(index, field, event.target.value)}>{field.options?.map((option) => <option value={option} key={option}>{option}</option>)}</Select> : <Input type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} step={field.type === "number" ? "any" : undefined} value={value === null || value === undefined ? "" : String(value)} aria-label={`${field.label}, fila ${index + 1}`} onChange={(event) => updateRow(index, field, event.target.value)} />}</td>;
         })}<td><button type="button" className="transport-master-editor__delete" aria-label={`Quitar fila ${index + 1} de ${active.label}`} title="Quitar de la carga" onClick={() => removeRow(index)}><Trash2 size={14} /></button></td></tr>) : <tr><td className="transport-master-editor__empty" colSpan={active.fields.length + 2}>No hay registros que coincidan con la búsqueda.</td></tr>}</tbody>
       </table>
     </div>
-    <footer><span>Mostrando {filtered.length ? safePage * pageSize + 1 : 0}–{Math.min((safePage + 1) * pageSize, filtered.length)} de {filtered.length}</span><div><Button type="button" size="sm" variant="secondary" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}><ChevronLeft size={14} />Anterior</Button><span>Página {safePage + 1} de {pageCount}</span><Button type="button" size="sm" variant="secondary" disabled={safePage >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>Siguiente<ChevronRight size={14} /></Button></div></footer>
+    <footer><span>Mostrando {filtered.length ? safePage * effectivePageSize + 1 : 0}–{Math.min((safePage + 1) * effectivePageSize, filtered.length)} de {filtered.length}</span>{pageSize === "ALL" ? <strong>Todos los registros</strong> : <div><Button type="button" size="sm" variant="secondary" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}><ChevronLeft size={14} />Anterior</Button><span>Página {safePage + 1} de {pageCount}</span><Button type="button" size="sm" variant="secondary" disabled={safePage >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>Siguiente<ChevronRight size={14} /></Button></div>}</footer>
   </section>;
 }
 
