@@ -10,12 +10,15 @@ async function responsePayload(response: Response) {
   return response.json().catch(() => ({})) as Promise<{ message?: string; error?: { message?: string } }>;
 }
 
-export function OperationForm({ title, description, endpoint, method = "POST", triggerLabel, submitLabel = "Guardar", children, transform }: {
+export function OperationForm({ title, description, endpoint, method = "POST", triggerLabel, triggerIcon, triggerVariant = "primary", triggerSize = "md", submitLabel = "Guardar", children, transform }: {
   title: string;
   description?: string;
   endpoint: string;
   method?: "POST" | "PATCH";
   triggerLabel: string;
+  triggerIcon?: ReactNode;
+  triggerVariant?: "primary" | "secondary" | "ghost" | "danger";
+  triggerSize?: "sm" | "md" | "lg";
   submitLabel?: string;
   children: ReactNode;
   transform?: (formData: FormData) => unknown;
@@ -55,7 +58,7 @@ export function OperationForm({ title, description, endpoint, method = "POST", t
   }
 
   return <>
-    <Button type="button" onClick={() => { setOpen(true); setError(""); }}><Plus size={16} />{triggerLabel}</Button>
+    <Button type="button" variant={triggerVariant} size={triggerSize} onClick={() => { setOpen(true); setError(""); }}>{triggerIcon ?? <Plus size={16} />}{triggerLabel}</Button>
     <Dialog
       open={open}
       title={title}

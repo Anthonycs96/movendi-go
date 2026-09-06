@@ -3,7 +3,7 @@ import { audit } from "@/core/audit/audit";
 import { AppError } from "@/core/auth/errors";
 import { prisma } from "@/core/database/prisma";
 import { owned, parse } from "../command-helpers";
-import { documentSchema, trailerSchema, vehicleSchema, vehicleUpdateSchema } from "../command-schemas";
+import { documentSchema, trailerSchema, trailerUpdateSchema, vehicleSchema, vehicleUpdateSchema } from "../command-schemas";
 import type { TransportCommandHandler } from "../command-types";
 import type { z } from "zod";
 import { assertTenantConfigured, getTransportConfiguration, hasStoredTransportConfiguration } from "../configuration";
@@ -65,6 +65,17 @@ export const handleFleetCommand: TransportCommandHandler = async (method, segmen
     const entity = await prisma.transportTrailer.create({ data: { tenantId: scope.tenantId, ...input, brand: input.brand || null, model: input.model || null, capacityKg: input.capacityKg ?? null } });
     await audit(scope, "CREATE", "TransportTrailer", entity.id);
     return { ok: true, id: entity.id, message: "Remolque registrado." };
+  }
+
+  if (method === "PATCH" && resource === "trailers" && id) {
+    const input = parse(trailerUpdateSchema, body);
+    const configuration = await getTransportConfiguration(scope.tenantId);
+    await assertTenantConfigured(scope.tenantId, configuration.fleet.trailerTypes, input.type, "El tipo de remolque");
+    await assertTenantConfigured(scope.tenantId, configuration.fleet.vehicleStatuses, input.status, "El estado de remolque");
+    await owned(prisma.transportTrailer.findFirst({ where: { id, tenantId: scope.tenantId } }), "El remolque");
+    await prisma.transportTrailer.update({ where: { id }, data: { ...input, brand: input.brand || null, model: input.model || null, capacityKg: input.capacityKg ?? null } });
+    await audit(scope, "UPDATE", "TransportTrailer", id);
+    return { ok: true, id, message: "Remolque actualizado." };
   }
 
   if (method === "POST" && resource === "documents") {
