@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, ClipboardList, FileSpreadsheet, History, Route, Truck } from "lucide-react";
+import { CalendarClock, ClipboardList, FileSpreadsheet, History, RadioTower, Route, Truck } from "lucide-react";
 import type { TransportData } from "@movendi/contracts";
-import { Button, Card, DataTable, Field, Input, OperationButton, OperationForm, PageHeader, Select } from "@/shared/components/ui";
+import { Button, Card, DataTable, Field, Input, OperationButton, OperationForm, PageHeader, Select, StatusBadge } from "@/shared/components/ui";
 import { formatDateTime } from "@/shared/lib/format";
 import { Badge, money, nowInput, futureInput } from "./transport-ui";
 import { DailyDispatch, OperationalExcelImport } from "./daily-dispatch";
@@ -11,10 +11,10 @@ import { DailyDispatch, OperationalExcelImport } from "./daily-dispatch";
 const trailerLabel = (item: TransportData["trailers"][number]) => `${item.plate} · ${[item.brand, item.model, item.type].filter(Boolean).join(" ")}`;
 const presetLabel = (item: TransportData["resourcePresets"][number]) => `${item.name} · ${item.vehicle.plate}${item.trailers.length ? ` + ${item.trailers.map((trailer) => trailer.plate).join(" + ")}` : ""}`;
 
-function NewPreparedAssembly({ data }: { data: TransportData }) {
-  return <OperationForm title="Preparar ensamble" description="Arma la unidad antes de asignarle un viaje. Puedes buscar tractos y carretas por placa, marca, modelo o tipo." endpoint="/api/operations/transport/resource-presets" triggerLabel="Preparar ensamble" submitLabel="Guardar ensamble" transform={(form) => ({ name: form.get("name"), scopeType: "TENANT", scopeId: "", vehicleId: form.get("vehicleId"), trailerIds: [form.get("trailerId"), form.get("trailerId2"), form.get("trailerId3")].filter(Boolean), driverIds: [form.get("driverId"), form.get("secondDriverId"), form.get("reliefDriverId")].filter(Boolean) })}>
+function NewPreparedAssembly({ data, vehicleId = "", triggerLabel = "Preparar ensamble", triggerSize = "md" }: { data: TransportData; vehicleId?: string; triggerLabel?: string; triggerSize?: "sm" | "md" }) {
+  return <OperationForm title="Preparar ensamble" description="Arma la unidad antes de asignarle un viaje. Puedes buscar tractos y carretas por placa, marca, modelo o tipo." endpoint="/api/operations/transport/resource-presets" triggerLabel={triggerLabel} triggerSize={triggerSize} submitLabel="Guardar ensamble" transform={(form) => ({ name: form.get("name"), scopeType: "TENANT", scopeId: "", vehicleId: form.get("vehicleId"), trailerIds: [form.get("trailerId"), form.get("trailerId2"), form.get("trailerId3")].filter(Boolean), driverIds: [form.get("driverId"), form.get("secondDriverId"), form.get("reliefDriverId")].filter(Boolean) })}>
     <Field label="Nombre del ensamble"><Input name="name" required placeholder="Ej. Volvo 01 + Semirremolque 12" /></Field>
-    <Field label="Tracto"><Select name="vehicleId" required defaultValue=""><option value="" disabled>Busca y selecciona una unidad</option>{data.vehicles.filter((item) => item.active && !["MAINTENANCE", "OUT_OF_SERVICE"].includes(item.status)).map((item) => <option key={item.id} value={item.id}>{item.plate} · {item.brand} {item.model} · {item.type}</option>)}</Select></Field>
+    <Field label="Tracto"><Select name="vehicleId" required defaultValue={vehicleId}><option value="" disabled>Busca y selecciona una unidad</option>{data.vehicles.filter((item) => item.active && !["MAINTENANCE", "OUT_OF_SERVICE"].includes(item.status)).map((item) => <option key={item.id} value={item.id}>{item.plate} · {item.brand} {item.model} · {item.type}</option>)}</Select></Field>
     <Field label="Carreta 1"><Select name="trailerId" defaultValue=""><option value="">Sin carreta</option>{data.trailers.filter((item) => item.active && item.status !== "OUT_OF_SERVICE").map((item) => <option key={item.id} value={item.id}>{trailerLabel(item)}</option>)}</Select></Field>
     <Field label="Carreta 2 / bitrén"><Select name="trailerId2" defaultValue=""><option value="">Sin segunda carreta</option>{data.trailers.filter((item) => item.active && item.status !== "OUT_OF_SERVICE").map((item) => <option key={item.id} value={item.id}>{trailerLabel(item)}</option>)}</Select></Field>
     <Field label="Carreta 3"><Select name="trailerId3" defaultValue=""><option value="">Sin tercera carreta</option>{data.trailers.filter((item) => item.active && item.status !== "OUT_OF_SERVICE").map((item) => <option key={item.id} value={item.id}>{trailerLabel(item)}</option>)}</Select></Field>
@@ -47,12 +47,66 @@ function NewTrip({ data }: { data: TransportData }) {
   </OperationForm>;
 }
 
+function presetsForTrip(data: TransportData, trip: { customer: { id: string }; operationId: string | null }) {
+  return data.resourcePresets.filter((item) => item.active && (item.scopeType === "TENANT" || item.scopeType === "CUSTOMER" && item.scopeId === trip.customer.id || item.scopeType === "OPERATION" && item.scopeId === trip.operationId));
+}
+
+function TowerTripAssignment({ trip, data, assigned, onOpenAssemblies }: { trip: TransportData["controlTowerTrips"][number]; data: TransportData; assigned: boolean; onOpenAssemblies: () => void }) {
+  const presets = presetsForTrip(data, trip);
+  if (trip.status === "IN_TRANSIT") return <StatusBadge tone="info">En ruta</StatusBadge>;
+  if (!presets.length) return <Button type="button" size="sm" variant="secondary" onClick={onOpenAssemblies}>Crear ensamble</Button>;
+  return <OperationForm title={`${assigned ? "Cambiar" : "Asignar"} ensamble · ${trip.code}`} description="Selecciona una unidad preparada. Antes de asignarla se validan disponibilidad, documentos, capacidad y horarios." endpoint={`/api/operations/transport/trips/${trip.id}/assign`} triggerLabel={assigned ? "Cambiar" : "Asignar"} triggerSize="sm" submitLabel="Confirmar asignación" transform={(form) => ({ presetId: form.get("presetId"), reason: form.get("reason") })}>
+    <Field label="Ensamble preparado"><Select name="presetId" required defaultValue=""><option value="" disabled>Busca por nombre o placa</option>{presets.map((item) => <option key={item.id} value={item.id}>{presetLabel(item)}</option>)}</Select></Field>
+    <Field label="Motivo"><Input name="reason" placeholder="Asignación desde torre de control" /></Field>
+  </OperationForm>;
+}
+
+function ControlTower({ data, onOpenAssemblies }: { data: TransportData; onOpenAssemblies: () => void }) {
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [tripSearch, setTripSearch] = useState("");
+  const activeByVehicle = new Map(data.activeAssemblies.map((item) => [item.vehicle.id, item]));
+  const activeByTrip = new Map(data.activeAssemblies.map((item) => [item.trip.id, item]));
+  const presetsByVehicle = new Map<string, TransportData["resourcePresets"]>();
+  for (const preset of data.resourcePresets.filter((item) => item.active)) presetsByVehicle.set(preset.vehicle.id, [...(presetsByVehicle.get(preset.vehicle.id) ?? []), preset]);
+  const vehicleQuery = vehicleSearch.trim().toLocaleLowerCase("es");
+  const tripQuery = tripSearch.trim().toLocaleLowerCase("es");
+  const vehicleRows = data.vehicles.filter((vehicle) => vehicle.active && (!vehicleQuery || [vehicle.plate, vehicle.brand, vehicle.model, vehicle.type, ...(presetsByVehicle.get(vehicle.id) ?? []).flatMap((preset) => [preset.name, ...preset.trailers.map((trailer) => trailer.plate)])].join(" ").toLocaleLowerCase("es").includes(vehicleQuery))).map((vehicle) => ({ vehicle, presets: presetsByVehicle.get(vehicle.id) ?? [], movement: activeByVehicle.get(vehicle.id) ?? null }));
+  const tripRows = data.controlTowerTrips.filter((trip) => !tripQuery || [trip.code, trip.customer.legalName, trip.route.origin.name, trip.route.destination.name, trip.status].join(" ").toLocaleLowerCase("es").includes(tripQuery));
+  const assembledCount = data.vehicles.filter((vehicle) => vehicle.active && presetsByVehicle.has(vehicle.id)).length;
+  const unassembledCount = data.vehicles.filter((vehicle) => vehicle.active && !presetsByVehicle.has(vehicle.id)).length;
+  const waitingTrips = data.controlTowerTrips.filter((trip) => ["DRAFT", "PLANNED"].includes(trip.status)).length;
+
+  return <div className="control-tower">
+    <div className="control-tower__summary">
+      <div><span>Placas activas</span><strong>{data.vehicles.filter((item) => item.active).length}</strong></div>
+      <div><span>Ensambladas</span><strong>{assembledCount}</strong></div>
+      <div><span>Sin ensamble</span><strong>{unassembledCount}</strong></div>
+      <div><span>Viajes por asignar</span><strong>{waitingTrips}</strong></div>
+    </div>
+    <div className="control-tower__boards">
+      <Card className="table-card control-tower__card"><div className="management-heading"><div><span className="section-kicker">FLOTA</span><h2>Placas y disponibilidad</h2><p>Identifica unidades ensambladas, libres, ocupadas o sin preparar.</p></div><Input type="search" value={vehicleSearch} onChange={(event) => setVehicleSearch(event.target.value)} aria-label="Buscar placas" placeholder="Buscar placa o carreta…" /></div><DataTable rows={vehicleRows} rowKey={(row) => row.vehicle.id} pageSize={8} columns={[
+        { key: "plate", header: "Placa", sortValue: (row) => row.vehicle.plate, cell: (row) => <span className="table-primary"><strong>{row.vehicle.plate}</strong><span>{row.vehicle.brand} {row.vehicle.model}</span></span> },
+        { key: "assembly", header: "Ensamble", cell: (row) => row.presets.length ? <span className="table-primary"><strong>{row.presets[0].trailers.length ? row.presets[0].trailers.map((item) => item.plate).join(" + ") : "Solo tracto"}</strong><span>{row.presets[0].name}</span></span> : <StatusBadge tone="neutral">Sin ensamble</StatusBadge> },
+        { key: "state", header: "Estado", cell: (row) => row.movement ? <StatusBadge tone="warning">En viaje · {row.movement.trip.code}</StatusBadge> : row.presets.length ? <StatusBadge tone="success">Ensamblada y disponible</StatusBadge> : ["MAINTENANCE", "OUT_OF_SERVICE"].includes(row.vehicle.status) ? <Badge value={row.vehicle.status} /> : <StatusBadge tone="neutral">Pendiente de ensamble</StatusBadge> },
+        { key: "actions", header: "", cell: (row) => !row.presets.length && !["MAINTENANCE", "OUT_OF_SERVICE"].includes(row.vehicle.status) ? <NewPreparedAssembly data={data} vehicleId={row.vehicle.id} triggerLabel="Ensamblar" triggerSize="sm" /> : null },
+      ]} /></Card>
+      <Card className="table-card control-tower__card"><div className="management-heading"><div><span className="section-kicker">DESPACHO</span><h2>Viajes activos y pendientes</h2><p>Asigna una unidad preparada sin salir de la torre de control.</p></div><Input type="search" value={tripSearch} onChange={(event) => setTripSearch(event.target.value)} aria-label="Buscar viajes" placeholder="Buscar viaje o cliente…" /></div><DataTable rows={tripRows} rowKey={(row) => row.id} pageSize={8} emptyTitle="No hay viajes activos" columns={[
+        { key: "trip", header: "Viaje", sortValue: (row) => row.code, cell: (row) => <span className="table-primary"><strong>{row.code}</strong><span>{row.customer.legalName}</span></span> },
+        { key: "route", header: "Ruta / salida", cell: (row) => <span className="table-primary"><strong>{row.route.origin.name} → {row.route.destination.name}</strong><span>{formatDateTime(row.scheduledStartAt)}</span></span> },
+        { key: "unit", header: "Unidad", cell: (row) => { const movement = activeByTrip.get(row.id); return movement ? <span className="table-primary"><strong>{movement.vehicle.plate}</strong><span>{movement.trailers.map((item) => item.plate).join(" + ") || "Solo tracto"}</span></span> : <StatusBadge tone="neutral">Sin asignar</StatusBadge>; } },
+        { key: "status", header: "Estado", cell: (row) => <Badge value={row.status} /> },
+        { key: "actions", header: "", cell: (row) => <TowerTripAssignment trip={row} data={data} assigned={activeByTrip.has(row.id)} onOpenAssemblies={onOpenAssemblies} /> },
+      ]} /></Card>
+    </div>
+  </div>;
+}
+
 function TripActions({ trip, data, onOpenAssemblies }: { trip: TransportData["trips"][number]; data: TransportData; onOpenAssemblies: () => void }) {
   const nextStatuses = data.configuration.operations.tripStatuses.find((item) => item.key === trip.status)?.allowedNext ?? [];
   const statusLabel = (key: string) => data.configuration.operations.tripStatuses.find((item) => item.key === key)?.label ?? key;
   const workflow = trip.workflow ? data.workflows.find((item) => item.id === trip.workflow?.id) : null;
   const workflowTargets = workflow ? trip.workflowState ? workflow.transitions.filter((item) => item.active && item.fromStateId === trip.workflowState?.id).map((item) => ({ state: workflow.states.find((state) => state.id === item.toStateId), transition: item })).filter((item) => item.state) : workflow.states.filter((state) => state.initial).map((state) => ({ state, transition: null })) : data.workflows.filter((item) => item.active && (item.scopeType === "TENANT" || item.scopeType === "CUSTOMER" && item.scopeId === trip.customer.id || item.scopeType === "OPERATION" && item.scopeId === trip.operationId)).flatMap((item) => item.states.filter((state) => state.initial && state.active).map((state) => ({ state, transition: null })));
-  const availablePresets = data.resourcePresets.filter((item) => item.active && (item.scopeType === "TENANT" || item.scopeType === "CUSTOMER" && item.scopeId === trip.customer.id || item.scopeType === "OPERATION" && item.scopeId === trip.operationId));
+  const availablePresets = presetsForTrip(data, trip);
   return <div className="table-actions">
     <OperationForm title={`Operación de ${trip.code}`} description="Puedes asociar o mover este viaje sin modificar su unidad ni conductor." endpoint={`/api/operations/transport/trips/${trip.id}/operation`} method="PATCH" triggerLabel={trip.operation ? "Cambiar operación" : "Asignar operación"}>
       <Field label="Operación"><Select name="operationId" defaultValue={trip.operationId ?? ""}><option value="">Sin operación</option>{data.operations.filter((item) => ["PLANNED", "IN_PROGRESS"].includes(item.status) || item.id === trip.operationId).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</Select></Field>
@@ -73,16 +127,17 @@ function TripActions({ trip, data, onOpenAssemblies }: { trip: TransportData["tr
   </div>;
 }
 
-type OperationsTab = "trips" | "assemblies" | "dispatch" | "import" | "operations" | "history";
+type OperationsTab = "tower" | "trips" | "assemblies" | "dispatch" | "import" | "operations" | "history";
 
 export function Operations({ data }: { data: TransportData }) {
-  const [activeTab, setActiveTab] = useState<OperationsTab>("trips");
+  const [activeTab, setActiveTab] = useState<OperationsTab>("tower");
   const [assemblySearch, setAssemblySearch] = useState("");
   const movements = data.trips.flatMap((trip) => trip.assignments.map((assignment) => ({ ...assignment, trip, tripCode: trip.code, operation: trip.operation }))).sort((left, right) => right.assignedAt.localeCompare(left.assignedAt));
   const activeByVehicle = new Map(data.activeAssemblies.map((item) => [item.vehicle.id, item]));
   const normalizedAssemblySearch = assemblySearch.trim().toLocaleLowerCase("es");
   const assemblyRows = data.resourcePresets.filter((item) => !normalizedAssemblySearch || [item.name, item.code, item.vehicle.plate, ...item.trailers.map((trailer) => trailer.plate), ...item.drivers.flatMap((driver) => [driver.firstName, driver.lastName])].join(" ").toLocaleLowerCase("es").includes(normalizedAssemblySearch));
   const tabs: Array<{ id: OperationsTab; label: string; hint: string; count?: number; icon: typeof Route }> = [
+    { id: "tower", label: "Torre de control", hint: "Flota y viajes en una vista", count: data.controlTowerTrips.length, icon: RadioTower },
     { id: "trips", label: "Viajes", hint: "Servicios y acciones", count: data.trips.length, icon: Route },
     { id: "assemblies", label: "Placas y ensambles", hint: "Preparar antes del viaje", count: data.resourcePresets.filter((item) => item.active).length, icon: Truck },
     { id: "dispatch", label: "Despacho diario", hint: "Agenda y citas", icon: CalendarClock },
@@ -106,6 +161,8 @@ export function Operations({ data }: { data: TransportData }) {
     </nav>
 
     <section id={`operations-panel-${activeTab}`} className="operations-tab-panel" role="tabpanel" aria-labelledby={`operations-tab-${activeTab}`}>
+      {activeTab === "tower" ? <ControlTower data={data} onOpenAssemblies={() => setActiveTab("assemblies")} /> : null}
+
       {activeTab === "trips" ? <Card className="table-card"><div className="management-heading"><div><span className="section-kicker">PASO 2 · VIAJES</span><h2>Asignar ensambles preparados</h2><p>Elige un ensamble ya creado; aquí no se arman tractos, carretas ni pilotos.</p></div></div><DataTable rows={data.trips} rowKey={(row) => row.id} pageSize={8} columns={[
         { key: "code", header: "Servicio", cell: (row) => <span className="table-primary"><strong>{row.code}</strong><span>{row.operation ? `${row.operation.code} · ${row.operation.name}` : "Sin operación"}</span><span>{row.customer.legalName} · {row.serviceType}</span></span> },
         { key: "route", header: "Ruta", cell: (row) => <span className="table-primary"><strong>{row.route.origin.name} → {row.route.destination.name}</strong><span>{formatDateTime(row.scheduledStartAt)}</span></span> },
