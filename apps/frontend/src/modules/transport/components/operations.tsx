@@ -1,11 +1,12 @@
 "use client";
 
-import { Route } from "lucide-react";
+import { useState } from "react";
+import { CalendarClock, ClipboardList, FileSpreadsheet, History, Route, Truck } from "lucide-react";
 import type { TransportData } from "@movendi/contracts";
 import { Button, Card, DataTable, Field, Input, OperationButton, OperationForm, PageHeader, Select } from "@/shared/components/ui";
 import { formatDateTime } from "@/shared/lib/format";
 import { Badge, money, nowInput, futureInput } from "./transport-ui";
-import { DailyDispatch } from "./daily-dispatch";
+import { DailyDispatch, OperationalExcelImport } from "./daily-dispatch";
 function NewOperation({ data }: { data: TransportData }) {
   return <OperationForm title="Registrar operación logística" description="Agrupa uno o varios viajes. Puedes crearla antes de conocer placas, unidades o conductores." endpoint="/api/operations/transport/operations" triggerLabel="Nueva operación" submitLabel="Crear operación">
     <Field label="Nombre de la operación"><Input name="name" required placeholder="Distribución Lima Norte · Semana 35" /></Field>
@@ -62,30 +63,73 @@ function TripActions({ trip, data }: { trip: TransportData["trips"][number]; dat
   </div>;
 }
 
+type OperationsTab = "trips" | "assemblies" | "dispatch" | "import" | "operations" | "history";
+
 export function Operations({ data }: { data: TransportData }) {
-  const movements = data.trips.flatMap((trip) => trip.assignments.map((assignment) => ({ ...assignment, tripCode: trip.code, operation: trip.operation }))).sort((left, right) => right.assignedAt.localeCompare(left.assignedAt));
-  return <><PageHeader eyebrow="DESPACHO" title="Operaciones, viajes y trazabilidad" description="Planifica en tabla, importa Excel y ensambla tracto, múltiples carretas y tripulación sin perder trazabilidad." icon={Route} actions={<><NewOperation data={data} /><NewTrip data={data} /></>} />
-    <DailyDispatch data={data} />
-    <Card className="table-card"><div className="management-heading"><div><span className="section-kicker">PLAN OPERATIVO</span><h2>Operaciones logísticas</h2></div></div><DataTable rows={data.operations} rowKey={(row) => row.id} columns={[
-      { key: "operation", header: "Operación", cell: (row) => <span className="table-primary"><strong>{row.code} · {row.name}</strong><span>{row.customer?.legalName ?? "Varios clientes / por definir"}</span></span> },
-      { key: "period", header: "Periodo", cell: (row) => <span className="table-primary"><strong>{formatDateTime(row.plannedStartAt)}</strong><span>hasta {formatDateTime(row.plannedEndAt)}</span></span> },
-      { key: "trips", header: "Viajes", cell: (row) => <span className="table-primary"><strong>{row.tripCount} total</strong><span>{row.pendingTrips} pendientes · {row.activeTrips} activos · {row.completedTrips} entregados</span></span> },
-      { key: "status", header: "Estado", cell: (row) => <Badge value={row.status} /> },
-    ]} /></Card>
-    <Card className="table-card"><div className="management-heading"><div><span className="section-kicker">VIAJES</span><h2>Servicios programados</h2></div></div><DataTable rows={data.trips} rowKey={(row) => row.id} pageSize={8} columns={[
-    { key: "code", header: "Servicio", cell: (row) => <span className="table-primary"><strong>{row.code}</strong><span>{row.operation ? `${row.operation.code} · ${row.operation.name}` : "Sin operación"}</span><span>{row.customer.legalName} · {row.serviceType}</span></span> },
-    { key: "route", header: "Ruta", cell: (row) => <span className="table-primary"><strong>{row.route.origin.name} → {row.route.destination.name}</strong><span>{formatDateTime(row.scheduledStartAt)}</span></span> },
-    { key: "resource", header: "Ensamble", cell: (row) => { const active = row.assignments.find((item) => item.status === "ACTIVE"); return active ? <span className="table-primary"><strong>{active.vehicle.plate}{active.trailers.length ? ` + ${active.trailers.map((item) => item.plate).join(" + ")}` : active.trailer ? ` + ${active.trailer.plate}` : ""}</strong><span>{active.drivers.length ? active.drivers.map((item) => `${item.role}: ${item.firstName} ${item.lastName}`).join(" · ") : `Piloto: ${active.driver.firstName} ${active.driver.lastName}`}</span></span> : "Sin ensamblar"; } },
-    { key: "money", header: "Flete / margen", align: "right", cell: (row) => <span className="table-primary"><strong>{money(row.freightCents)}</strong><span>{row.settlement ? money(row.settlement.balanceCents) : "Sin liquidar"}</span></span> },
-    { key: "status", header: "Estado", cell: (row) => <Badge value={row.status} /> },
-    { key: "actions", header: "Acciones", cell: (row) => <TripActions trip={row} data={data} /> },
-  ]} /></Card>
-    <Card className="table-card"><div className="management-heading"><div><span className="section-kicker">TRAZABILIDAD</span><h2>Historial de ensambles y movimientos</h2></div></div><DataTable rows={movements} rowKey={(row) => row.id} pageSize={8} columns={[
-      { key: "trip", header: "Viaje / operación", cell: (row) => <span className="table-primary"><strong>{row.tripCode}</strong><span>{row.operation ? `${row.operation.code} · ${row.operation.name}` : "Sin operación"}</span></span> },
-      { key: "equipment", header: "Equipo", cell: (row) => <span className="table-primary"><strong>{row.vehicle.plate}</strong><span>{row.trailers.length ? `Carretas ${row.trailers.map((item) => item.plate).join(" + ")}` : row.trailer ? `Carreta ${row.trailer.plate}` : "Sin carreta"}</span></span> },
-      { key: "crew", header: "Tripulación", cell: (row) => <span className="table-primary"><strong>{row.drivers.length ? `${row.drivers.length} conductores` : `${row.driver.firstName} ${row.driver.lastName}`}</strong><span>{row.drivers.length ? row.drivers.map((item) => `${item.firstName} ${item.lastName}`).join(" · ") : row.secondDriver ? `Segundo: ${row.secondDriver.firstName} ${row.secondDriver.lastName}` : "Sin segundo piloto"}</span></span> },
-      { key: "movement", header: "Movimiento", cell: (row) => <span className="table-primary"><strong>{formatDateTime(row.assignedAt)}</strong><span>{row.releasedAt ? `Liberado ${formatDateTime(row.releasedAt)}` : `Programado hasta ${formatDateTime(row.endsAt)}`}</span></span> },
-      { key: "reason", header: "Motivo", cell: (row) => row.reason ?? "Asignación operativa" },
-      { key: "status", header: "Estado", cell: (row) => <Badge value={row.status} /> },
-    ]} /></Card></>;
+  const [activeTab, setActiveTab] = useState<OperationsTab>("trips");
+  const movements = data.trips.flatMap((trip) => trip.assignments.map((assignment) => ({ ...assignment, trip, tripCode: trip.code, operation: trip.operation }))).sort((left, right) => right.assignedAt.localeCompare(left.assignedAt));
+  const activeByVehicle = new Map(data.activeAssemblies.map((item) => [item.vehicle.id, item]));
+  const fleetRows = data.vehicles.map((vehicle) => ({ vehicle, movement: activeByVehicle.get(vehicle.id) ?? null }));
+  const tabs: Array<{ id: OperationsTab; label: string; hint: string; count?: number; icon: typeof Route }> = [
+    { id: "trips", label: "Viajes", hint: "Servicios y acciones", count: data.trips.length, icon: Route },
+    { id: "assemblies", label: "Placas y ensambles", hint: "Tracto, carretas y pilotos", count: activeByVehicle.size, icon: Truck },
+    { id: "dispatch", label: "Despacho diario", hint: "Agenda y citas", icon: CalendarClock },
+    { id: "import", label: "Importar viajes", hint: "Carga desde Excel", icon: FileSpreadsheet },
+    { id: "operations", label: "Operaciones", hint: "Agrupación logística", count: data.operations.length, icon: ClipboardList },
+    { id: "history", label: "Historial", hint: "Trazabilidad de ensambles", count: movements.length, icon: History },
+  ];
+
+  return <>
+    <PageHeader eyebrow="DESPACHO" title="Operaciones, viajes y trazabilidad" description="Consulta viajes, placas y ensambles en vistas separadas. Importa y despacha sin recorrer bloques apilados." icon={Route} actions={<><NewOperation data={data} /><NewTrip data={data} /></>} />
+    <nav className="operations-tabs" role="tablist" aria-label="Vistas de operaciones">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const selected = activeTab === tab.id;
+        return <button key={tab.id} id={`operations-tab-${tab.id}`} type="button" role="tab" aria-selected={selected} aria-controls={`operations-panel-${tab.id}`} className={selected ? "active" : ""} onClick={() => setActiveTab(tab.id)}>
+          <Icon size={17} />
+          <span><strong>{tab.label}</strong><small>{tab.hint}</small></span>
+          {tab.count !== undefined ? <b>{tab.count}</b> : null}
+        </button>;
+      })}
+    </nav>
+
+    <section id={`operations-panel-${activeTab}`} className="operations-tab-panel" role="tabpanel" aria-labelledby={`operations-tab-${activeTab}`}>
+      {activeTab === "trips" ? <Card className="table-card"><div className="management-heading"><div><span className="section-kicker">VIAJES</span><h2>Servicios programados</h2></div></div><DataTable rows={data.trips} rowKey={(row) => row.id} pageSize={8} columns={[
+        { key: "code", header: "Servicio", cell: (row) => <span className="table-primary"><strong>{row.code}</strong><span>{row.operation ? `${row.operation.code} · ${row.operation.name}` : "Sin operación"}</span><span>{row.customer.legalName} · {row.serviceType}</span></span> },
+        { key: "route", header: "Ruta", cell: (row) => <span className="table-primary"><strong>{row.route.origin.name} → {row.route.destination.name}</strong><span>{formatDateTime(row.scheduledStartAt)}</span></span> },
+        { key: "resource", header: "Ensamble", cell: (row) => { const active = row.assignments.find((item) => item.status === "ACTIVE"); return active ? <span className="table-primary"><strong>{active.vehicle.plate}{active.trailers.length ? ` + ${active.trailers.map((item) => item.plate).join(" + ")}` : active.trailer ? ` + ${active.trailer.plate}` : ""}</strong><span>{active.drivers.length ? active.drivers.map((item) => `${item.role}: ${item.firstName} ${item.lastName}`).join(" · ") : `Piloto: ${active.driver.firstName} ${active.driver.lastName}`}</span></span> : "Sin ensamblar"; } },
+        { key: "money", header: "Flete / margen", align: "right", cell: (row) => <span className="table-primary"><strong>{money(row.freightCents)}</strong><span>{row.settlement ? money(row.settlement.balanceCents) : "Sin liquidar"}</span></span> },
+        { key: "status", header: "Estado", cell: (row) => <Badge value={row.status} /> },
+        { key: "actions", header: "Acciones", cell: (row) => <TripActions trip={row} data={data} /> },
+      ]} /></Card> : null}
+
+      {activeTab === "assemblies" ? <Card className="table-card"><div className="management-heading"><div><span className="section-kicker">CONTROL DE RECURSOS</span><h2>Placas y ensambles actuales</h2><p>Cada tracto aparece junto con sus carretas, pilotos y viaje activo.</p></div></div><DataTable rows={fleetRows} rowKey={(row) => row.vehicle.id} pageSize={12} columns={[
+        { key: "plate", header: "Placa / tracto", sortValue: (row) => row.vehicle.plate, cell: (row) => <span className="table-primary"><strong>{row.vehicle.plate}</strong><span>{row.vehicle.brand} {row.vehicle.model} · {row.vehicle.type}</span></span> },
+        { key: "assembly", header: "Ensamble", cell: (row) => row.movement ? <span className="table-primary"><strong>{row.movement.trailers.length ? row.movement.trailers.map((item) => item.plate).join(" + ") : row.movement.trailer?.plate ?? "Solo tracto"}</strong><span>{row.movement.drivers.length ? row.movement.drivers.map((item) => `${item.firstName} ${item.lastName}`).join(" · ") : `${row.movement.driver.firstName} ${row.movement.driver.lastName}`}</span></span> : <span className="table-primary"><strong>Sin ensamble activo</strong><span>Disponible para asignación</span></span> },
+        { key: "trip", header: "Viaje", cell: (row) => row.movement ? <span className="table-primary"><strong>{row.movement.trip.code}</strong><span>{row.movement.trip.route.origin.name} → {row.movement.trip.route.destination.name}</span></span> : "—" },
+        { key: "schedule", header: "Programación", cell: (row) => row.movement ? <span className="table-primary"><strong>{formatDateTime(row.movement.startsAt)}</strong><span>hasta {formatDateTime(row.movement.endsAt)}</span></span> : "—" },
+        { key: "status", header: "Estado", cell: (row) => <Badge value={row.vehicle.active ? row.vehicle.status : "INACTIVE"} /> },
+      ]} /></Card> : null}
+
+      {activeTab === "dispatch" ? <DailyDispatch data={data} /> : null}
+
+      {activeTab === "import" ? <Card className="operations-import-card"><div className="management-heading"><div><span className="section-kicker">CARGA MASIVA</span><h2>Subir viajes desde Excel</h2><p>Descarga la plantilla, valida el archivo y confirma la importación desde un espacio independiente.</p></div></div><OperationalExcelImport data={data} /></Card> : null}
+
+      {activeTab === "operations" ? <Card className="table-card"><div className="management-heading"><div><span className="section-kicker">PLAN OPERATIVO</span><h2>Operaciones logísticas</h2></div></div><DataTable rows={data.operations} rowKey={(row) => row.id} columns={[
+        { key: "operation", header: "Operación", cell: (row) => <span className="table-primary"><strong>{row.code} · {row.name}</strong><span>{row.customer?.legalName ?? "Varios clientes / por definir"}</span></span> },
+        { key: "period", header: "Periodo", cell: (row) => <span className="table-primary"><strong>{formatDateTime(row.plannedStartAt)}</strong><span>hasta {formatDateTime(row.plannedEndAt)}</span></span> },
+        { key: "trips", header: "Viajes", cell: (row) => <span className="table-primary"><strong>{row.tripCount} total</strong><span>{row.pendingTrips} pendientes · {row.activeTrips} activos · {row.completedTrips} entregados</span></span> },
+        { key: "status", header: "Estado", cell: (row) => <Badge value={row.status} /> },
+      ]} /></Card> : null}
+
+      {activeTab === "history" ? <Card className="table-card"><div className="management-heading"><div><span className="section-kicker">TRAZABILIDAD</span><h2>Historial de ensambles y movimientos</h2></div></div><DataTable rows={movements} rowKey={(row) => row.id} pageSize={8} columns={[
+        { key: "trip", header: "Viaje / operación", cell: (row) => <span className="table-primary"><strong>{row.tripCode}</strong><span>{row.operation ? `${row.operation.code} · ${row.operation.name}` : "Sin operación"}</span></span> },
+        { key: "equipment", header: "Equipo", cell: (row) => <span className="table-primary"><strong>{row.vehicle.plate}</strong><span>{row.trailers.length ? `Carretas ${row.trailers.map((item) => item.plate).join(" + ")}` : row.trailer ? `Carreta ${row.trailer.plate}` : "Sin carreta"}</span></span> },
+        { key: "crew", header: "Tripulación", cell: (row) => <span className="table-primary"><strong>{row.drivers.length ? `${row.drivers.length} conductores` : `${row.driver.firstName} ${row.driver.lastName}`}</strong><span>{row.drivers.length ? row.drivers.map((item) => `${item.firstName} ${item.lastName}`).join(" · ") : row.secondDriver ? `Segundo: ${row.secondDriver.firstName} ${row.secondDriver.lastName}` : "Sin segundo piloto"}</span></span> },
+        { key: "movement", header: "Movimiento", cell: (row) => <span className="table-primary"><strong>{formatDateTime(row.assignedAt)}</strong><span>{row.releasedAt ? `Liberado ${formatDateTime(row.releasedAt)}` : `Programado hasta ${formatDateTime(row.endsAt)}`}</span></span> },
+        { key: "reason", header: "Motivo", cell: (row) => row.reason ?? "Asignación operativa" },
+        { key: "status", header: "Estado", cell: (row) => <Badge value={row.status} /> },
+      ]} /></Card> : null}
+    </section>
+  </>;
 }
