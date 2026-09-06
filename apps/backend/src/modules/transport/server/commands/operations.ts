@@ -134,11 +134,11 @@ export const handleOperationsCommand: TransportCommandHandler = async (method, s
     const configuration = await getTransportConfiguration(scope.tenantId);
     const storedConfiguration = await hasStoredTransportConfiguration(scope.tenantId);
     const trip = await owned(prisma.transportTrip.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: { in: ["DRAFT", "PLANNED", "ASSIGNED"] } } }), "El viaje");
-    const preset = input.presetId ? await owned(prisma.transportResourcePreset.findFirst({ where: { id: input.presetId, tenantId: scope.tenantId, active: true }, include: { trailers: { orderBy: { position: "asc" } }, drivers: { orderBy: { position: "asc" } } } }), "El ensamble habitual") : null;
-    if (preset && (preset.scopeType === "CUSTOMER" && preset.scopeId !== trip.customerId || preset.scopeType === "OPERATION" && preset.scopeId !== trip.operationId)) throw new AppError("PRESET_SCOPE_MISMATCH", 409, "El ensamble habitual no aplica al cliente u operación de este viaje.");
-    const vehicleId = preset?.vehicleId ?? input.vehicleId;
-    const trailerIds = preset ? preset.trailers.map((item) => item.trailerId) : input.trailerIds?.length ? input.trailerIds : input.trailerId ? [input.trailerId] : [];
-    const requestedDriverIds = preset ? preset.drivers.map((item) => item.driverId) : input.driverIds?.length ? input.driverIds : [input.driverId, ...(input.secondDriverId ? [input.secondDriverId] : [])];
+    const preset = await owned(prisma.transportResourcePreset.findFirst({ where: { id: input.presetId, tenantId: scope.tenantId, active: true }, include: { trailers: { orderBy: { position: "asc" } }, drivers: { orderBy: { position: "asc" } } } }), "El ensamble preparado");
+    if (preset.scopeType === "CUSTOMER" && preset.scopeId !== trip.customerId || preset.scopeType === "OPERATION" && preset.scopeId !== trip.operationId) throw new AppError("PRESET_SCOPE_MISMATCH", 409, "El ensamble preparado no aplica al cliente u operación de este viaje.");
+    const vehicleId = preset.vehicleId;
+    const trailerIds = preset.trailers.map((item) => item.trailerId);
+    const requestedDriverIds = preset.drivers.map((item) => item.driverId);
     const [drivers, vehicle, trailers] = await Promise.all([
       prisma.transportDriver.findMany({ where: { id: { in: requestedDriverIds }, tenantId: scope.tenantId, active: true, status: { notIn: ["SUSPENDED", "INACTIVE"] } } }),
       owned(prisma.transportVehicle.findFirst({ where: { id: vehicleId, tenantId: scope.tenantId, active: true, status: { notIn: ["MAINTENANCE", "OUT_OF_SERVICE"] } } }), "El vehículo"),
@@ -192,11 +192,11 @@ export const handleOperationsCommand: TransportCommandHandler = async (method, s
       await tx.transportVehicle.update({ where: { id: vehicle.id }, data: { status: "ASSIGNED" } });
       for (const item of orderedDrivers) await tx.transportDriver.update({ where: { id: item.id }, data: { status: "ASSIGNED" } });
       for (const item of orderedTrailers) await tx.transportTrailer.update({ where: { id: item.id }, data: { status: "ASSIGNED" } });
-      await tx.transportTripEvent.create({ data: { tenantId: scope.tenantId, tripId: trip.id, type: "RESOURCES_ASSIGNED", fromValue: trip.status, toValue: "ASSIGNED", payload: JSON.stringify({ assignmentId: created.id, vehicleId: vehicle.id, trailerIds, driverIds, presetId: preset?.id ?? null }), reason: input.reason || null, actorId: scope.actorId } });
+      await tx.transportTripEvent.create({ data: { tenantId: scope.tenantId, tripId: trip.id, type: "RESOURCES_ASSIGNED", fromValue: trip.status, toValue: "ASSIGNED", payload: JSON.stringify({ assignmentId: created.id, vehicleId: vehicle.id, trailerIds, driverIds, presetId: preset.id }), reason: input.reason || null, actorId: scope.actorId } });
       return created;
     });
-    await audit(scope, "ASSIGN", "TransportTrip", trip.id, { assignmentId: entity.id, vehicleId: vehicle.id, trailerIds, driverIds, presetId: preset?.id ?? null });
-    return { ok: true, id: entity.id, message: `Unidad ensamblada con ${orderedTrailers.length} carreta(s) y ${orderedDrivers.length} conductor(es), sin conflictos.` };
+    await audit(scope, "ASSIGN", "TransportTrip", trip.id, { assignmentId: entity.id, vehicleId: vehicle.id, trailerIds, driverIds, presetId: preset.id });
+    return { ok: true, id: entity.id, message: `Ensamble preparado asignado al viaje con ${orderedTrailers.length} carreta(s) y ${orderedDrivers.length} conductor(es), sin conflictos.` };
   }
 
   if (method === "POST" && resource === "trips" && id && action === "tracking") {

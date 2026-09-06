@@ -83,7 +83,7 @@ export const handlePlanningCommand: TransportCommandHandler = async (method, seg
     const code = automaticCode(input.name, "ENSAMBLE");
     const entity = await prisma.transportResourcePreset.create({ data: { tenantId: scope.tenantId, code, name: input.name, vehicleId: input.vehicleId, scopeType: input.scopeType, scopeId, trailers: { create: input.trailerIds.map((trailerId, position) => ({ trailerId, position })) }, drivers: { create: input.driverIds.map((driverId, position) => ({ driverId, position, role: position === 0 ? "PRIMARY" : position === 1 ? "SECONDARY" : "RELIEF" })) } } });
     await audit(scope, "CREATE", "TransportResourcePreset", entity.id, { code });
-    return { ok: true, id: entity.id, message: `Ensamble habitual ${input.name} guardado.` };
+    return { ok: true, id: entity.id, message: `Ensamble preparado ${input.name} guardado.` };
   }
 
   if (method === "PATCH" && resource === "trips" && id && action === "dispatch") {
