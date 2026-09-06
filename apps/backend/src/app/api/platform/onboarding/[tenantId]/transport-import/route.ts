@@ -1,6 +1,7 @@
 import { AppError, errorResponse } from "@/core/auth/errors";
 import { requireSession } from "@/core/auth/session";
 import { canManagePlatformResource, isPlatformRole } from "@/core/platform/access";
+import { stageTransportMasterDataDraft } from "@/core/platform/transport-master-data";
 import { parseTransportMasterWorkbook } from "@/core/platform/transport-workbook";
 import { loadTransportMasterWorkbookContext } from "@/core/platform/transport-workbook-context";
 
@@ -25,6 +26,7 @@ export async function POST(request: Request, context: Context) {
       const message = error instanceof Error && allowed.includes(error.message) ? error.message : "No pudimos interpretar el archivo. Descarga una plantilla nueva, complétala sin cambiar sus hojas y vuelve a subirla.";
       throw new AppError("WORKBOOK_INVALID", 400, message);
     }
-    return Response.json({ ok: result.valid, ...result, message: result.valid ? "Plantilla maestra validada. Revisa y guarda cada paso para confirmar los datos." : "Corrige los errores indicados y vuelve a subir la plantilla." }, { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+    if (result.valid) await stageTransportMasterDataDraft(tenantId, result.masterData, session.userId);
+    return Response.json({ ok: result.valid, ...result, message: result.valid ? "Plantilla validada y protegida como borrador. Revisa y guarda cada paso para confirmar los datos." : "Corrige los errores indicados y vuelve a subir la plantilla." }, { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
   } catch (error) { return errorResponse(error); }
 }

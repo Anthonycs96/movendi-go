@@ -5,6 +5,7 @@ import { z } from "zod";
 import { AppError } from "@/core/auth/errors";
 import { prisma } from "@/core/database/prisma";
 import { getTransportConfiguration } from "@/modules/transport/server/configuration";
+import type { TransportMasterWorkbookDraft } from "./transport-workbook";
 
 const MASTER_DATA_WRITE_BATCH_SIZE = 50;
 
@@ -33,6 +34,31 @@ function assertUnique(values: string[], label: string) {
     if (seen.has(value)) throw new AppError("MASTER_DATA_DUPLICATE", 409, `${label} ${value} está repetido en la plantilla.`);
     seen.add(value);
   }
+}
+
+function storedObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  return {};
+}
+
+export async function stageTransportMasterDataDraft(tenantId: string, masterData: TransportMasterWorkbookDraft, actorId: string) {
+  const setup = await prisma.businessSetup.findUnique({ where: { tenantId }, select: { id: true, data: true } });
+  if (!setup) throw new AppError("SETUP_NOT_FOUND", 404, "La implementación de esta empresa no existe.");
+  let current: Record<string, unknown> = {};
+  try { current = storedObject(JSON.parse(setup.data || "{}")); } catch { current = {}; }
+  const customers = storedObject(current.TRANSPORT_CUSTOMERS);
+  const fleet = storedObject(current.TRANSPORT_FLEET);
+  const drivers = storedObject(current.TRANSPORT_DRIVERS);
+  const next = {
+    ...current,
+    TRANSPORT_CUSTOMERS: { ...customers, masterData },
+    TRANSPORT_FLEET: { ...fleet, masterData: { vehicles: masterData.vehicles, trailers: masterData.trailers } },
+    TRANSPORT_DRIVERS: { ...drivers, masterData: { drivers: masterData.drivers } },
+  };
+  await prisma.$transaction([
+    prisma.businessSetup.update({ where: { tenantId }, data: { data: JSON.stringify(next), updatedById: actorId } }),
+    prisma.auditLog.create({ data: { tenantId, userId: actorId, action: "PLATFORM_TRANSPORT_MASTER_STAGED", entityType: "BusinessSetup", entityId: setup.id, metadata: JSON.stringify({ users: masterData.users.length, parties: masterData.parties.length, locations: masterData.locations.length, routes: masterData.routes.length, vehicles: masterData.vehicles.length, trailers: masterData.trailers.length, drivers: masterData.drivers.length }) } }),
+  ]);
 }
 
 async function runWriteBatches<T>(items: T[], buildOperation: (item: T) => Prisma.PrismaPromise<unknown>) {

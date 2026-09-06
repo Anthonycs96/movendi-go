@@ -67,7 +67,7 @@ const copyByStep: Record<TransportExcelStep, { title: string; description: strin
   },
 };
 
-export function TransportExcelSetup({ step, tenantId, data, setData, setUsers }: { step: TransportExcelStep; tenantId: string | null; data: TransportMasterData; setData: React.Dispatch<React.SetStateAction<TransportMasterData>>; setUsers: React.Dispatch<React.SetStateAction<UserDraft[]>> }) {
+export function TransportExcelSetup({ step, tenantId, data, setData, setUsers, onPrepared }: { step: TransportExcelStep; tenantId: string | null; data: TransportMasterData; setData: React.Dispatch<React.SetStateAction<TransportMasterData>>; setUsers: React.Dispatch<React.SetStateAction<UserDraft[]>>; onPrepared?: (data: TransportMasterData) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<"download" | "upload" | null>(null);
   const [message, setMessage] = useState("");
@@ -98,14 +98,15 @@ export function TransportExcelSetup({ step, tenantId, data, setData, setUsers }:
       if (!result.valid) { setMessage(result.message ?? "Corrige los errores del archivo."); return; }
       setData(result.masterData);
       if (result.masterData.users?.length) setUsers(result.masterData.users.map((user: TransportMasterData["users"][number]) => ({ ...user, password: "" })));
+      onPrepared?.(result.masterData);
       const summary = result.summary;
-      setMessage(`${summary.parties} cuentas, ${summary.locations} ubicaciones, ${summary.routes} rutas, ${summary.vehicles} vehículos, ${summary.trailers} carretas, ${summary.drivers} conductores y ${summary.users} usuarios preparados. Confirma cada paso para guardarlos.`);
+      setMessage(`${summary.parties} cuentas, ${summary.locations} ubicaciones, ${summary.routes} rutas, ${summary.vehicles} vehículos, ${summary.trailers} carretas, ${summary.drivers} conductores y ${summary.users} usuarios protegidos como borrador. Confirma cada paso para guardarlos.`);
     } catch (reason) { setMessage(reason instanceof Error ? reason.message : "No pudimos subir la plantilla."); }
     finally { setPending(null); if (input.current) input.current.value = ""; }
   };
   const total = data.parties.length + data.locations.length + data.routes.length + data.vehicles.length + data.trailers.length + data.drivers.length + data.users.length;
   return <section className="setup-excel-import" aria-label={copy.title}>
-    <div><FileSpreadsheet size={22} /><span><strong>{copy.title}</strong><small>{copy.description} Nada se guarda hasta confirmar el paso.</small></span></div>
+    <div><FileSpreadsheet size={22} /><span><strong>{copy.title}</strong><small>{copy.description} La carga queda protegida como borrador; confirma cada paso para crear o actualizar los registros.</small></span></div>
     <div><Button type="button" variant="secondary" loading={pending === "download"} disabled={!tenantId || Boolean(pending)} onClick={() => void download()}><Download size={15} />Descargar plantilla maestra</Button><Button type="button" loading={pending === "upload"} disabled={!tenantId || Boolean(pending)} onClick={() => input.current?.click()}><Upload size={15} />{copy.uploadLabel}</Button><input ref={input} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} /></div>
     {total ? <p>{total} registros preparados para los siguientes pasos.</p> : null}
     {message ? <p>{message}</p> : null}
