@@ -67,11 +67,10 @@ export function Fleet({ data }: { data: TransportData }) {
           <Field label="SOAT"><Input name="soatDueAt" type="date" /></Field>
           <Field label="GPS"><Input name="gpsDeviceId" /></Field>
         </OperationForm>
-        <OperationForm title="Registrar carretas inseparables" description="Agrupa dos o tres placas que físicamente siempre trabajan juntas. Cada carreta conservará sus documentos y vencimientos independientes." endpoint="/api/operations/transport/trailer-couplings" triggerLabel="Carretas inseparables" triggerIcon={<Link2 size={16} />} transform={(form) => ({ name: form.get("name"), trailerIds: [form.get("trailerId"), form.get("trailerId2"), form.get("trailerId3")].filter(Boolean) })}>
+        <OperationForm title="Registrar carretas inseparables" description="Agrupa exactamente dos placas que físicamente no pueden separarse. Cada carreta conservará sus documentos y vencimientos independientes." endpoint="/api/operations/transport/trailer-couplings" triggerLabel="Carretas inseparables" triggerIcon={<Link2 size={16} />} transform={(form) => ({ name: form.get("name"), trailerIds: [form.get("trailerId"), form.get("trailerId2")].filter(Boolean) })}>
           <Field label="Nombre del conjunto"><Input name="name" required placeholder="Ej. Bitrén fijo B-12" /></Field>
           <Field label="Primera placa"><Select name="trailerId" required defaultValue=""><option value="" disabled>Busca y selecciona</option>{couplingCandidates.map((item) => <option key={item.id} value={item.id}>{item.plate} · {[item.brand, item.model, item.type].filter(Boolean).join(" ")}</option>)}</Select></Field>
           <Field label="Segunda placa"><Select name="trailerId2" required defaultValue=""><option value="" disabled>Busca y selecciona</option>{couplingCandidates.map((item) => <option key={item.id} value={item.id}>{item.plate} · {[item.brand, item.model, item.type].filter(Boolean).join(" ")}</option>)}</Select></Field>
-          <Field label="Tercera placa (opcional)"><Select name="trailerId3" defaultValue=""><option value="">Sin tercera placa</option>{couplingCandidates.map((item) => <option key={item.id} value={item.id}>{item.plate} · {[item.brand, item.model, item.type].filter(Boolean).join(" ")}</option>)}</Select></Field>
         </OperationForm>
         <OperationForm title="Registrar remolque" endpoint="/api/operations/transport/trailers" triggerLabel="Remolque" transform={(form) => trailerPayload(form)}>
           <Field label="Placa"><Input name="plate" required /></Field>

@@ -12,13 +12,25 @@ const trailerLabel = (item: TransportData["trailers"][number]) => `${item.plate}
 const presetLabel = (item: TransportData["resourcePresets"][number]) => `${item.name} · ${item.vehicle.plate}${item.trailers.length ? ` + ${item.trailers.map((trailer) => trailer.plate).join(" + ")}` : ""}`;
 
 function NewPreparedAssembly({ data, vehicleId = "", triggerLabel = "Preparar ensamble", triggerSize = "md" }: { data: TransportData; vehicleId?: string; triggerLabel?: string; triggerSize?: "sm" | "md" }) {
-  return <OperationForm title="Preparar ensamble" description="Arma la unidad antes de asignarle un viaje. Los conjuntos fijos incorporan juntas todas sus placas, aunque cada una conserva documentos propios." endpoint="/api/operations/transport/resource-presets" triggerLabel={triggerLabel} triggerSize={triggerSize} submitLabel="Guardar ensamble" transform={(form) => ({ name: form.get("name"), scopeType: "TENANT", scopeId: "", vehicleId: form.get("vehicleId"), couplingId: form.get("couplingId"), trailerIds: [form.get("trailerId"), form.get("trailerId2"), form.get("trailerId3")].filter(Boolean), driverIds: [form.get("driverId"), form.get("secondDriverId"), form.get("reliefDriverId")].filter(Boolean) })}>
+  return <OperationForm title="Preparar ensamble" description="Selecciona una sola configuración: solo tracto, una carreta individual o un conjunto fijo de dos placas inseparables. Cada placa conserva sus documentos propios." endpoint="/api/operations/transport/resource-presets" triggerLabel={triggerLabel} triggerSize={triggerSize} submitLabel="Guardar ensamble" transform={(form) => {
+    const trailerSelection = String(form.get("trailerSelection") ?? "");
+    return {
+      name: form.get("name"),
+      scopeType: "TENANT",
+      scopeId: "",
+      vehicleId: form.get("vehicleId"),
+      couplingId: trailerSelection.startsWith("coupling:") ? trailerSelection.slice("coupling:".length) : "",
+      trailerIds: trailerSelection.startsWith("trailer:") ? [trailerSelection.slice("trailer:".length)] : [],
+      driverIds: [form.get("driverId"), form.get("secondDriverId"), form.get("reliefDriverId")].filter(Boolean),
+    };
+  }}>
     <Field label="Nombre del ensamble"><Input name="name" required placeholder="Ej. Volvo 01 + Semirremolque 12" /></Field>
     <Field label="Tracto"><Select name="vehicleId" required defaultValue={vehicleId}><option value="" disabled>Busca y selecciona una unidad</option>{data.vehicles.filter((item) => item.active && !["MAINTENANCE", "OUT_OF_SERVICE"].includes(item.status)).map((item) => <option key={item.id} value={item.id}>{item.plate} · {item.brand} {item.model} · {item.type}</option>)}</Select></Field>
-    <Field label="Conjunto fijo de carretas" hint="Si eliges uno, deja vacías las carretas individuales."><Select name="couplingId" defaultValue=""><option value="">No usar conjunto fijo</option>{data.trailerCouplings.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name} · {item.trailers.map((trailer) => trailer.plate).join(" + ")}</option>)}</Select></Field>
-    <Field label="Carreta individual 1"><Select name="trailerId" defaultValue=""><option value="">Sin carreta individual</option>{data.trailers.filter((item) => item.active && item.status !== "OUT_OF_SERVICE" && !item.fixedCoupling).map((item) => <option key={item.id} value={item.id}>{trailerLabel(item)}</option>)}</Select></Field>
-    <Field label="Carreta individual 2 / bitrén"><Select name="trailerId2" defaultValue=""><option value="">Sin segunda carreta</option>{data.trailers.filter((item) => item.active && item.status !== "OUT_OF_SERVICE" && !item.fixedCoupling).map((item) => <option key={item.id} value={item.id}>{trailerLabel(item)}</option>)}</Select></Field>
-    <Field label="Carreta individual 3"><Select name="trailerId3" defaultValue=""><option value="">Sin tercera carreta</option>{data.trailers.filter((item) => item.active && item.status !== "OUT_OF_SERVICE" && !item.fixedCoupling).map((item) => <option key={item.id} value={item.id}>{trailerLabel(item)}</option>)}</Select></Field>
+    <Field label="Configuración de carreta" hint="Elige una carreta suelta o un conjunto físico inseparable."><Select name="trailerSelection" defaultValue="">
+      <option value="">Solo tracto</option>
+      {data.trailerCouplings.filter((item) => item.active).map((item) => <option key={`coupling:${item.id}`} value={`coupling:${item.id}`}>Conjunto fijo · {item.name} · {item.trailers.map((trailer) => trailer.plate).join(" + ")}</option>)}
+      {data.trailers.filter((item) => item.active && item.status !== "OUT_OF_SERVICE" && !item.fixedCoupling).map((item) => <option key={`trailer:${item.id}`} value={`trailer:${item.id}`}>Carreta individual · {trailerLabel(item)}</option>)}
+    </Select></Field>
     <Field label="Piloto"><Select name="driverId" required defaultValue=""><option value="" disabled>Busca y selecciona un piloto</option>{data.drivers.filter((item) => item.active && !["SUSPENDED", "INACTIVE"].includes(item.status)).map((item) => <option key={item.id} value={item.id}>{item.fullName} · {item.licenseNo}</option>)}</Select></Field>
     <Field label="Segundo piloto"><Select name="secondDriverId" defaultValue=""><option value="">Sin segundo piloto</option>{data.drivers.filter((item) => item.active && !["SUSPENDED", "INACTIVE"].includes(item.status)).map((item) => <option key={item.id} value={item.id}>{item.fullName} · {item.licenseNo}</option>)}</Select></Field>
     <Field label="Conductor de relevo"><Select name="reliefDriverId" defaultValue=""><option value="">Sin relevo</option>{data.drivers.filter((item) => item.active && !["SUSPENDED", "INACTIVE"].includes(item.status)).map((item) => <option key={item.id} value={item.id}>{item.fullName} · {item.licenseNo}</option>)}</Select></Field>
