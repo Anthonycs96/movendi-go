@@ -1,9 +1,12 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { AppError } from "@/core/auth/errors";
 import { prisma } from "@/core/database/prisma";
 import { getTransportConfiguration } from "@/modules/transport/server/configuration";
+
+const MASTER_DATA_WRITE_BATCH_SIZE = 50;
 
 const optionalText = (max: number) => z.string().trim().max(max).default("");
 const configuredKey = z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]+$/).min(1).max(60);
@@ -32,6 +35,13 @@ function assertUnique(values: string[], label: string) {
   }
 }
 
+async function runWriteBatches<T>(items: T[], buildOperation: (item: T) => Prisma.PrismaPromise<unknown>) {
+  for (let index = 0; index < items.length; index += MASTER_DATA_WRITE_BATCH_SIZE) {
+    const batch = items.slice(index, index + MASTER_DATA_WRITE_BATCH_SIZE);
+    await prisma.$transaction(batch.map(buildOperation));
+  }
+}
+
 export async function persistTransportCustomerMasterData(tenantId: string, raw: unknown) {
   const parsed = transportCustomerMasterDataSchema.safeParse(raw);
   if (!parsed.success) throw new AppError("MASTER_DATA_INVALID", 400, "La carga maestra de clientes, ubicaciones o rutas contiene datos inválidos.", parsed.error.flatten());
@@ -43,25 +53,28 @@ export async function persistTransportCustomerMasterData(tenantId: string, raw: 
   const partyTypes = activeKeys(configuration.customers.partyTypes);
   for (const item of data.parties) if (!partyTypes.has(item.kind)) throw new AppError("CONFIG_VALUE_NOT_ALLOWED", 409, `El tipo de cuenta ${item.kind} no está habilitado.`);
 
-  await prisma.$transaction(async (tx) => {
-    for (const item of data.parties) {
-      const values = { documentType: item.documentType, legalName: item.legalName, tradeName: item.tradeName || null, contactName: item.contactName || null, phone: item.phone || null, email: item.email || null, address: item.address || null, active: true };
-      await tx.transportParty.upsert({ where: { tenantId_documentNo_kind: { tenantId, documentNo: item.documentNo, kind: item.kind } }, create: { tenantId, kind: item.kind, documentNo: item.documentNo, ...values }, update: values });
-    }
-    for (const item of data.locations) {
-      const values = { name: item.name, address: item.address || null, district: item.district || null, province: item.province || null, department: item.department || null, latitude: item.latitude, longitude: item.longitude, active: true };
-      await tx.transportLocation.upsert({ where: { tenantId_code: { tenantId, code: item.code } }, create: { tenantId, code: item.code, ...values }, update: values });
-    }
-    const storedLocations = await tx.transportLocation.findMany({ where: { tenantId, active: true }, select: { id: true, code: true } });
-    const locationIds = new Map(storedLocations.map((item) => [item.code, item.id]));
-    for (const item of data.routes) {
-      const originId = locationIds.get(item.originCode);
-      const destinationId = locationIds.get(item.destinationCode);
-      if (!originId || !destinationId) throw new AppError("ROUTE_LOCATION_NOT_FOUND", 409, `La ruta ${item.code} usa una ubicación que no existe.`);
-      if (originId === destinationId) throw new AppError("SAME_LOCATION", 409, `La ruta ${item.code} debe tener origen y destino diferentes.`);
-      const values = { name: item.name, originId, destinationId, distanceKm: item.distanceKm, estimatedMinutes: item.estimatedMinutes, tollEstimateCents: Math.round(item.tollEstimate * 100), baseFreightCents: Math.round(item.baseFreight * 100), active: true };
-      await tx.transportRoute.upsert({ where: { tenantId_code: { tenantId, code: item.code } }, create: { tenantId, code: item.code, ...values }, update: values });
-    }
+  const storedLocationsBeforeWrite = await prisma.transportLocation.findMany({ where: { tenantId, active: true }, select: { code: true } });
+  const availableLocationCodes = new Set([...storedLocationsBeforeWrite.map((item) => item.code), ...data.locations.map((item) => item.code)]);
+  for (const item of data.routes) {
+    if (!availableLocationCodes.has(item.originCode) || !availableLocationCodes.has(item.destinationCode)) throw new AppError("ROUTE_LOCATION_NOT_FOUND", 409, `La ruta ${item.code} usa una ubicación que no existe.`);
+    if (item.originCode === item.destinationCode) throw new AppError("SAME_LOCATION", 409, `La ruta ${item.code} debe tener origen y destino diferentes.`);
+  }
+
+  await runWriteBatches(data.parties, (item) => {
+    const values = { documentType: item.documentType, legalName: item.legalName, tradeName: item.tradeName || null, contactName: item.contactName || null, phone: item.phone || null, email: item.email || null, address: item.address || null, active: true };
+    return prisma.transportParty.upsert({ where: { tenantId_documentNo_kind: { tenantId, documentNo: item.documentNo, kind: item.kind } }, create: { tenantId, kind: item.kind, documentNo: item.documentNo, ...values }, update: values });
+  });
+  await runWriteBatches(data.locations, (item) => {
+    const values = { name: item.name, address: item.address || null, district: item.district || null, province: item.province || null, department: item.department || null, latitude: item.latitude, longitude: item.longitude, active: true };
+    return prisma.transportLocation.upsert({ where: { tenantId_code: { tenantId, code: item.code } }, create: { tenantId, code: item.code, ...values }, update: values });
+  });
+  const storedLocations = await prisma.transportLocation.findMany({ where: { tenantId, active: true }, select: { id: true, code: true } });
+  const locationIds = new Map(storedLocations.map((item) => [item.code, item.id]));
+  await runWriteBatches(data.routes, (item) => {
+    const originId = locationIds.get(item.originCode)!;
+    const destinationId = locationIds.get(item.destinationCode)!;
+    const values = { name: item.name, originId, destinationId, distanceKm: item.distanceKm, estimatedMinutes: item.estimatedMinutes, tollEstimateCents: Math.round(item.tollEstimate * 100), baseFreightCents: Math.round(item.baseFreight * 100), active: true };
+    return prisma.transportRoute.upsert({ where: { tenantId_code: { tenantId, code: item.code } }, create: { tenantId, code: item.code, ...values }, update: values });
   });
   return { parties: data.parties.length, locations: data.locations.length, routes: data.routes.length };
 }
@@ -84,15 +97,13 @@ export async function persistTransportFleetMasterData(tenantId: string, raw: unk
     if (!trailerTypes.has(item.type)) throw new AppError("CONFIG_VALUE_NOT_ALLOWED", 409, `El tipo de carreta ${item.type} no está habilitado.`);
     if (!statuses.has(item.status)) throw new AppError("CONFIG_VALUE_NOT_ALLOWED", 409, `El estado de carreta ${item.status} no está habilitado.`);
   }
-  await prisma.$transaction(async (tx) => {
-    for (const item of data.vehicles) {
-      const values = { brand: item.brand, model: item.model, year: item.year, type: item.type, capacityKg: item.capacityKg, odometerKm: item.odometerKm, status: item.status, technicalDueAt: item.technicalDueAt, soatDueAt: item.soatDueAt, gpsDeviceId: item.gpsDeviceId || null, active: true };
-      await tx.transportVehicle.upsert({ where: { tenantId_plate: { tenantId, plate: item.plate } }, create: { tenantId, plate: item.plate, ...values }, update: values });
-    }
-    for (const item of data.trailers) {
-      const values = { brand: item.brand || null, model: item.model || null, type: item.type, capacityKg: item.capacityKg, status: item.status, active: true };
-      await tx.transportTrailer.upsert({ where: { tenantId_plate: { tenantId, plate: item.plate } }, create: { tenantId, plate: item.plate, ...values }, update: values });
-    }
+  await runWriteBatches(data.vehicles, (item) => {
+    const values = { brand: item.brand, model: item.model, year: item.year, type: item.type, capacityKg: item.capacityKg, odometerKm: item.odometerKm, status: item.status, technicalDueAt: item.technicalDueAt, soatDueAt: item.soatDueAt, gpsDeviceId: item.gpsDeviceId || null, active: true };
+    return prisma.transportVehicle.upsert({ where: { tenantId_plate: { tenantId, plate: item.plate } }, create: { tenantId, plate: item.plate, ...values }, update: values });
+  });
+  await runWriteBatches(data.trailers, (item) => {
+    const values = { brand: item.brand || null, model: item.model || null, type: item.type, capacityKg: item.capacityKg, status: item.status, active: true };
+    return prisma.transportTrailer.upsert({ where: { tenantId_plate: { tenantId, plate: item.plate } }, create: { tenantId, plate: item.plate, ...values }, update: values });
   });
   return { vehicles: data.vehicles.length, trailers: data.trailers.length };
 }
@@ -114,14 +125,16 @@ export async function persistTransportDriverMasterData(tenantId: string, raw: un
     if (!licenseClasses.has(item.licenseClass)) throw new AppError("CONFIG_VALUE_NOT_ALLOWED", 409, `La licencia ${item.licenseClass} no está habilitada.`);
     if (!workRegimes.has(item.workRegimeKey)) throw new AppError("CONFIG_VALUE_NOT_ALLOWED", 409, `El régimen ${item.workRegimeKey} no está habilitado.`);
   }
-  await prisma.$transaction(async (tx) => {
-    for (const item of data.drivers) {
-      const conflictingLicense = await tx.transportDriver.findFirst({ where: { tenantId, licenseNo: item.licenseNo, documentNo: { not: item.documentNo } }, select: { id: true } });
-      if (conflictingLicense) throw new AppError("DRIVER_LICENSE_DUPLICATE", 409, `La licencia ${item.licenseNo} ya pertenece a otro conductor.`);
-      const regime = workRegimes.get(item.workRegimeKey)!;
-      const values = { firstName: item.firstName, lastName: item.lastName, type: item.type, phone: item.phone || null, email: item.email || null, licenseNo: item.licenseNo, licenseClass: item.licenseClass, licenseDueAt: item.licenseDueAt, hireDate: item.hireDate, workRegimeName: regime.label, workDays: regime.workDays, restDays: regime.restDays, workCycleAnchor: item.workCycleAnchor, status: item.status, active: true };
-      await tx.transportDriver.upsert({ where: { tenantId_documentNo: { tenantId, documentNo: item.documentNo } }, create: { tenantId, documentNo: item.documentNo, ...values }, update: values });
-    }
+  const storedLicenses = await prisma.transportDriver.findMany({ where: { tenantId, licenseNo: { in: data.drivers.map((item) => item.licenseNo) } }, select: { licenseNo: true, documentNo: true } });
+  const licenseOwners = new Map(storedLicenses.map((item) => [item.licenseNo, item.documentNo]));
+  for (const item of data.drivers) {
+    const ownerDocument = licenseOwners.get(item.licenseNo);
+    if (ownerDocument && ownerDocument !== item.documentNo) throw new AppError("DRIVER_LICENSE_DUPLICATE", 409, `La licencia ${item.licenseNo} ya pertenece a otro conductor.`);
+  }
+  await runWriteBatches(data.drivers, (item) => {
+    const regime = workRegimes.get(item.workRegimeKey)!;
+    const values = { firstName: item.firstName, lastName: item.lastName, type: item.type, phone: item.phone || null, email: item.email || null, licenseNo: item.licenseNo, licenseClass: item.licenseClass, licenseDueAt: item.licenseDueAt, hireDate: item.hireDate, workRegimeName: regime.label, workDays: regime.workDays, restDays: regime.restDays, workCycleAnchor: item.workCycleAnchor, status: item.status, active: true };
+    return prisma.transportDriver.upsert({ where: { tenantId_documentNo: { tenantId, documentNo: item.documentNo } }, create: { tenantId, documentNo: item.documentNo, ...values }, update: values });
   });
   return { drivers: data.drivers.length };
 }

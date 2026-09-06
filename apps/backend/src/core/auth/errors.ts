@@ -32,7 +32,7 @@ export async function errorResponse(error: unknown): Promise<Response> {
       return Response.json({ error: { code: "RELATED_RECORD", message: "La operación usa un registro relacionado inválido." } }, { status: 409, headers: responseHeaders() });
     }
     if (error.code === "P2024" || error.code === "P2028") {
-      return Response.json({ error: { code: "DATABASE_OPERATION_TIMEOUT", message: "La carta es extensa y no terminó de guardarse. No se perdió el borrador; vuelve a intentar o divídela en grupos más pequeños.", requestId } }, { status: 503, headers: responseHeaders({ "Retry-After": "2" }) });
+      return Response.json({ error: { code: "DATABASE_OPERATION_TIMEOUT", message: "La operación contiene muchos registros y no terminó dentro del tiempo disponible. No se perdió el borrador; vuelve a intentar.", requestId } }, { status: 503, headers: responseHeaders({ "Retry-After": "2" }) });
     }
   }
   logEvent("error", "api_error", { requestId, error });
