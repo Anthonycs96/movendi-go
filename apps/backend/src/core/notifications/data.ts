@@ -5,6 +5,7 @@ import type { AuthSession } from "@/core/auth/types";
 import type { OperationalNotification } from "@movendi/contracts";
 import { getTransportConfiguration } from "@/modules/transport/server/configuration";
 import { getRestaurantConfiguration } from "@/modules/restaurant/server/configuration";
+import { maintenanceDueCount } from "@/modules/transport/server/maintenance-planning";
 
 export async function getOperationalNotifications(session: AuthSession): Promise<OperationalNotification[]> {
   const items: OperationalNotification[] = [];
@@ -23,7 +24,7 @@ export async function getOperationalNotifications(session: AuthSession): Promise
     const [documents, incidents, maintenance, inventory, expenses, failedJobs, appointmentRisk, unassignedTrips, delayedTrips, duplicateValues] = await Promise.all([
       notify("DOCUMENT_EXPIRING") && allowed("transport:documents:read") ? prisma.transportDocument.count({ where: { tenantId: session.tenantId, status: "VALID", expiresAt: { lte: horizon } } }) : 0,
       notify("CRITICAL_INCIDENT") && allowed("transport:operations:read") ? prisma.transportIncident.count({ where: { tenantId: session.tenantId, status: "OPEN", severity: { in: ["HIGH", "CRITICAL"] } } }) : 0,
-      notify("MAINTENANCE_DUE") && allowed("transport:maintenance:read") ? prisma.transportMaintenanceOrder.count({ where: { tenantId: session.tenantId, status: { in: ["OPEN", "IN_PROGRESS"] }, scheduledAt: { lt: new Date() } } }) : 0,
+      notify("MAINTENANCE_DUE") && allowed("transport:maintenance:read") ? Promise.all([maintenanceDueCount(session.tenantId), prisma.transportMaintenanceOrder.count({ where: { tenantId: session.tenantId, scheduleId: null, status: { in: ["OPEN", "IN_PROGRESS"] }, scheduledAt: { lt: new Date() } } })]).then(([scheduled, legacy]) => scheduled + legacy) : 0,
       configuration.modules.inventory.lowStockAlerts && allowed("transport:maintenance:read") ? prisma.inventoryItem.findMany({ where: { tenantId: session.tenantId, OR: [{ branchId: session.branchId }, { branchId: null }], active: true }, select: { stock: true, minimumStock: true } }) : [],
       notify("EXPENSE_APPROVAL") && allowed("transport:finance:write") ? prisma.transportExpense.count({ where: { tenantId: session.tenantId, status: "PENDING" } }) : 0,
       prisma.transportDataJob.count({ where: { tenantId: session.tenantId, actorId: session.userId, status: "FAILED" } }),
@@ -38,7 +39,7 @@ export async function getOperationalNotifications(session: AuthSession): Promise
     for (const value of duplicateValues) { const key = `${value.definitionId}:${value.normalizedValue}`; if (seenKeys.has(key)) duplicateKeys.add(key); else seenKeys.add(key); }
     if (incidents) items.push({ id: "transport-incidents", tone: "critical", title: `${incidents} incidente${incidents === 1 ? "" : "s"} de alta prioridad`, message: "Hay eventos abiertos que requieren resolución operativa.", href: path("operations") });
     if (documents) items.push({ id: "transport-documents", tone: "warning", title: `${documents} documento${documents === 1 ? "" : "s"} por vencer`, message: `Vencidos o con vigencia menor a ${configuration.documents.defaultAlertDays} días.`, href: path("documents") });
-    if (maintenance) items.push({ id: "transport-maintenance", tone: "warning", title: `${maintenance} mantenimiento${maintenance === 1 ? "" : "s"} atrasado${maintenance === 1 ? "" : "s"}`, message: "Órdenes abiertas con fecha programada vencida.", href: path("maintenance") });
+    if (maintenance) items.push({ id: "transport-maintenance", tone: "warning", title: `${maintenance} mantenimiento${maintenance === 1 ? "" : "s"} vencido${maintenance === 1 ? "" : "s"}`, message: "Planes vencidos por kilometraje o fecha y órdenes manuales atrasadas.", href: path("maintenance") });
     if (lowStock) items.push({ id: "transport-stock", tone: "warning", title: `${lowStock} repuesto${lowStock === 1 ? "" : "s"} con stock bajo`, message: "El inventario alcanzó o bajó su nivel mínimo.", href: path("maintenance") });
     if (expenses) items.push({ id: "transport-expenses", tone: "info", title: `${expenses} gasto${expenses === 1 ? "" : "s"} por aprobar`, message: "Hay rendiciones pendientes asignadas a los roles responsables.", href: path("finance") });
     if (failedJobs) items.push({ id: "transport-jobs", tone: "warning", title: `${failedJobs} exportación${failedJobs === 1 ? "" : "es"} fallida${failedJobs === 1 ? "" : "s"}`, message: "Revisa o vuelve a generar los archivos pendientes.", href: path("reports") });

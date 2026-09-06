@@ -9,5 +9,6 @@ apps/backend/prisma/*.db-journal
 apps/backend/prisma/postgresql/schema.prisma
 test-results
 playwright-report
+outputs
 *.log
 *.tsbuildinfo

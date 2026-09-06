@@ -6,6 +6,8 @@ const patchDate = z.union([z.coerce.date(), z.literal(""), z.null()]).optional()
 const activeValue = z.union([z.boolean(), z.enum(["true", "false"]).transform((value) => value === "true")]);
 const money = z.coerce.number().nonnegative().max(100_000_000).transform((value) => Math.round(value * 100));
 const configuredKey = z.string().trim().toUpperCase().regex(/^[A-Z0-9_\-]+$/).min(1).max(80);
+const nullableNumber = (schema: z.ZodNumber) => z.preprocess((value) => value === "" || value === null || value === undefined ? null : Number(value), schema.nullable());
+const nullableText = (max = 120) => z.preprocess((value) => value === "" || value === null || value === undefined ? null : value, z.string().trim().max(max).nullable());
 
 export const partySchema = z.object({ kind: configuredKey, documentType: z.enum(["RUC", "DNI", "CE", "OTHER"]).default("RUC"), documentNo: z.string().trim().min(8).max(20), legalName: z.string().trim().min(2).max(160), tradeName: optionalText(120), contactName: optionalText(120), phone: optionalText(30), email: z.union([z.string().trim().email(), z.literal("")]).optional(), address: optionalText(240) });
 export const partyUpdateSchema = partySchema.extend({ active: activeValue });
@@ -47,8 +49,43 @@ export const expenseStatusSchema = z.object({ status: configuredKey });
 export const paymentSchema = z.object({ tripId: z.union([z.string().min(1), z.literal("")]).optional(), direction: z.enum(["IN", "OUT"]), partyType: configuredKey, partyId: optionalText(80), category: z.string().trim().min(2).max(80), amount: money, method: configuredKey, reference: optionalText(100), paidAt: z.coerce.date() });
 export const fuelSchema = z.object({ tripId: z.union([z.string().min(1), z.literal("")]).optional(), vehicleId: z.string().min(1), loadedAt: z.coerce.date(), station: z.string().trim().min(2).max(120), liters: z.coerce.number().positive().max(2_000), price: money, odometerKm: z.coerce.number().nonnegative().max(10_000_000), invoiceNo: optionalText(80) });
 export const maintenanceSchema = z.object({ vehicleId: z.string().min(1), type: configuredKey, title: z.string().trim().min(3).max(140), description: optionalText(1000), priority: configuredKey, scheduledAt: optionalDate, odometerKm: z.coerce.number().nonnegative().optional(), estimated: money });
-export const maintenanceStatusSchema = z.object({ status: configuredKey, actual: money, completedAt: optionalDate });
+export const maintenanceStatusSchema = z.object({ status: configuredKey, actual: money, completedAt: optionalDate, odometerKm: z.coerce.number().nonnegative().max(10_000_000).optional() });
+export const maintenancePlanSchema = z.object({
+  code: configuredKey,
+  name: z.string().trim().min(3).max(120),
+  brand: nullableText(60),
+  model: nullableText(60),
+  yearFrom: nullableNumber(z.number().int().min(1980).max(new Date().getFullYear() + 1)),
+  yearTo: nullableNumber(z.number().int().min(1980).max(new Date().getFullYear() + 1)),
+  vehicleType: nullableText(60),
+  version: z.coerce.number().int().positive().max(999).default(1),
+}).refine((input) => !input.yearFrom || !input.yearTo || input.yearTo >= input.yearFrom, { path: ["yearTo"], message: "El año final no puede ser menor al inicial." });
+export const maintenanceTaskSchema = z.object({
+  code: configuredKey,
+  name: z.string().trim().min(3).max(140),
+  componentType: configuredKey,
+  intervalKm: nullableNumber(z.number().positive().max(10_000_000)),
+  intervalDays: nullableNumber(z.number().int().positive().max(3650)),
+  alertKmBefore: nullableNumber(z.number().nonnegative().max(1_000_000)),
+  alertDaysBefore: nullableNumber(z.number().int().nonnegative().max(365)),
+  priority: configuredKey.default("NORMAL"),
+  estimated: money,
+  instructions: nullableText(2000),
+}).superRefine((input, context) => {
+  if (input.intervalKm && input.alertKmBefore != null && input.alertKmBefore >= input.intervalKm) context.addIssue({ code: "custom", path: ["alertKmBefore"], message: "La alerta debe ser menor al intervalo." });
+  if (input.intervalDays && input.alertDaysBefore != null && input.alertDaysBefore >= input.intervalDays) context.addIssue({ code: "custom", path: ["alertDaysBefore"], message: "La alerta debe ser menor al intervalo." });
+});
+export const vehicleComponentSchema = z.object({
+  vehicleId: z.string().min(1), code: configuredKey, componentType: configuredKey, name: z.string().trim().min(2).max(120),
+  brand: nullableText(60), model: nullableText(60), serialNo: nullableText(100), installedAt: optionalDate,
+  installedOdometerKm: nullableNumber(z.number().nonnegative().max(10_000_000)),
+});
+export const vehicleMaintenancePlanSchema = z.object({ vehicleId: z.string().min(1), planId: z.string().min(1), baselineKm: z.coerce.number().nonnegative().max(10_000_000), baselineAt: z.coerce.date() });
+export const maintenanceScheduleSchema = z.object({
+  intervalKm: nullableNumber(z.number().positive().max(10_000_000)), intervalDays: nullableNumber(z.number().int().positive().max(3650)),
+  alertKmBefore: nullableNumber(z.number().nonnegative().max(1_000_000)), alertDaysBefore: nullableNumber(z.number().int().nonnegative().max(365)),
+}).refine((input) => input.intervalKm || input.intervalDays, { path: ["intervalKm"], message: "El seguimiento necesita kilómetros o tiempo." });
 export const inventorySchema = z.object({ sku: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{2,30}$/), name: z.string().trim().min(2).max(120), unit: z.string().trim().toUpperCase().min(1).max(10), minimumStock: z.coerce.number().nonnegative(), unitCost: money });
-export const inventoryMovementSchema = z.object({ type: z.enum(["IN", "OUT", "ADJUSTMENT"]), quantity: z.coerce.number().positive(), reference: optionalText(80), notes: optionalText(300) });
+export const inventoryMovementSchema = z.object({ type: z.enum(["IN", "OUT", "ADJUSTMENT"]), quantity: z.coerce.number().positive(), maintenanceOrderId: z.union([z.string().min(1), z.literal("")]).optional(), reference: optionalText(80), notes: optionalText(300) });
 export const tireSchema = z.object({ serialNo: z.string().trim().toUpperCase().min(4).max(80), brand: z.string().trim().min(2).max(60), model: optionalText(60), size: z.string().trim().min(3).max(40), purchaseAt: optionalDate, purchase: money, initialTreadMm: z.coerce.number().positive().max(100).optional() });
 export const tireEventSchema = z.object({ type: z.enum(["INSTALL", "REMOVE", "INSPECTION", "ROTATION", "REPAIR", "RETIRE"]), vehicleId: z.union([z.string().min(1), z.literal("")]).optional(), position: optionalText(30), treadMm: z.coerce.number().nonnegative().max(100).optional(), odometerKm: z.coerce.number().nonnegative().optional(), cost: money, notes: optionalText(500), occurredAt: z.coerce.date() });

@@ -43,7 +43,7 @@ function requiredPermission(moduleName: string, resource: string, method: string
     if (resource === "documents") return method === "GET" ? "transport:documents:read" : "transport:documents:write";
     if (["expenses", "settlements", "payments"].includes(resource)) return method === "GET" ? "transport:finance:read" : "transport:finance:write";
     if (resource === "fuel") return method === "GET" ? "transport:fuel:read" : "transport:fuel:write";
-    if (["maintenance", "inventory"].includes(resource)) return method === "GET" ? "transport:maintenance:read" : "transport:maintenance:write";
+    if (["maintenance", "maintenance-plans", "maintenance-components", "maintenance-plan-assignments", "maintenance-schedules", "inventory"].includes(resource)) return method === "GET" ? "transport:maintenance:read" : "transport:maintenance:write";
     if (resource === "tires") return method === "GET" ? "transport:tires:read" : "transport:tires:write";
     return method === "GET" ? "transport:read" : "transport:write";
   }

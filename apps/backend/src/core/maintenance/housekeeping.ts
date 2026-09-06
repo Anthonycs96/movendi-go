@@ -3,6 +3,7 @@ import { prisma } from "@/core/database/prisma";
 import { logEvent } from "@/core/observability/logging";
 import { deleteStoredObject } from "@/core/storage/service";
 import { processEmailOutbox } from "@/core/billing/outbox";
+import { generateDueMaintenanceOrders } from "@/modules/transport/server/maintenance-planning";
 
 const globalState = globalThis as typeof globalThis & { movendiHousekeepingAt?: number };
 
@@ -39,7 +40,7 @@ export async function runHousekeeping(now = new Date()) {
       logEvent("error", "expired_object_cleanup_failed", { objectId: object.id, provider: object.provider, error });
     }
   }
-  const [expiredSessions, oldThrottles, expiredLegacyResults, oldJobs, recoveredJobs, oldAudits, oldStorageMetadata, expiredCheckouts, oldBillingEvents, oldEmails, emails] = await Promise.all([
+  const [expiredSessions, oldThrottles, expiredLegacyResults, oldJobs, recoveredJobs, oldAudits, oldStorageMetadata, expiredCheckouts, oldBillingEvents, oldEmails, emails, maintenanceOrders] = await Promise.all([
     prisma.session.deleteMany({ where: { expiresAt: { lt: now } } }),
     prisma.loginThrottle.deleteMany({ where: { updatedAt: { lt: throttleBefore }, OR: [{ blockedUntil: null }, { blockedUntil: { lte: now } }] } }),
     prisma.transportDataJob.updateMany({ where: { status: "COMPLETED", storageObjectId: null, expiresAt: { lte: now } }, data: { status: "EXPIRED", resultData: null } }),
@@ -51,8 +52,9 @@ export async function runHousekeeping(now = new Date()) {
     prisma.billingWebhookEvent.deleteMany({ where: { status: { in: ["PROCESSED", "IGNORED"] }, createdAt: { lt: billingEventBefore } } }),
     prisma.emailOutbox.deleteMany({ where: { status: "SENT", sentAt: { lt: emailBefore } } }),
     processEmailOutbox(now),
+    generateDueMaintenanceOrders(now),
   ]);
-  const result = { expiredSessions: expiredSessions.count, oldThrottles: oldThrottles.count, expiredStoredObjects, expiredLegacyResults: expiredLegacyResults.count, oldJobs: oldJobs.count, recoveredJobs, oldAudits: oldAudits.count, oldStorageMetadata: oldStorageMetadata.count, expiredCheckouts: expiredCheckouts.count, oldBillingEvents: oldBillingEvents.count, oldEmails: oldEmails.count, emails };
+  const result = { expiredSessions: expiredSessions.count, oldThrottles: oldThrottles.count, expiredStoredObjects, expiredLegacyResults: expiredLegacyResults.count, oldJobs: oldJobs.count, recoveredJobs, oldAudits: oldAudits.count, oldStorageMetadata: oldStorageMetadata.count, expiredCheckouts: expiredCheckouts.count, oldBillingEvents: oldBillingEvents.count, oldEmails: oldEmails.count, emails, maintenanceOrders };
   logEvent("info", "housekeeping_completed", result);
   return result;
 }

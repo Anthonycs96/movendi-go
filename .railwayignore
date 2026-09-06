@@ -5,6 +5,7 @@ node_modules/
 .e2e-storage/
 backups/
 output/
+outputs/
 tmp/
 test-results/
 playwright-report/

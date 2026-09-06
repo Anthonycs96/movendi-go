@@ -83,6 +83,11 @@ model Tenant {
   transportPayments                TransportPayment[]
   transportFuelLogs                TransportFuelLog[]
   transportMaintenanceOrders       TransportMaintenanceOrder[]
+  transportMaintenancePlans        TransportMaintenancePlan[]
+  transportMaintenanceTasks        TransportMaintenanceTask[]
+  transportVehicleComponents       TransportVehicleComponent[]
+  transportVehicleMaintenancePlans TransportVehicleMaintenancePlan[]
+  transportMaintenanceSchedules    TransportMaintenanceSchedule[]
   inventoryItems                   InventoryItem[]
   inventoryMovements               InventoryMovement[]
   inventoryPurchases               InventoryPurchase[]
@@ -1297,28 +1302,31 @@ model TransportRoute {
 }
 
 model TransportVehicle {
-  id                String                      @id @default(cuid())
-  tenantId          String
-  plate             String
-  brand             String
-  model             String
-  year              Int
-  type              String
-  capacityKg        Float?
-  odometerKm        Float                       @default(0)
-  status            String                      @default("AVAILABLE")
-  technicalDueAt    DateTime?
-  soatDueAt         DateTime?
-  gpsDeviceId       String?
-  active            Boolean                     @default(true)
-  createdAt         DateTime                    @default(now())
-  updatedAt         DateTime                    @updatedAt
-  tenant            Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  assignments       TransportAssignment[]
-  fuelLogs          TransportFuelLog[]
-  maintenanceOrders TransportMaintenanceOrder[]
-  tireEvents        TransportTireEvent[]
-  resourcePresets   TransportResourcePreset[]
+  id                   String                            @id @default(cuid())
+  tenantId             String
+  plate                String
+  brand                String
+  model                String
+  year                 Int
+  type                 String
+  capacityKg           Float?
+  odometerKm           Float                             @default(0)
+  status               String                            @default("AVAILABLE")
+  technicalDueAt       DateTime?
+  soatDueAt            DateTime?
+  gpsDeviceId          String?
+  active               Boolean                           @default(true)
+  createdAt            DateTime                          @default(now())
+  updatedAt            DateTime                          @updatedAt
+  tenant               Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignments          TransportAssignment[]
+  fuelLogs             TransportFuelLog[]
+  maintenanceOrders    TransportMaintenanceOrder[]
+  components           TransportVehicleComponent[]
+  maintenancePlans     TransportVehicleMaintenancePlan[]
+  maintenanceSchedules TransportMaintenanceSchedule[]
+  tireEvents           TransportTireEvent[]
+  resourcePresets      TransportResourcePreset[]
 
   @@unique([tenantId, plate])
   @@index([tenantId, status, active])
@@ -1987,27 +1995,159 @@ model TransportFuelLog {
 }
 
 model TransportMaintenanceOrder {
-  id             String           @id @default(cuid())
+  id             String                        @id @default(cuid())
   tenantId       String
   vehicleId      String
   code           String
   type           String
   title          String
   description    String?
-  status         String           @default("OPEN")
-  priority       String           @default("NORMAL")
+  status         String                        @default("OPEN")
+  priority       String                        @default("NORMAL")
   scheduledAt    DateTime?
   completedAt    DateTime?
   odometerKm     Float?
-  estimatedCents Int              @default(0)
-  actualCents    Int              @default(0)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  vehicle        TransportVehicle @relation(fields: [vehicleId], references: [id])
+  estimatedCents Int                           @default(0)
+  actualCents    Int                           @default(0)
+  scheduleId     String?
+  planTaskId     String?
+  componentId    String?
+  cycleKey       String?
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+  tenant         Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vehicle        TransportVehicle              @relation(fields: [vehicleId], references: [id])
+  schedule       TransportMaintenanceSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  planTask       TransportMaintenanceTask?     @relation(fields: [planTaskId], references: [id], onDelete: SetNull)
+  component      TransportVehicleComponent?    @relation(fields: [componentId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, code])
+  @@unique([tenantId, cycleKey])
   @@index([tenantId, status, scheduledAt])
+  @@index([tenantId, scheduleId, status])
+}
+
+model TransportMaintenancePlan {
+  id          String   @id @default(cuid())
+  tenantId    String
+  code        String
+  name        String
+  brand       String?
+  model       String?
+  yearFrom    Int?
+  yearTo      Int?
+  vehicleType String?
+  version     Int      @default(1)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant                            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tasks       TransportMaintenanceTask[]
+  assignments TransportVehicleMaintenancePlan[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, brand, model, active])
+}
+
+model TransportMaintenanceTask {
+  id              String   @id @default(cuid())
+  tenantId        String
+  planId          String
+  code            String
+  name            String
+  componentType   String
+  intervalKm      Float?
+  intervalDays    Int?
+  alertKmBefore   Float?
+  alertDaysBefore Int?
+  priority        String   @default("NORMAL")
+  estimatedCents  Int      @default(0)
+  instructions    String?
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant    Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan      TransportMaintenancePlan       @relation(fields: [planId], references: [id], onDelete: Cascade)
+  schedules TransportMaintenanceSchedule[]
+  orders    TransportMaintenanceOrder[]
+
+  @@unique([planId, code])
+  @@index([tenantId, componentType, active])
+}
+
+model TransportVehicleComponent {
+  id                  String    @id @default(cuid())
+  tenantId            String
+  vehicleId           String
+  code                String
+  componentType       String
+  name                String
+  brand               String?
+  model               String?
+  serialNo            String?
+  installedAt         DateTime?
+  installedOdometerKm Float?
+  active              Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  tenant    Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vehicle   TransportVehicle               @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  schedules TransportMaintenanceSchedule[]
+  orders    TransportMaintenanceOrder[]
+
+  @@unique([vehicleId, code])
+  @@index([tenantId, vehicleId, componentType, active])
+}
+
+model TransportVehicleMaintenancePlan {
+  id         String   @id @default(cuid())
+  tenantId   String
+  vehicleId  String
+  planId     String
+  baselineKm Float
+  baselineAt DateTime
+  active     Boolean  @default(true)
+  assignedAt DateTime @default(now())
+
+  tenant  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vehicle TransportVehicle         @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  plan    TransportMaintenancePlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([vehicleId, planId])
+  @@index([tenantId, vehicleId, active])
+}
+
+model TransportMaintenanceSchedule {
+  id              String    @id @default(cuid())
+  tenantId        String
+  vehicleId       String
+  taskId          String
+  componentId     String?
+  intervalKm      Float?
+  intervalDays    Int?
+  alertKmBefore   Float?
+  alertDaysBefore Int?
+  lastServiceKm   Float?
+  lastServiceAt   DateTime?
+  nextDueKm       Float?
+  nextDueAt       DateTime?
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant    Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  vehicle   TransportVehicle            @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  task      TransportMaintenanceTask    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  component TransportVehicleComponent?  @relation(fields: [componentId], references: [id], onDelete: SetNull)
+  orders    TransportMaintenanceOrder[]
+
+  @@unique([vehicleId, taskId])
+  @@index([tenantId, active, nextDueAt])
+  @@index([tenantId, vehicleId, active])
 }
 
 model InventoryItem {

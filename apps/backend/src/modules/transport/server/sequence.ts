@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/core/database/prisma";
 
-export async function reserveTransportCode(input: { tenantId: string; branchId: string; kind: "TRIP" | "OPERATION"; prefix: string; at?: Date }) {
+export async function reserveTransportCode(input: { tenantId: string; branchId: string; kind: "TRIP" | "OPERATION" | "MAINTENANCE"; prefix: string; at?: Date }) {
   const at = input.at ?? new Date();
   const year = at.getFullYear();
   const prefix = input.prefix.trim().toUpperCase();
