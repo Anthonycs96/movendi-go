@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Truck } from "lucide-react";
+import { Link2, Pencil, Truck } from "lucide-react";
 import type { TransportData } from "@movendi/contracts";
 import { Card, DataTable, Field, Input, OperationForm, PageHeader, Select } from "@/shared/components/ui";
 import { formatShortDate } from "@/shared/lib/format";
@@ -46,6 +46,7 @@ export function Fleet({ data }: { data: TransportData }) {
   const vehicleTypes = data.configuration.fleet.vehicleTypes.filter((item) => item.active);
   const trailerTypes = data.configuration.fleet.trailerTypes.filter((item) => item.active);
   const vehicleStatuses = data.configuration.fleet.vehicleStatuses.filter((item) => item.active);
+  const couplingCandidates = data.trailers.filter((item) => item.active && !item.fixedCoupling);
 
   return <>
     <PageHeader
@@ -65,6 +66,12 @@ export function Fleet({ data }: { data: TransportData }) {
           <Field label="Revisión técnica"><Input name="technicalDueAt" type="date" /></Field>
           <Field label="SOAT"><Input name="soatDueAt" type="date" /></Field>
           <Field label="GPS"><Input name="gpsDeviceId" /></Field>
+        </OperationForm>
+        <OperationForm title="Registrar carretas inseparables" description="Agrupa dos o tres placas que físicamente siempre trabajan juntas. Cada carreta conservará sus documentos y vencimientos independientes." endpoint="/api/operations/transport/trailer-couplings" triggerLabel="Carretas inseparables" triggerIcon={<Link2 size={16} />} transform={(form) => ({ name: form.get("name"), trailerIds: [form.get("trailerId"), form.get("trailerId2"), form.get("trailerId3")].filter(Boolean) })}>
+          <Field label="Nombre del conjunto"><Input name="name" required placeholder="Ej. Bitrén fijo B-12" /></Field>
+          <Field label="Primera placa"><Select name="trailerId" required defaultValue=""><option value="" disabled>Busca y selecciona</option>{couplingCandidates.map((item) => <option key={item.id} value={item.id}>{item.plate} · {[item.brand, item.model, item.type].filter(Boolean).join(" ")}</option>)}</Select></Field>
+          <Field label="Segunda placa"><Select name="trailerId2" required defaultValue=""><option value="" disabled>Busca y selecciona</option>{couplingCandidates.map((item) => <option key={item.id} value={item.id}>{item.plate} · {[item.brand, item.model, item.type].filter(Boolean).join(" ")}</option>)}</Select></Field>
+          <Field label="Tercera placa (opcional)"><Select name="trailerId3" defaultValue=""><option value="">Sin tercera placa</option>{couplingCandidates.map((item) => <option key={item.id} value={item.id}>{item.plate} · {[item.brand, item.model, item.type].filter(Boolean).join(" ")}</option>)}</Select></Field>
         </OperationForm>
         <OperationForm title="Registrar remolque" endpoint="/api/operations/transport/trailers" triggerLabel="Remolque" transform={(form) => trailerPayload(form)}>
           <Field label="Placa"><Input name="plate" required /></Field>
@@ -105,6 +112,7 @@ export function Fleet({ data }: { data: TransportData }) {
         <DataTable rows={data.trailers} rowKey={(row) => row.id} columns={[
           { key: "plate", header: "Placa", cell: (row) => <strong>{row.plate}</strong> },
           { key: "type", header: "Tipo", cell: (row) => row.type },
+          { key: "coupling", header: "Conjunto físico", cell: (row) => row.fixedCoupling ? <span className="table-primary"><strong>{row.fixedCoupling.name}</strong><span>Inseparable</span></span> : "Individual" },
           { key: "capacity", header: "Capacidad", cell: (row) => row.capacityKg ? `${row.capacityKg.toLocaleString("es-PE")} kg` : "—" },
           { key: "status", header: "Estado", cell: (row) => <Badge value={row.active ? row.status : "INACTIVE"} /> },
           { key: "actions", header: "Gestión", sortable: false, cell: (row) => <OperationForm title={`Editar remolque ${row.plate}`} endpoint={`/api/operations/transport/trailers/${row.id}`} method="PATCH" triggerLabel="Editar" triggerIcon={<Pencil size={14} />} triggerVariant="secondary" triggerSize="sm" submitLabel="Actualizar" transform={(form) => trailerPayload(form, true)}>

@@ -1,14 +1,20 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { audit } from "@/core/audit/audit";
 import { AppError } from "@/core/auth/errors";
 import { prisma } from "@/core/database/prisma";
 import { owned, parse } from "../command-helpers";
-import { documentSchema, trailerSchema, trailerUpdateSchema, vehicleSchema, vehicleUpdateSchema } from "../command-schemas";
+import { documentSchema, trailerCouplingSchema, trailerSchema, trailerUpdateSchema, vehicleSchema, vehicleUpdateSchema } from "../command-schemas";
 import type { TransportCommandHandler } from "../command-types";
 import type { z } from "zod";
 import { assertTenantConfigured, getTransportConfiguration, hasStoredTransportConfiguration } from "../configuration";
 
 type DocumentInput = z.infer<typeof documentSchema>;
+
+function couplingCode(name: string) {
+  const base = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 52) || "ACOPLE";
+  return `${base}_${randomUUID().replaceAll("-", "").slice(0, 6).toUpperCase()}`;
+}
 
 export async function assertDocumentOwner(tenantId: string, ownerType: DocumentInput["ownerType"], ownerId: string) {
   const found = ownerType === "DRIVER" ? await prisma.transportDriver.count({ where: { id: ownerId, tenantId } })
@@ -76,6 +82,21 @@ export const handleFleetCommand: TransportCommandHandler = async (method, segmen
     await prisma.transportTrailer.update({ where: { id }, data: { ...input, brand: input.brand || null, model: input.model || null, capacityKg: input.capacityKg ?? null } });
     await audit(scope, "UPDATE", "TransportTrailer", id);
     return { ok: true, id, message: "Remolque actualizado." };
+  }
+
+  if (method === "POST" && resource === "trailer-couplings" && !id) {
+    const input = parse(trailerCouplingSchema, body);
+    const trailers = await prisma.transportTrailer.findMany({ where: { id: { in: input.trailerIds }, tenantId: scope.tenantId, active: true }, select: { id: true, fixedCouplingId: true } });
+    if (trailers.length !== input.trailerIds.length) throw new AppError("INVALID_COUPLING_TRAILER", 400, "Una de las carretas no pertenece a la empresa o está inactiva.");
+    if (trailers.some((item) => item.fixedCouplingId)) throw new AppError("TRAILER_ALREADY_COUPLED", 409, "Una de las carretas ya pertenece a otro conjunto fijo.");
+    const entity = await prisma.$transaction(async (tx) => {
+      const created = await tx.transportTrailerCoupling.create({ data: { tenantId: scope.tenantId, code: couplingCode(input.name), name: input.name } });
+      const linked = await tx.transportTrailer.updateMany({ where: { id: { in: input.trailerIds }, tenantId: scope.tenantId, fixedCouplingId: null }, data: { fixedCouplingId: created.id } });
+      if (linked.count !== input.trailerIds.length) throw new AppError("TRAILER_ALREADY_COUPLED", 409, "Una de las carretas fue vinculada a otro conjunto fijo.");
+      return created;
+    });
+    await audit(scope, "CREATE", "TransportTrailerCoupling", entity.id, { trailerIds: input.trailerIds });
+    return { ok: true, id: entity.id, message: `Conjunto fijo ${input.name} guardado con ${input.trailerIds.length} placas y documentos independientes.` };
   }
 
   if (method === "POST" && resource === "documents") {

@@ -142,12 +142,15 @@ export const handleOperationsCommand: TransportCommandHandler = async (method, s
     const [drivers, vehicle, trailers] = await Promise.all([
       prisma.transportDriver.findMany({ where: { id: { in: requestedDriverIds }, tenantId: scope.tenantId, active: true, status: { notIn: ["SUSPENDED", "INACTIVE"] } } }),
       owned(prisma.transportVehicle.findFirst({ where: { id: vehicleId, tenantId: scope.tenantId, active: true, status: { notIn: ["MAINTENANCE", "OUT_OF_SERVICE"] } } }), "El vehículo"),
-      prisma.transportTrailer.findMany({ where: { id: { in: trailerIds }, tenantId: scope.tenantId, active: true, status: { not: "OUT_OF_SERVICE" } } }),
+      prisma.transportTrailer.findMany({ where: { id: { in: trailerIds }, tenantId: scope.tenantId, active: true, status: { not: "OUT_OF_SERVICE" } }, include: { fixedCoupling: { include: { trailers: { where: { active: true }, select: { id: true } } } } } }),
     ]);
     if (drivers.length !== requestedDriverIds.length) throw new AppError("DRIVER_NOT_AVAILABLE", 404, "Uno de los conductores no existe o no está disponible.");
     if (trailers.length !== trailerIds.length) throw new AppError("TRAILER_NOT_AVAILABLE", 404, "Una de las carretas no existe o no está disponible.");
     const orderedDrivers = requestedDriverIds.map((driverId) => drivers.find((item) => item.id === driverId)!);
     const orderedTrailers = trailerIds.map((trailerId) => trailers.find((item) => item.id === trailerId)!);
+    for (const item of orderedTrailers) {
+      if (item.fixedCoupling && item.fixedCoupling.trailers.some((member) => !trailerIds.includes(member.id))) throw new AppError("FIXED_COUPLING_INCOMPLETE", 409, "El ensamble contiene solo una parte de un conjunto fijo de carretas.");
+    }
     const driver = orderedDrivers[0];
     const secondDriver = orderedDrivers[1] ?? null;
     const trailer = orderedTrailers[0] ?? null;
