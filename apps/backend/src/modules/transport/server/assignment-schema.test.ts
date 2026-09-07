@@ -8,7 +8,7 @@ test("trip assignment requires a previously prepared assembly", () => {
 });
 
 test("prepared assemblies reject repeated trailers and drivers", () => {
-  const base = { name: "Unidad norte", vehicleId: "vehicle-1", scopeType: "TENANT" as const };
+  const base = { vehicleId: "vehicle-1", scopeType: "TENANT" as const };
   assert.equal(resourcePresetSchema.safeParse({ ...base, trailerIds: ["trailer-1", "trailer-1"], driverIds: ["driver-1"] }).success, false);
   assert.equal(resourcePresetSchema.safeParse({ ...base, trailerIds: ["trailer-1", "trailer-2"], driverIds: ["driver-1"] }).success, false);
   assert.equal(resourcePresetSchema.safeParse({ ...base, trailerIds: ["trailer-1"], driverIds: ["driver-1", "driver-1"] }).success, false);

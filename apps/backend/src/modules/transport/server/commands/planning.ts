@@ -81,16 +81,18 @@ export const handlePlanningCommand: TransportCommandHandler = async (method, seg
       const coupledCount = await prisma.transportTrailer.count({ where: { id: { in: trailerIds }, tenantId: scope.tenantId, fixedCouplingId: { not: null } } });
       if (coupledCount) throw new AppError("FIXED_COUPLING_REQUIRED", 409, "Una carreta pertenece a un conjunto fijo. Selecciona el conjunto completo.");
     }
-    const [vehicleCount, trailerCount, driverCount] = await Promise.all([
-      prisma.transportVehicle.count({ where: { id: input.vehicleId, tenantId: scope.tenantId, active: true } }),
-      prisma.transportTrailer.count({ where: { id: { in: trailerIds }, tenantId: scope.tenantId, active: true } }),
+    const [vehicle, trailers, driverCount] = await Promise.all([
+      prisma.transportVehicle.findFirst({ where: { id: input.vehicleId, tenantId: scope.tenantId, active: true }, select: { id: true, plate: true } }),
+      prisma.transportTrailer.findMany({ where: { id: { in: trailerIds }, tenantId: scope.tenantId, active: true }, select: { id: true, plate: true } }),
       prisma.transportDriver.count({ where: { id: { in: input.driverIds }, tenantId: scope.tenantId, active: true } }),
     ]);
-    if (vehicleCount !== 1 || trailerCount !== trailerIds.length || driverCount !== input.driverIds.length) throw new AppError("INVALID_PRESET_RESOURCE", 400, "Uno de los recursos del ensamble no pertenece a la empresa o está inactivo.");
-    const code = automaticCode(input.name, "ENSAMBLE");
-    const entity = await prisma.transportResourcePreset.create({ data: { tenantId: scope.tenantId, code, name: input.name, vehicleId: input.vehicleId, scopeType: input.scopeType, scopeId, trailers: { create: trailerIds.map((trailerId, position) => ({ trailerId, position })) }, drivers: { create: input.driverIds.map((driverId, position) => ({ driverId, position, role: position === 0 ? "PRIMARY" : position === 1 ? "SECONDARY" : "RELIEF" })) } } });
+    if (!vehicle || trailers.length !== trailerIds.length || driverCount !== input.driverIds.length) throw new AppError("INVALID_PRESET_RESOURCE", 400, "Uno de los recursos del ensamble no pertenece a la empresa o está inactivo.");
+    const trailerById = new Map(trailers.map((trailer) => [trailer.id, trailer]));
+    const name = [vehicle.plate, ...trailerIds.map((trailerId) => trailerById.get(trailerId)?.plate).filter((plate): plate is string => Boolean(plate))].join(" + ");
+    const code = automaticCode(name, "ENSAMBLE");
+    const entity = await prisma.transportResourcePreset.create({ data: { tenantId: scope.tenantId, code, name, vehicleId: input.vehicleId, scopeType: input.scopeType, scopeId, trailers: { create: trailerIds.map((trailerId, position) => ({ trailerId, position })) }, drivers: { create: input.driverIds.map((driverId, position) => ({ driverId, position, role: position === 0 ? "PRIMARY" : position === 1 ? "SECONDARY" : "RELIEF" })) } } });
     await audit(scope, "CREATE", "TransportResourcePreset", entity.id, { code, couplingId: coupling?.id ?? null });
-    return { ok: true, id: entity.id, message: `Ensamble preparado ${input.name} guardado.` };
+    return { ok: true, id: entity.id, message: `Ensamble ${name} preparado y guardado.` };
   }
 
   if (method === "PATCH" && resource === "trips" && id && action === "dispatch") {

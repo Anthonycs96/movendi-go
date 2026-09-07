@@ -16,10 +16,9 @@ export function PlanningSettings({ data }: { data: TransportData }) {
     <Card className="settings-card planning-setting-card">
       <Link2 size={21} />
       <div><h3>Ensambles preparados</h3><p>{data.resourcePresets.length} conjuntos de tracto, configuración de carreta y tripulación.</p></div>
-      <OperationForm title="Ensamble preparado" description="Selecciona solo tracto, una carreta individual o un conjunto fijo de dos placas." endpoint="/api/operations/transport/resource-presets" triggerLabel="Crear ensamble" transform={(form) => {
+      <OperationForm title="Ensamble preparado" description="Selecciona los recursos; la identificación se genera automáticamente con las placas." endpoint="/api/operations/transport/resource-presets" triggerLabel="Crear ensamble" transform={(form) => {
         const trailerSelection = String(form.get("trailerSelection") ?? "");
         return {
-          name: form.get("name"),
           scopeType: form.get("scopeType"),
           scopeId: form.get("scopeId"),
           vehicleId: form.get("vehicleId"),
@@ -28,7 +27,6 @@ export function PlanningSettings({ data }: { data: TransportData }) {
           driverIds: [form.get("driverId"), form.get("secondDriverId")].filter(Boolean),
         };
       }}>
-        <Field label="Nombre"><Input name="name" required /></Field>
         {scopeFields(data)}
         <Field label="Tracto"><Select name="vehicleId" required defaultValue=""><option value="" disabled>Busca y selecciona</option>{data.vehicles.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.plate} · {item.brand} {item.model} · {item.type}</option>)}</Select></Field>
         <Field label="Configuración de carreta" hint="Elige una carreta suelta o un conjunto físico inseparable."><Select name="trailerSelection" defaultValue="">
