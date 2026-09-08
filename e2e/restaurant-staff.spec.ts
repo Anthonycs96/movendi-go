@@ -104,6 +104,25 @@ for (const width of [1920, 1280, 768, 390]) test(`mesas a todo el ancho, pedido 
   await page.screenshot({ path: `outputs/staff-review/actividad-${width}.png`, fullPage: true });
 });
 
+test("cambiar sucursal reinicia pestaña, filtros y datos de actividad", async ({ page }) => {
+  await login(page.request);
+  await page.goto("/t/brasa-norte/floor");
+  const tabs = page.getByRole("navigation", { name: "Vistas del salón" });
+  await tabs.getByRole("button", { name: "Actividad del personal" }).click();
+  await expect(page.locator(".staff-activity__workers article").first()).toBeVisible();
+  await page.getByLabel("Filtrar trabajador").selectOption(workerId);
+  await expect(page.locator(".staff-activity__workers article")).toHaveCount(1);
+  await page.getByRole("combobox", { name: "Sucursal", exact: true }).selectOption({ label: "Sucursal aislada" });
+  await expect(tabs.getByRole("button", { name: "Mesas", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".staff-activity")).toHaveCount(0);
+  await tabs.getByRole("button", { name: "Actividad del personal" }).click();
+  await expect(page.locator(".staff-activity")).toBeVisible();
+  await expect(page.getByText("Consultando actividad…")).toHaveCount(0);
+  await expect(page.locator(".staff-activity [role=alert]")).toHaveCount(0);
+  await expect(page.locator(".staff-activity__workers article").filter({ hasText: "Supervisor de prueba" })).toHaveCount(0);
+  await expect(page.getByLabel("Filtrar trabajador")).toHaveValue("");
+});
+
 test("permiso editable desde roles y revocación aplicada a UI y API", async ({ page, request }) => {
   await login(request);
   await login(page.request, "supervision@brasa.local", `${secret}-changed`);
