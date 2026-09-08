@@ -36,9 +36,13 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 768, height: 1024
       await page.getByRole("menuitemradio", { name: /Oscuro/ }).click();
       await expect(page.locator("html")).toHaveClass(/dark/);
     }
-    for (const route of ["dashboard", "kitchen", "orders", "checkout", "settings", "reports"]) {
+    for (const route of ["dashboard", "floor", "staff", "kitchen", "orders", "checkout", "settings", "reports"]) {
       console.log(`${info.project.name} ${viewport.width} ${theme}/${route}`);
-      await navigate(page, route);
+      await navigate(page, route === "staff" ? "floor" : route);
+      if (route === "staff") {
+        await page.getByRole("navigation", { name: "Vistas del salón" }).getByRole("button", { name: "Actividad del personal" }).click();
+        await expect(page.locator(".staff-activity__workers article").first()).toBeVisible();
+      }
       await expect(page.locator("h1")).toBeVisible();
       if (["orders", "checkout"].includes(route)) await expect(page.getByRole("status", { name: "" }).filter({ hasText: "Cargando historial" })).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), `${route}: sin desbordamiento horizontal`).toBe(true);
@@ -54,7 +58,7 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 768, height: 1024
         return axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] } });
       });
       violations.push(...result.violations.map((item) => ({ route: `${theme}/${route}`, id: item.id, impact: item.impact, targets: item.nodes.map((node) => ({ target: node.target, summary: node.failureSummary })) })));
-      if (["kitchen", "checkout"].includes(route)) {
+      if (["floor", "staff", "kitchen", "checkout"].includes(route)) {
         await mkdir("outputs/restaurant-browser-review", { recursive: true });
         await page.screenshot({ path: resolve("outputs/restaurant-browser-review", `${info.project.name}-${theme}-${route}-${viewport.width}.png`), fullPage: true });
       }

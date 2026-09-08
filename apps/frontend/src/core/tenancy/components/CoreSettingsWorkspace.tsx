@@ -118,6 +118,7 @@ const industryPermissions: Record<string, PermissionOption[]> = {
     { value: "restaurant:promotions:write", label: "Administrar promociones", group: "Promociones" },
     { value: "restaurant:promotions:approve", label: "Aprobar descuentos excepcionales", group: "Promociones" },
     { value: "restaurant:reports:read", label: "Ver reportes y rentabilidad", group: "Reportes" },
+    { value: "restaurant:staff:read", label: "Ver actividad del personal (en Salón)", group: "Supervisión" },
     { value: "restaurant:printing:read", label: "Ver rutas e impresoras", group: "Impresión" },
     { value: "restaurant:printing:write", label: "Administrar áreas, rutas e impresoras", group: "Impresión" },
     { value: "restaurant:configuration:read", label: "Ver configuración operativa", group: "Configuración" },

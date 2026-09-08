@@ -58,6 +58,7 @@ import {
 import { formatCurrencyCents, formatDateTime } from "@/shared/lib/format";
 import { localizeCode } from "@/shared/lib/localization";
 import { openQrCamera } from "../lib/qr-camera";
+import { StaffActivity } from "./StaffActivity";
 
 const tableLabels: Record<string, string> = {
   AVAILABLE: "Disponible",
@@ -1331,7 +1332,7 @@ function NewOrderComposer({
       const successMessage =
         result.message ?? "Pedido guardado y enviado a cocina.";
       orderRequest.current = null;
-      setMessage(successMessage);
+      setMessage(onCreated ? "" : successMessage);
       setMobileView("menu");
       setQuantities({});
       setNotes({});
@@ -1950,8 +1951,8 @@ function FloorMap({
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [areaFilter, setAreaFilter] = useState("ALL");
   const activeTables = useMemo(
-    () => tables.filter((table) => table.active),
-    [tables],
+    () => tables.filter((table) => table.active).sort((a, b) => a.name.localeCompare(b.name, locale, { numeric: true, sensitivity: "base" })),
+    [tables, locale],
   );
   const areas = useMemo(
     () =>
@@ -2241,6 +2242,15 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
     "tables" | "new" | "active"
   >("tables");
   const [floorNotice, setFloorNotice] = useState("");
+  const [showActivity, setShowActivity] = useState(false);
+  const canViewStaff = hasPermission(permissions, "restaurant:staff:read");
+  const backButton = useRef<HTMLButtonElement>(null);
+  const tablesButton = useRef<HTMLButtonElement>(null);
+  const previousView = useRef(workspaceView);
+  useEffect(() => {
+    if (previousView.current !== workspaceView) (workspaceView === "tables" ? tablesButton : backButton).current?.focus({ preventScroll: true });
+    previousView.current = workspaceView;
+  }, [workspaceView]);
   const effectiveFocusedId = data.tables.some(
     (table) => table.id === focusedId && table.active,
   )
@@ -2249,15 +2259,17 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
   const focused =
     data.tables.find((table) => table.id === effectiveFocusedId) ?? null;
   useEffect(() => {
-    const timer = window.setInterval(() => router.refresh(), 10_000);
+    if (showActivity) return;
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 10_000);
     return () => window.clearInterval(timer);
-  }, [router]);
+  }, [router, showActivity]);
   useEffect(() => {
     if (!floorNotice) return;
     const timer = window.setTimeout(() => setFloorNotice(""), 4500);
     return () => window.clearTimeout(timer);
   }, [floorNotice]);
   function focusTable(id: string) {
+    setShowActivity(false);
     setFocusedId(id);
     const table = data.tables.find((item) => item.id === id);
     if (table?.activeOrder) {
@@ -2276,6 +2288,7 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
     if (table?.status === "AVAILABLE") setFocusedId(id);
   }
   function openOffPremise(source: "TAKEAWAY" | "DELIVERY") {
+    setShowActivity(false);
     setOrderSource(source);
     setOrderTableId("");
     setWorkspaceView("new");
@@ -2311,7 +2324,13 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
           </div>
         }
       />
-      <section className={`floor-order-layout floor-order-layout--${workspaceView}`}>
+      <nav className="floor-workspace-tabs" aria-label="Vistas del salón">
+        <button ref={tablesButton} type="button" aria-pressed={!showActivity && workspaceView === "tables"} onClick={() => { setShowActivity(false); setWorkspaceView("tables"); }}>Mesas</button>
+        <button type="button" aria-pressed={!showActivity && workspaceView !== "tables"} onClick={() => { setShowActivity(false); setWorkspaceView(focused?.activeOrder ? "active" : "new"); }}>Pedido</button>
+        {canViewStaff ? <button type="button" aria-pressed={showActivity} onClick={() => setShowActivity(true)}><Users size={16} /> Actividad del personal</button> : null}
+      </nav>
+      {showActivity && canViewStaff ? <StaffActivity /> : null}
+      <section style={showActivity && canViewStaff ? { display: "none" } : undefined} className={`floor-order-layout floor-order-layout--${workspaceView}`}>
         <div className="floor-order-layout__tables">
           <FloorMap
             canWrite={hasPermission(permissions, "restaurant:floor:write")}
@@ -2326,6 +2345,7 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
           <button
             type="button"
             className="mobile-workspace-back"
+            ref={backButton}
             onClick={() => setWorkspaceView("tables")}
           >
             <ArrowLeft size={18} />
@@ -2344,7 +2364,7 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
           ) : hasPermission(permissions, "restaurant:orders:write") ? (
             <NewOrderComposer
               canCreateCustomer={hasPermission(permissions, "customers:write")}
-              key={`${orderSource}-${workspaceView}`}
+              key={orderSource}
               data={data}
               tableId={orderTableId}
               initialSource={orderSource}

@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/core/database/prisma";
 import type { TenantScope } from "@/core/auth/types";
-import { parsePermissions } from "@/core/auth/permissions";
+import { hasPermission, parsePermissions } from "@/core/auth/permissions";
 
 export interface CoreTenantData {
   currentActorId: string;
@@ -19,12 +19,13 @@ export async function getCoreTenantData(scope: TenantScope, includeManagement = 
     const tenant = { id: record.id, name: record.name, shortName: record.shortName, slug: record.slug, type: record.type, locale: record.locale, currency: record.currency, email: record.email, phone: record.phone, address: record.address, publicWebsiteEnabled: record.plan?.publicWebsiteEnabled ?? false, publicSitePublished: record.publicSitePublished, publicSiteHeadline: record.publicSiteHeadline, publicSiteDescription: record.publicSiteDescription, publicSitePrimaryColor: record.publicSitePrimaryColor, publicSiteWhatsapp: record.publicSiteWhatsapp, publicSiteInstagram: record.publicSiteInstagram };
     return { currentActorId: scope.actorId, canResetPasswords: false, tenant, branches: [], roles: [], users: [], audit: [] };
   }
+  const tenantQuery = prisma.tenant.findUniqueOrThrow({ where: { id: scope.tenantId }, include: { plan: { select: { publicWebsiteEnabled: true } } } });
   const [tenant, branches, roles, memberships, audit] = await Promise.all([
-    prisma.tenant.findUniqueOrThrow({ where: { id: scope.tenantId }, include: { plan: { select: { publicWebsiteEnabled: true } } } }),
+    tenantQuery,
     prisma.branch.findMany({ where: { tenantId: scope.tenantId }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, address: true, phone: true, active: true } }),
     prisma.role.findMany({ where: { tenantId: scope.tenantId }, orderBy: { name: "asc" }, select: { id: true, key: true, name: true, permissions: true } }),
     prisma.membership.findMany({ where: { tenantId: scope.tenantId }, orderBy: { createdAt: "asc" }, include: { user: { select: { id: true, name: true, email: true, active: true, platformRole: true } }, role: { select: { key: true, name: true } }, branch: { select: { name: true } } } }),
-    prisma.auditLog.findMany({ where: { tenantId: scope.tenantId }, orderBy: { createdAt: "desc" }, take: 12, include: { user: { select: { name: true } } } }),
+    tenantQuery.then((record) => record.type !== "RESTAURANT" || hasPermission(scope.permissions, "restaurant:staff:read") ? prisma.auditLog.findMany({ where: { tenantId: scope.tenantId, ...(record.type === "RESTAURANT" ? { branchId: scope.branchId } : {}) }, orderBy: { createdAt: "desc" }, take: 12, include: { user: { select: { name: true } } } }) : []),
   ]);
   return {
     currentActorId: scope.actorId,

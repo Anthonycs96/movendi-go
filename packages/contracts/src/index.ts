@@ -357,3 +357,10 @@ export interface OperationalNotification {
   href: string;
 }
 export interface OperationalNotificationsResponse { items: OperationalNotification[]; total: number; generatedAt: string }
+export interface RestaurantStaffActivity {
+  updatedAt: string;
+  since: string;
+  workers: Array<{ id: string; name: string; role: string; active: boolean; openOrders: number; lastActivity: { action: string; entityType: string; createdAt: string } | null }>;
+  events: Array<{ id: string; action: string; entityType: string; createdAt: string; user: { id: string; name: string } | null }>;
+  nextCursor: string | null;
+}

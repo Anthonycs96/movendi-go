@@ -19,6 +19,7 @@ const defaultSuites = [
   "e2e/restaurant-configuration.spec.ts",
   "e2e/restaurant-production-audit.spec.ts",
   "e2e/restaurant-frontend-journey.spec.ts",
+  "e2e/restaurant-staff.spec.ts",
   "e2e/transport-operations-maintenance.spec.ts",
   "e2e/transport-phase-2.spec.ts",
   "e2e/phase-3-reliability.spec.ts",
