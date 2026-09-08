@@ -27,6 +27,9 @@ coverage/
 outputs/
 Presentacion_Rinconcito_Ayacuchano.pptx
 Presentacion_Rinconcito_Ayacuchano.pptx.inspect.ndjson
+
+# Credenciales temporales generadas por google-github-actions/auth
+gha-creds-*.json
 supabase/.temp/
 .object-storage/
 apps/backend/.object-storage/

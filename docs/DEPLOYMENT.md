@@ -120,13 +120,18 @@ producción. Cada `git push origin main` activa dos despliegues independientes:
 - Railway reconstruye el backend con `Dockerfile.backend`, ejecuta
   `npm run db:deploy:prod` contra Supabase y publica el contenedor solo si las
   migraciones terminan correctamente.
-- Cloud Build ejecuta `cloudbuild.frontend.yaml`, construye
-  `Dockerfile.frontend` y actualiza `movendi-frontend` en Cloud Run.
+- GitHub Actions ejecuta `.github/workflows/deploy-frontend.yml`, construye
+  `Dockerfile.frontend` y actualiza `movendi-frontend` en Cloud Run mediante
+  Workload Identity Federation, sin claves permanentes en GitHub.
 
 Railway observa cambios del backend, contratos compartidos, scripts de
-construcción y archivos raíz. Cloud Build observa el frontend, contratos
+construcción y archivos raíz. GitHub Actions observa el frontend, contratos
 compartidos, su Dockerfile, lockfile y configuración. Los cambios exclusivos de
 documentación no generan despliegues.
+
+`cloudbuild.frontend.yaml` queda disponible para compilaciones manuales en
+Google Cloud. El disparador automático anterior de Cloud Build está deshabilitado
+para evitar dos despliegues del frontend por el mismo commit.
 
 Antes de publicar ejecuta `npm run release:check`. No ejecutes `db:seed` en
 producción; las migraciones versionadas son el único mecanismo automático para

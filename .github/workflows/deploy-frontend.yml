@@ -1,0 +1,80 @@
+name: Deploy frontend to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/frontend/**
+      - packages/contracts/**
+      - scripts/prepare-standalone.mjs
+      - Dockerfile.frontend
+      - package.json
+      - package-lock.json
+      - .github/workflows/deploy-frontend.yml
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: movendi-frontend-production
+  cancel-in-progress: true
+
+env:
+  PROJECT_ID: movendi-go-503204
+  REGION: us-west1
+  ARTIFACT_REPOSITORY: cloud-run-source-deploy
+  SERVICE: movendi-frontend
+  IMAGE: us-west1-docker.pkg.dev/movendi-go-503204/cloud-run-source-deploy/movendi-go/movendi-frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: movendi-go-503204
+          workload_identity_provider: projects/1094677136702/locations/global/workloadIdentityPools/github-actions/providers/movendi-go
+          service_account: github-deployer@movendi-go-503204.iam.gserviceaccount.com
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Artifact Registry authentication
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push frontend image
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA:0:7}"
+          docker build \
+            --build-arg "DEPLOYMENT_VERSION=${short_sha}" \
+            --file Dockerfile.frontend \
+            --tag "${IMAGE}:${GITHUB_SHA}" \
+            .
+          docker push "${IMAGE}:${GITHUB_SHA}"
+
+      - name: Deploy frontend
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          project_id: movendi-go-503204
+          region: us-west1
+          service: movendi-frontend
+          image: us-west1-docker.pkg.dev/movendi-go-503204/cloud-run-source-deploy/movendi-go/movendi-frontend:${{ github.sha }}
+          env_vars: |
+            DEPLOYMENT_VERSION=${{ github.sha }}
+            APP_VERSION=${{ github.sha }}
+          env_vars_update_strategy: merge
+
+      - name: Verify frontend health
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(gcloud run services describe "${SERVICE}" --project "${PROJECT_ID}" --region "${REGION}" --format='value(status.url)')"
+          curl --fail --show-error --silent --retry 8 --retry-delay 5 --retry-all-errors "${url}/api/frontend-health"
