@@ -27,8 +27,8 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     ...(process.env.E2E_CROSS_BROWSER === "1" ? [
-      { name: "firefox", testMatch: "**/restaurant-browser-accessibility.spec.ts", use: { ...devices["Desktop Firefox"] } },
-      { name: "webkit", testMatch: "**/restaurant-browser-accessibility.spec.ts", use: { ...devices["Desktop Safari"], baseURL: "https://localhost:3443", ignoreHTTPSErrors: true } },
+      { name: "firefox", testMatch: ["**/restaurant-browser-accessibility.spec.ts", "**/shell-controls.spec.ts"], use: { ...devices["Desktop Firefox"] } },
+      { name: "webkit", testMatch: ["**/restaurant-browser-accessibility.spec.ts", "**/shell-controls.spec.ts"], use: { ...devices["Desktop Safari"], baseURL: "https://localhost:3443", ignoreHTTPSErrors: true } },
     ] : []),
   ],
 });

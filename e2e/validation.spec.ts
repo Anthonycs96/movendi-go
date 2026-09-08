@@ -241,6 +241,7 @@ test.describe.serial("validación final ampliada", () => {
     await expect(page.getByText("Usuario creado y vinculado a la empresa.")).toBeVisible();
 
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
+    await page.waitForURL(/\/login$/);
     await login(page, "recepcion@empresa-e2e.local", "empresa-e2e-aislada");
     await expect(page.getByRole("link", { name: /Configuración/ })).toHaveCount(0);
     const crossTenantRead = await api(page, "/api/operations/core/customers/customer-ana");

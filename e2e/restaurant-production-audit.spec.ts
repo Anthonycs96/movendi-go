@@ -30,8 +30,9 @@ async function command(api: APIRequestContext, path: string, data: unknown, meth
   return await response.json() as { id: string; ok: boolean };
 }
 
-async function data(api: APIRequestContext, section = "dashboard") {
-  const response = await api.get(`/api/data/tenant?section=${section}`);
+async function data(api: APIRequestContext, section?: string) {
+  // Cross-module audit snapshots use the full endpoint; screens request their own section.
+  const response = await api.get(`/api/data/tenant${section ? `?section=${section}` : ""}`);
   expect(response.status(), await response.text()).toBe(200);
   return (await response.json() as { data: RestaurantData }).data;
 }

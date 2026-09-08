@@ -860,9 +860,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 600px) { .table-qr-card .header-actions { width: 100%; display: grid; grid-template-columns: 1fr; } }
 
 /* Flujo táctil de salón y comandas */
-@media (max-width: 1180px) and (min-width: 961px) {
-  .floor-order-layout { grid-template-columns: minmax(270px, .42fr) minmax(620px, 1.58fr); }
-  .floor-order-layout .floor-grid { grid-template-columns: 1fr; }
+@media (max-width: 1380px) and (min-width: 961px) {
+  .floor-order-layout { grid-template-columns: minmax(0, 1fr); }
+  .floor-order-layout__tables { position: static; }
 }
 @media (max-width: 960px) {
   .floor-order-layout { display: block; }
@@ -1057,3 +1057,23 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .data-table__scroll:focus-visible, .hourly-chart:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 
 .dark .app-shell .sidebar__item--active { color: #1b1608; }
+
+/* Navigation expands only on request; pointer movement never shifts the hit targets. */
+@media (min-width: 821px) {
+  .app-shell .app-main { transition: none; }
+}
+@media (min-width: 901px) { .platform-main { transition: none; } }
+.theme-menu { width: 224px; }
+.theme-menu > button { min-height: 48px; }
+.theme-menu strong { font-size: 13px; }
+.theme-menu small { font-size: 11px; }
+.theme-menu > button:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.sidebar .notification-button { display: inline-flex; }
+.route-loading { display: flex; align-items: center; gap: 12px; min-height: 120px; padding: 32px; color: var(--text-soft); }
+.route-loading > span { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: route-loading-spin .8s linear infinite; }
+@keyframes route-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .route-loading > span { animation: none; } }
+
+.sidebar__brand-copy { overflow: hidden; }
+.app-shell--collapsed .sidebar.desktop-sidebar .sidebar__collapse.desktop-only { position: static; }
+.platform-shell--collapsed .platform-sidebar.desktop-sidebar .platform-sidebar__brand { flex-direction: column; }

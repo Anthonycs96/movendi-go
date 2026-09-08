@@ -8,22 +8,25 @@ import { getRestaurantConfiguration } from "./configuration";
 import { hasPermission } from "@/core/auth/permissions";
 import { restaurantBusinessDay } from "./business-day";
 
-export async function getRestaurantData(scope: TenantScope, reportPeriod?: RestaurantReportPeriod | null): Promise<RestaurantData> {
-  const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
-  const membership = await prisma.membership.findFirst({ where: { tenantId: scope.tenantId, userId: scope.actorId, active: true }, select: { role: { select: { key: true } } } });
+export async function getRestaurantData(scope: TenantScope, reportPeriod?: RestaurantReportPeriod | null, section?: string | null): Promise<RestaurantData> {
+  const needed = (...sections: string[]) => !section || sections.includes(section);
+  const [configuration, membership, tenant] = await Promise.all([
+    getRestaurantConfiguration(scope.tenantId, scope.branchId),
+    prisma.membership.findFirst({ where: { tenantId: scope.tenantId, userId: scope.actorId, active: true }, select: { role: { select: { key: true } } } }),
+    prisma.tenant.findUniqueOrThrow({ where: { id: scope.tenantId }, select: { timezone: true } }),
+  ]);
   const canApproveRefund = hasPermission(scope.permissions, "restaurant:cash:write") && (hasPermission(scope.permissions, "restaurant:cash:approve") || configuration.sales.approvalRoleKeys.includes(membership?.role.key ?? ""));
-  const canMenu = hasPermission(scope.permissions, "restaurant:menu:read") || hasPermission(scope.permissions, "restaurant:floor:read") || hasPermission(scope.permissions, "restaurant:orders:write");
-  const canPromotions = hasPermission(scope.permissions, "restaurant:promotions:read") || hasPermission(scope.permissions, "restaurant:floor:read") || hasPermission(scope.permissions, "restaurant:orders:write");
-  const canPrinting = hasPermission(scope.permissions, "restaurant:printing:read");
-  const canFloor = hasPermission(scope.permissions, "restaurant:floor:read");
-  const canCustomers = hasPermission(scope.permissions, "customers:read");
-  const canOrders = canFloor || hasPermission(scope.permissions, "restaurant:orders:read") || hasPermission(scope.permissions, "restaurant:kitchen:read") || hasPermission(scope.permissions, "restaurant:cash:write");
-  const canSales = hasPermission(scope.permissions, "restaurant:cash:write") || hasPermission(scope.permissions, "restaurant:reports:read");
-  const canCash = hasPermission(scope.permissions, "restaurant:cash:write");
-  const canReports = hasPermission(scope.permissions, "restaurant:reports:read");
+  const canMenu = needed("menu", "floor", "orders", "promotions", "settings") && (hasPermission(scope.permissions, "restaurant:menu:read") || hasPermission(scope.permissions, "restaurant:floor:read") || hasPermission(scope.permissions, "restaurant:orders:write"));
+  const canPromotions = needed("promotions", "floor", "orders") && (hasPermission(scope.permissions, "restaurant:promotions:read") || hasPermission(scope.permissions, "restaurant:floor:read") || hasPermission(scope.permissions, "restaurant:orders:write"));
+  const canPrinting = needed("kitchen", "menu", "settings", "checkout", "floor", "orders") && (hasPermission(scope.permissions, "restaurant:printing:read"));
+  const canFloor = needed("floor", "orders", "settings", "dashboard") && (hasPermission(scope.permissions, "restaurant:floor:read"));
+  const canCustomers = needed("clients", "orders", "floor") && (hasPermission(scope.permissions, "customers:read"));
+  const canOrders = needed("floor", "orders", "kitchen", "checkout", "settings", "dashboard") && (hasPermission(scope.permissions, "restaurant:floor:read") || hasPermission(scope.permissions, "restaurant:orders:read") || hasPermission(scope.permissions, "restaurant:kitchen:read") || hasPermission(scope.permissions, "restaurant:cash:write"));
+  const canSales = needed("checkout") && (hasPermission(scope.permissions, "restaurant:cash:write") || hasPermission(scope.permissions, "restaurant:reports:read"));
+  const canCash = needed("checkout", "floor", "orders") && (hasPermission(scope.permissions, "restaurant:cash:write"));
+  const canReports = needed("reports") && (hasPermission(scope.permissions, "restaurant:reports:read"));
   const canConfiguration = hasPermission(scope.permissions, "restaurant:configuration:read");
-  const canDashboard = hasPermission(scope.permissions, "dashboard:read");
-  const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: scope.tenantId }, select: { timezone: true } });
+  const canDashboard = needed("dashboard") && (hasPermission(scope.permissions, "dashboard:read"));
   const { start, end } = restaurantBusinessDay(new Date(), tenant.timezone, configuration.reports.cutoffHour);
   const preparationProductSelect = { productType: true, kitchenArea: true, areaAssignmentMode: true, preparationArea: { select: { id: true, name: true } }, category: { select: { preparationArea: { select: { id: true, name: true } } } } } as const;
   const orderInclude = {

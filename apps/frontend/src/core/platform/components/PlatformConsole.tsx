@@ -1,7 +1,8 @@
 "use client";
 
+import { navigateWithFreshSession } from "@/shared/lib/session-navigation";
+
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   Activity, BadgeDollarSign, BarChart3, BookOpenCheck, BriefcaseBusiness, Building2, CalendarClock, Check,
@@ -84,7 +85,6 @@ function Dashboard({ data, canCreate, canManageBusinesses }: { data: PlatformDat
 }
 
 function BusinessTable({ businesses, templates, compact = false, canManage = false }: { businesses: PlatformBusinessView[]; plans: PlatformPlanView[]; templates: PlatformData["setupTemplates"]; compact?: boolean; canManage?: boolean }) {
-  const router = useRouter();
   const [selected, setSelected] = useState<PlatformBusinessView | null>(null);
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState("");
@@ -100,8 +100,8 @@ function BusinessTable({ businesses, templates, compact = false, canManage = fal
         body: JSON.stringify({ tenantSlug }),
       });
       if (!response.ok) throw new Error();
-      router.push(`/t/${tenantSlug}/dashboard`);
-      router.refresh();
+      // Enter with a fresh router cache after changing the session scope.
+      navigateWithFreshSession(`/t/${encodeURIComponent(tenantSlug)}/dashboard`);
     } catch {
       setOpenError("No pudimos cambiar a este negocio. Actualiza la página e inténtalo nuevamente.");
       setOpening(false);

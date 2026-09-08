@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { headers } from "next/headers";
 import type { PlatformWorkspaceResponse, SessionContextResponse, TenantWorkspaceResponse } from "@movendi/contracts";
 import { backendFetch } from "./backend-fetch";
@@ -33,9 +34,8 @@ async function nullableSessionRequest<T>(path: string): Promise<T | null> {
   }
 }
 
-export function getSessionContext() {
-  return nullableSessionRequest<SessionContextResponse>("/api/auth/session");
-}
+// Deduplicate layout/page reads within one render only; never share sessions across requests.
+export const getSessionContext = cache(() => nullableSessionRequest<SessionContextResponse>("/api/auth/session"));
 
 export function getTenantWorkspace(section?: string, filters?: Record<string, string | undefined>) {
   const query = new URLSearchParams();

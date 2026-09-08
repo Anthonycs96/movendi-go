@@ -268,7 +268,8 @@ test.describe.serial("Configuración integral de Restaurante", () => {
     const configuredCustomer = closedData.customers.find((item) => item.id === customerId);
     expect(configuredCustomer).toMatchObject({ documentType: "CE", segment: "VIP", dni: "CE123456" });
     expect(configuredCustomer?.loyaltyPoints).toBe(Math.floor((operation!.totalCents / 100) * 2));
-    expect(closedData.sales.find((sale) => sale.orderCode === operation!.code)?.code).toMatch(/^VEN-/);
+    const salesData = await restaurantData(page, "checkout");
+    expect(salesData.sales.find((sale) => sale.orderCode === operation!.code)?.code).toMatch(/^VEN-/);
 
     const invalidSource = await page.request.post("/api/operations/restaurant/orders", { data: { source: "CURBSIDE", items: [{ productId: product!.id, quantity: 1 }] } });
     expect(invalidSource.status()).toBe(400);

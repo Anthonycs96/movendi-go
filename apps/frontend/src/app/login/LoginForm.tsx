@@ -1,8 +1,9 @@
 "use client";
 
+import { navigateWithFreshSession } from "@/shared/lib/session-navigation";
+
 import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AlertCircle, Building2, CheckCircle2, ChevronDown, Eye, EyeOff, LoaderCircle, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { APP_DESCRIPTION, APP_LOGO, APP_NAME } from "@/shared/config/brand";
 import Link from "next/link";
@@ -21,7 +22,6 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const businessTypes: Record<string, string> = { BARBERSHOP: "Barbería", RESTAURANT: "Restaurante", TRANSPORT: "Transporte" };
 
 export function LoginForm() {
-  const router = useRouter();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lookupCacheRef = useRef<{ email: string; result: LookupResult } | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -126,8 +126,7 @@ export function LoginForm() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error?.message ?? "No pudimos iniciar sesión.");
-      router.push(result.redirectTo);
-      router.refresh();
+      navigateWithFreshSession(result.redirectTo, true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No pudimos iniciar sesión.");
       setPending(false);

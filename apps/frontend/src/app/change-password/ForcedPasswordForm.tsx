@@ -1,12 +1,13 @@
 "use client";
 
+import { navigateWithFreshSession } from "@/shared/lib/session-navigation";
+
 import { FormEvent, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { Button, Input } from "@/shared/components/ui";
 
 export function ForcedPasswordForm({ userName }: { userName: string }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -25,8 +26,7 @@ export function ForcedPasswordForm({ userName }: { userName: string }) {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error?.message ?? "No pudimos actualizar la contraseña.");
       const requested = searchParams.get("next") ?? "/";
-      router.replace(requested.startsWith("/") && !requested.startsWith("//") ? requested : "/");
-      router.refresh();
+      navigateWithFreshSession(requested.startsWith("/") && !requested.startsWith("//") ? requested : "/", true);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "No pudimos actualizar la contraseña."); setPending(false); }
   }
 

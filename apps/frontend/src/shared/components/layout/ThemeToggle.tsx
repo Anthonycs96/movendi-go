@@ -1,7 +1,8 @@
 "use client";
 
 import { Check, MonitorCog, Moon, Sun } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AnchoredPopover } from "@/shared/components/ui/AnchoredPopover";
 
 type ThemeMode = "system" | "light" | "dark";
 
@@ -27,10 +28,16 @@ function applyTheme(mode: ThemeMode) {
 }
 
 export function ThemeToggle() {
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [mode, setMode] = useState<ThemeMode>("system");
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
+  const dismiss = useCallback(() => setOpen(false), []);
+  const closeWithFocus = useCallback(() => {
+    setOpen(false);
+    // Restore after the portal unmounts; WebKit can otherwise clear this focus.
+    requestAnimationFrame(() => triggerRef.current?.focus({ preventScroll: true }));
+  }, []);
   const current = modes.find((item) => item.value === mode) ?? modes[0];
   const CurrentIcon = current.Icon;
 
@@ -44,9 +51,6 @@ export function ThemeToggle() {
     const syncSystemTheme = () => {
       if (storedMode() === "system") sync();
     };
-    const closeOutside = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
 
     window.localStorage.removeItem(legacyThemeStorageKey);
     sync();
@@ -54,13 +58,11 @@ export function ThemeToggle() {
     window.addEventListener("storage", sync);
     window.addEventListener(themeChangeEvent, sync);
     media.addEventListener("change", syncSystemTheme);
-    document.addEventListener("mousedown", closeOutside);
     return () => {
       window.clearTimeout(readyTimer);
       window.removeEventListener("storage", sync);
       window.removeEventListener(themeChangeEvent, sync);
       media.removeEventListener("change", syncSystemTheme);
-      document.removeEventListener("mousedown", closeOutside);
     };
   }, []);
 
@@ -69,14 +71,23 @@ export function ThemeToggle() {
     window.localStorage.removeItem(legacyThemeStorageKey);
     applyTheme(nextMode);
     setMode(nextMode);
-    setOpen(false);
+    closeWithFocus();
     window.dispatchEvent(new CustomEvent(themeChangeEvent, { detail: nextMode }));
   }
 
-  return <div className="theme-control" ref={rootRef}>
-    <button className="icon-button" type="button" disabled={!ready} onClick={() => setOpen((value) => !value)} aria-label={`Tema: ${current.label}`} aria-haspopup="menu" aria-expanded={open}><CurrentIcon size={18} /></button>
-    {open ? <div className="theme-menu" role="menu" aria-label="Tema de apariencia">
-      {modes.map(({ value, label, description, Icon }) => <button key={value} type="button" role="menuitemradio" aria-checked={mode === value} onClick={() => changeMode(value)}><Icon size={16} /><span><strong>{label}</strong><small>{description}</small></span>{mode === value ? <Check size={15} /> : null}</button>)}
-    </div> : null}
+  return <div className="theme-control">
+    <button ref={triggerRef} className="icon-button" type="button" disabled={!ready} onClick={() => setOpen((value) => !value)} onKeyDown={(event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setOpen(true); } }} aria-label={`Tema: ${current.label}`} aria-haspopup="menu" aria-expanded={open}><CurrentIcon size={18} /></button>
+    {open ? <AnchoredPopover anchorRef={triggerRef} onDismiss={dismiss} className="theme-menu" role="menu" aria-label="Tema de apariencia" onKeyDown={(event) => {
+      const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=menuitemradio]"));
+      const index = items.indexOf(document.activeElement as HTMLButtonElement);
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeWithFocus(); }
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }
+    }}>
+      {modes.map(({ value, label, description, Icon }) => <button key={value} type="button" role="menuitemradio" autoFocus={mode === value} aria-checked={mode === value} onClick={() => changeMode(value)}><Icon size={16} /><span><strong>{label}</strong><small>{description}</small></span>{mode === value ? <Check size={15} /> : null}</button>)}
+    </AnchoredPopover> : null}
   </div>;
 }
