@@ -223,7 +223,8 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
       await capture(cashier, info, "05-caja-cerrada");
     } finally { await kitchen.close(); await cashier.close(); }
     await navigate(page, "floor");
-    await page.locator(".floor-table").filter({ hasText: "Mesa UI 1" }).getByRole("button", { name: "Marcar limpia" }).click();
+    await page.locator(".floor-table").filter({ hasText: "Mesa UI 1" }).locator(".floor-table__select").click();
+    await page.getByLabel("Acciones de Mesa UI 1", { exact: true }).getByRole("button", { name: "Marcar limpia" }).click();
     await expect(page.locator(".floor-table").filter({ hasText: "Mesa UI 1" })).toContainText("Libre");
   });
 

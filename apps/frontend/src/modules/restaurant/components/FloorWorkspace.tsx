@@ -24,7 +24,6 @@ import {
   Plus,
   Printer,
   QrCode,
-  ReceiptText,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -1136,6 +1135,13 @@ function ActiveOrderPanel({
   );
 }
 
+type NewOrderDraft = {
+  customerId: string;
+  deliveryPhone: string; deliveryAddress: string; deliveryReference: string; deliveryFee: number;
+  quantities: Record<string, number>; notes: Record<string, string>; addonParents: Record<string, string>;
+  generalNote: string; promotionCode: string; addedCustomers: Customer[];
+};
+
 function NewOrderComposer({
   data,
   canCreateCustomer,
@@ -1144,7 +1150,17 @@ function NewOrderComposer({
   onTableChange,
   onFocusTable,
   onCreated,
+  initialDraft,
+  draftKey,
+  onDraftChange,
+  onBusy,
+  onSourceChange,
 }: {
+  initialDraft?: NewOrderDraft;
+  draftKey: string;
+  onDraftChange: (key: string, draft?: NewOrderDraft) => void;
+  onBusy: (busy: boolean) => void;
+  onSourceChange: (source: "DINE_IN" | "TAKEAWAY" | "DELIVERY") => void;
   data: RestaurantData;
   tableId: string;
   canCreateCustomer: boolean;
@@ -1161,25 +1177,28 @@ function NewOrderComposer({
       table.active &&
       (table.status === "AVAILABLE" || Boolean(table.activeOrder)),
   );
-  const [addedCustomers, setAddedCustomers] = useState<Customer[]>([]);
-  const [customerId, setCustomerId] = useState("");
-  const [source, setSource] = useState(initialSource);
-  const [deliveryPhone, setDeliveryPhone] = useState("");
-  const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [deliveryReference, setDeliveryReference] = useState("");
-  const [deliveryFee, setDeliveryFee] = useState(0);
+  const [addedCustomers, setAddedCustomers] = useState<Customer[]>(initialDraft?.addedCustomers ?? []);
+  const [customerId, setCustomerId] = useState(initialDraft?.customerId ?? "");
+  const source = initialSource;
+  const [deliveryPhone, setDeliveryPhone] = useState(initialDraft?.deliveryPhone ?? "");
+  const [deliveryAddress, setDeliveryAddress] = useState(initialDraft?.deliveryAddress ?? "");
+  const [deliveryReference, setDeliveryReference] = useState(initialDraft?.deliveryReference ?? "");
+  const [deliveryFee, setDeliveryFee] = useState(initialDraft?.deliveryFee ?? 0);
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [productQuery, setProductQuery] = useState("");
   const [categoryId, setCategoryId] = useState("ALL");
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [addonParents, setAddonParents] = useState<Record<string, string>>({});
-  const [generalNote, setGeneralNote] = useState("");
-  const [promotionCode, setPromotionCode] = useState("");
+  const [quantities, setQuantities] = useState<Record<string, number>>(initialDraft?.quantities ?? {});
+  const [notes, setNotes] = useState<Record<string, string>>(initialDraft?.notes ?? {});
+  const [addonParents, setAddonParents] = useState<Record<string, string>>(initialDraft?.addonParents ?? {});
+  const [generalNote, setGeneralNote] = useState(initialDraft?.generalNote ?? "");
+  const [promotionCode, setPromotionCode] = useState(initialDraft?.promotionCode ?? "");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [failed, setFailed] = useState(false);
   const [mobileView, setMobileView] = useState<"menu" | "review">("menu");
+  useEffect(() => {
+    onDraftChange(draftKey, { customerId, deliveryPhone, deliveryAddress, deliveryReference, deliveryFee, quantities, notes, addonParents, generalNote, promotionCode, addedCustomers });
+  }, [draftKey, onDraftChange, customerId, deliveryPhone, deliveryAddress, deliveryReference, deliveryFee, quantities, notes, addonParents, generalNote, promotionCode, addedCustomers]);
   const customers = useMemo(
     () => [
       ...data.customers,
@@ -1294,6 +1313,7 @@ function NewOrderComposer({
     if (unresolvedAddon) { setFailed(true); setMessage(`Selecciona el producto base de ${unresolvedAddon.name}.`); return; }
     orderSubmitting.current = true;
     setPending(true);
+    onBusy(true);
     setFailed(false);
     setMessage("");
     try {
@@ -1332,6 +1352,7 @@ function NewOrderComposer({
       const successMessage =
         result.message ?? "Pedido guardado y enviado a cocina.";
       orderRequest.current = null;
+      onDraftChange(draftKey, undefined);
       setMessage(onCreated ? "" : successMessage);
       setMobileView("menu");
       setQuantities({});
@@ -1357,6 +1378,7 @@ function NewOrderComposer({
     } finally {
       orderSubmitting.current = false;
       setPending(false);
+      onBusy(false);
     }
   }
 
@@ -1416,8 +1438,9 @@ function NewOrderComposer({
           <Field label="Modalidad">
             <Select
               value={source}
+              disabled={pending}
               onChange={(event) =>
-                setSource(event.target.value as typeof source)
+                onSourceChange(event.target.value as typeof source)
               }
             >
               {data.configuration.orders.sources.filter((option) => option.active && ["DINE_IN", "TAKEAWAY", "DELIVERY"].includes(option.key) && (option.key !== "DELIVERY" || data.configuration.delivery.enabled)).map((option) => <option value={option.key} key={option.key}>{option.label}</option>)}
@@ -1427,6 +1450,7 @@ function NewOrderComposer({
             <Field label="Mesa">
               <Select
                 value={tableId}
+                disabled={pending}
                 onChange={(event) => onTableChange(event.target.value)}
                 required
               >
@@ -1932,7 +1956,82 @@ function TableQrScanner({
   );
 }
 
+function TableActions({ table, canWrite, businessName }: { table: RestaurantTableDto; canWrite: boolean; businessName: string }) {
+  return <div className="floor-selected-actions" aria-label={`Acciones de ${table.name}`}>
+    <strong>{table.name}<small>{table.area.name}</small></strong>
+              <div className="floor-table__actions">
+                <TableQrButton table={table} businessName={businessName} />
+              </div>
+              {canWrite && table.status === "CLEANING" ? (
+                <OperationButton
+                  endpoint={`/api/operations/restaurant/tables/${table.id}/clean`}
+                  method="POST"
+                >
+                  Marcar limpia
+                </OperationButton>
+              ) : null}
+              {canWrite && table.status === "AVAILABLE" ? (
+                <div className="floor-table__actions">
+                  <OperationButton
+                    endpoint={`/api/operations/restaurant/tables/${table.id}/reserve`}
+                    method="POST"
+                    variant="ghost"
+                  >
+                    Reservar
+                  </OperationButton>
+                  <OperationForm
+                    title={`Reservar ${table.name}`}
+                    description="Registra los datos de la visita."
+                    endpoint={`/api/operations/restaurant/tables/${table.id}/reserve`}
+                    triggerLabel="Con datos"
+                    submitLabel="Confirmar reserva"
+                  >
+                    <Field label="Nombre">
+                      <Input name="name" required />
+                    </Field>
+                    <Field label="Teléfono">
+                      <Input name="phone" />
+                    </Field>
+                    <Field label="Fecha y hora">
+                      <Input name="reservedAt" type="datetime-local" />
+                    </Field>
+                    <Field label="Personas">
+                      <Input
+                        name="partySize"
+                        type="number"
+                        min="1"
+                        max={table.seats}
+                      />
+                    </Field>
+                    <Field label="Observaciones">
+                      <Input name="notes" />
+                    </Field>
+                  </OperationForm>
+                </div>
+              ) : null}
+              {canWrite && table.status === "RESERVED" ? (
+                <div className="floor-table__actions">
+                  <OperationButton
+                    endpoint={`/api/operations/restaurant/tables/${table.id}/seat`}
+                    method="POST"
+                    variant="primary"
+                  >
+                    Recibir
+                  </OperationButton>
+                  <OperationButton
+                    endpoint={`/api/operations/restaurant/tables/${table.id}/reserve`}
+                    method="POST"
+                    variant="ghost"
+                  >
+                    Liberar
+                  </OperationButton>
+                </div>
+              ) : null}
+  </div>;
+}
+
 function FloorMap({
+  disabled = false,
   canWrite,
   tables,
   focusedId,
@@ -1940,6 +2039,7 @@ function FloorMap({
   businessName,
   locale,
 }: {
+  disabled?: boolean;
   canWrite: boolean;
   tables: RestaurantTableDto[];
   focusedId: string;
@@ -2020,8 +2120,7 @@ function FloorMap({
             ))}
           </Select>
         </label>
-      </div>
-      <div className="floor-status-filters" aria-label="Filtrar mesas por estado">
+      <Select aria-label="Filtrar mesas por estado" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
         {[
           ["ALL", "Todas", activeTables.length],
           ["AVAILABLE", "Libres", availableCount],
@@ -2029,147 +2128,21 @@ function FloorMap({
           ["READY", "Listas", readyCount],
           ["RESERVED", "Reservadas", activeTables.filter((table) => table.status === "RESERVED").length],
           ["CLEANING", "Limpieza", activeTables.filter((table) => table.status === "CLEANING").length],
-        ].map(([value, label, count]) => (
-          <button
-            key={String(value)}
-            type="button"
-            className={statusFilter === value ? "active" : ""}
-            onClick={() => setStatusFilter(String(value))}
-          >
-            {label} <b>{count}</b>
+].map(([value, label, count]) => <option key={String(value)} value={String(value)}>{label} ({count})</option>)}
+      </Select>
+      </div>
+      <div className="floor-grid" aria-label="Seleccionar mesa">
+        {filteredTables.map((table) => <div key={table.id} className={`floor-table floor-table--${table.status.toLowerCase()} ${table.id === focusedId ? "floor-table--selected" : ""}`}>
+          <button type="button" className="floor-table__select" disabled={disabled} aria-pressed={table.id === focusedId} onClick={() => onFocus(table.id)}>
+            <strong>{table.name}</strong>
+            <TableOperationalStatus table={table} locale={locale} />
+            <small>{table.activeOrder?.code ?? table.area.name}</small>
           </button>
-        ))}
+        </div>)}
       </div>
-      <div className="floor-grid">
-        {filteredTables.map((table) => (
-            <div
-              key={table.id}
-              className={`floor-table floor-table--${table.status.toLowerCase()} ${table.activeOrder?.kitchenTicket?.status === "READY" ? "floor-table--ready" : ""} ${table.id === focusedId ? "floor-table--selected" : ""}`}
-            >
-              <button
-                type="button"
-                className="floor-table__select"
-                onClick={() => onFocus(table.id)}
-              >
-                <span className="floor-table__icon">
-                  <ReceiptText size={19} />
-                </span>
-                <strong>{table.name}</strong>
-                <small>{table.area.name}</small>
-                <span>
-                  <Users size={13} />
-                  {table.seats}
-                </span>
-                <TableOperationalStatus table={table} locale={locale} />
-                {table.activeOrder ? (
-                  <span className="floor-table__order">
-                    <b>{table.activeOrder.code}</b>
-                    <small>
-                      {table.activeOrder.items
-                        .map((item) => `${item.quantity}× ${item.name}`)
-                        .join(", ")}
-                    </small>
-                    <strong>
-                      {formatCurrencyCents(table.activeOrder.totalCents)}
-                    </strong>
-                    <em>
-                      <Clock3 size={12} />
-                      {elapsedLabel(table.activeOrder.createdAt)} ·{" "}
-                      {kitchenLabels[
-                        table.activeOrder.kitchenTicket?.status ?? ""
-                      ] ?? table.activeOrder.status}
-                    </em>
-                  </span>
-                ) : (
-                  <small className="floor-table__empty-order">
-                    Sin pedido asignado
-                  </small>
-                )}
-                {table.reservation ? (
-                  <span className="floor-table__reservation">
-                    <b>{table.reservation.name}</b>
-                    <small>
-                      {table.reservation.partySize
-                        ? `${table.reservation.partySize} personas`
-                        : "Personas por confirmar"}
-                      {table.reservation.reservedAt
-                        ? ` · ${formatDateTime(table.reservation.reservedAt)}`
-                        : ""}
-                    </small>
-                  </span>
-                ) : null}
-              </button>
-              <div className="floor-table__actions">
-                <TableQrButton table={table} businessName={businessName} />
-              </div>
-              {canWrite && table.status === "CLEANING" ? (
-                <OperationButton
-                  endpoint={`/api/operations/restaurant/tables/${table.id}/clean`}
-                  method="POST"
-                >
-                  Marcar limpia
-                </OperationButton>
-              ) : null}
-              {canWrite && table.status === "AVAILABLE" ? (
-                <div className="floor-table__actions">
-                  <OperationButton
-                    endpoint={`/api/operations/restaurant/tables/${table.id}/reserve`}
-                    method="POST"
-                    variant="ghost"
-                  >
-                    Reservar
-                  </OperationButton>
-                  <OperationForm
-                    title={`Reservar ${table.name}`}
-                    description="Registra los datos de la visita."
-                    endpoint={`/api/operations/restaurant/tables/${table.id}/reserve`}
-                    triggerLabel="Con datos"
-                    submitLabel="Confirmar reserva"
-                  >
-                    <Field label="Nombre">
-                      <Input name="name" required />
-                    </Field>
-                    <Field label="Teléfono">
-                      <Input name="phone" />
-                    </Field>
-                    <Field label="Fecha y hora">
-                      <Input name="reservedAt" type="datetime-local" />
-                    </Field>
-                    <Field label="Personas">
-                      <Input
-                        name="partySize"
-                        type="number"
-                        min="1"
-                        max={table.seats}
-                      />
-                    </Field>
-                    <Field label="Observaciones">
-                      <Input name="notes" />
-                    </Field>
-                  </OperationForm>
-                </div>
-              ) : null}
-              {canWrite && table.status === "RESERVED" ? (
-                <div className="floor-table__actions">
-                  <OperationButton
-                    endpoint={`/api/operations/restaurant/tables/${table.id}/seat`}
-                    method="POST"
-                    variant="primary"
-                  >
-                    Recibir
-                  </OperationButton>
-                  <OperationButton
-                    endpoint={`/api/operations/restaurant/tables/${table.id}/reserve`}
-                    method="POST"
-                    variant="ghost"
-                  >
-                    Liberar
-                  </OperationButton>
-                </div>
-              ) : null}
-            </div>
-          ))}
-      </div>
+      {activeTables.find((table) => table.id === focusedId) ? <fieldset className="floor-selected-toolbar" disabled={disabled}>
+        <TableActions key={focusedId} table={activeTables.find((table) => table.id === focusedId)!} canWrite={canWrite} businessName={businessName} />
+      </fieldset> : null}
       {filteredTables.length === 0 ? (
         <div className="order-empty floor-map__empty">
           <Search size={24} />
@@ -2228,6 +2201,11 @@ function TableOperationalStatus({ table, locale }: { table: RestaurantTableDto; 
 
 export function FloorWorkspace({ data, businessName, locale, permissions }: { data: RestaurantData; businessName: string; locale: string; permissions: string[] }) {
   const router = useRouter();
+  const [drafts, setDrafts] = useState<Record<string, NewOrderDraft>>({});
+  const [orderBusy, setOrderBusy] = useState(false);
+  const saveDraft = useCallback((key: string, draft?: NewOrderDraft) => {
+    setDrafts((current) => { const next = { ...current }; if (draft) next[key] = draft; else delete next[key]; return next; });
+  }, []);
   const available = data.tables.filter(
     (table) => table.active && table.status === "AVAILABLE",
   );
@@ -2241,16 +2219,10 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
   const [workspaceView, setWorkspaceView] = useState<
     "tables" | "new" | "active"
   >("tables");
+  const draftKey = `${orderSource}:${orderTableId}`;
   const [floorNotice, setFloorNotice] = useState("");
   const [showActivity, setShowActivity] = useState(false);
   const canViewStaff = hasPermission(permissions, "restaurant:staff:read");
-  const backButton = useRef<HTMLButtonElement>(null);
-  const tablesButton = useRef<HTMLButtonElement>(null);
-  const previousView = useRef(workspaceView);
-  useEffect(() => {
-    if (previousView.current !== workspaceView) (workspaceView === "tables" ? tablesButton : backButton).current?.focus({ preventScroll: true });
-    previousView.current = workspaceView;
-  }, [workspaceView]);
   const effectiveFocusedId = data.tables.some(
     (table) => table.id === focusedId && table.active,
   )
@@ -2269,6 +2241,7 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
     return () => window.clearTimeout(timer);
   }, [floorNotice]);
   function focusTable(id: string) {
+    if (orderBusy) return;
     setShowActivity(false);
     setFocusedId(id);
     const table = data.tables.find((item) => item.id === id);
@@ -2280,14 +2253,22 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
       setOrderSource("DINE_IN");
       setOrderTableId(id);
       setWorkspaceView("new");
-    }
+    } else { setWorkspaceView("tables"); setOrderTableId(id); }
   }
   function changeOrderTable(id: string) {
+    if (id) focusTable(id);
+    else setOrderTableId("");
+  }
+  function changeOrderSource(source: "DINE_IN" | "TAKEAWAY" | "DELIVERY") {
+    if (orderBusy) return;
+    setOrderSource(source);
+    const id = source === "DINE_IN" ? available.find((table) => table.id === focusedId)?.id ?? available[0]?.id ?? "" : "";
     setOrderTableId(id);
-    const table = data.tables.find((item) => item.id === id);
-    if (table?.status === "AVAILABLE") setFocusedId(id);
+    if (id) setFocusedId(id);
+    setWorkspaceView("new");
   }
   function openOffPremise(source: "TAKEAWAY" | "DELIVERY") {
+    if (orderBusy) return;
     setShowActivity(false);
     setOrderSource(source);
     setOrderTableId("");
@@ -2305,6 +2286,7 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
             {hasPermission(permissions, "restaurant:orders:write") && data.configuration.orders.sources.some((source) => source.active && source.key === "TAKEAWAY") ? <Button
               type="button"
               variant="secondary"
+              disabled={orderBusy}
               onClick={() => openOffPremise("TAKEAWAY")}
             >
               Para llevar
@@ -2312,6 +2294,7 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
             {hasPermission(permissions, "restaurant:orders:write") && data.configuration.delivery.enabled && data.configuration.orders.sources.some((source) => source.active && source.key === "DELIVERY") ? <Button
               type="button"
               variant="primary"
+              disabled={orderBusy}
               onClick={() => openOffPremise("DELIVERY")}
             >
               Delivery
@@ -2325,14 +2308,14 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
         }
       />
       <nav className="floor-workspace-tabs" aria-label="Vistas del salón">
-        <button ref={tablesButton} type="button" aria-pressed={!showActivity && workspaceView === "tables"} onClick={() => { setShowActivity(false); setWorkspaceView("tables"); }}>Mesas</button>
-        <button type="button" aria-pressed={!showActivity && workspaceView !== "tables"} onClick={() => { setShowActivity(false); setWorkspaceView(focused?.activeOrder ? "active" : "new"); }}>Pedido</button>
+        <button type="button" aria-pressed={!showActivity} onClick={() => setShowActivity(false)}>Mesas y pedido</button>
         {canViewStaff ? <button type="button" aria-pressed={showActivity} onClick={() => setShowActivity(true)}><Users size={16} /> Actividad del personal</button> : null}
       </nav>
       {showActivity && canViewStaff ? <StaffActivity /> : null}
-      <section style={showActivity && canViewStaff ? { display: "none" } : undefined} className={`floor-order-layout floor-order-layout--${workspaceView}`}>
+      <section style={showActivity && canViewStaff ? { display: "none" } : undefined} className={`floor-order-layout floor-order-layout--compact floor-order-layout--${workspaceView}`}>
         <div className="floor-order-layout__tables">
           <FloorMap
+            disabled={orderBusy}
             canWrite={hasPermission(permissions, "restaurant:floor:write")}
             tables={data.tables}
             focusedId={effectiveFocusedId}
@@ -2342,17 +2325,9 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
           />
         </div>
         <div className="floor-order-layout__work">
-          <button
-            type="button"
-            className="mobile-workspace-back"
-            ref={backButton}
-            onClick={() => setWorkspaceView("tables")}
-          >
-            <ArrowLeft size={18} />
-            Volver a las mesas
-          </button>
           {workspaceView === "active" && focused?.activeOrder ? (
             <ActiveOrderPanel
+              key={focused.activeOrder.id}
               permissions={permissions}
               order={focused.activeOrder}
               products={data.products}
@@ -2361,10 +2336,24 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
               criticalMinutes={data.configuration.kitchen.criticalMinutes}
               splitPaymentsEnabled={data.configuration.sales.splitPaymentsEnabled}
             />
+          ) : workspaceView === "tables" && focused && focused.status !== "AVAILABLE" ? (
+            <Card className="floor-table-detail">
+              <h2>{focused.name}</h2>
+              <TableOperationalStatus table={focused} locale={locale} />
+              {focused.reservation ? <>
+                <p>Reserva: {focused.reservation.name}</p>
+                <p>{focused.reservation.partySize ? `${focused.reservation.partySize} personas` : "Personas por confirmar"}{focused.reservation.reservedAt ? ` · ${formatDateTime(focused.reservation.reservedAt)}` : ""}</p>
+              </> : <p>Gestiona el estado de esta mesa desde sus acciones.</p>}
+            </Card>
           ) : hasPermission(permissions, "restaurant:orders:write") ? (
             <NewOrderComposer
               canCreateCustomer={hasPermission(permissions, "customers:write")}
-              key={orderSource}
+              key={draftKey}
+              draftKey={draftKey}
+              initialDraft={drafts[draftKey]}
+              onDraftChange={saveDraft}
+              onBusy={setOrderBusy}
+              onSourceChange={changeOrderSource}
               data={data}
               tableId={orderTableId}
               initialSource={orderSource}
@@ -2372,7 +2361,7 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
               onFocusTable={focusTable}
               onCreated={(message) => {
                 if (orderSource === "DINE_IN") setFocusedId(orderTableId);
-                setWorkspaceView("tables");
+                setWorkspaceView(orderSource === "DINE_IN" ? "active" : "new");
                 setFloorNotice(message);
               }}
             />

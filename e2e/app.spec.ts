@@ -197,9 +197,10 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     await login(page, "admin@brasa.local", "brasa-norte");
     await page.goto("/t/brasa-norte/floor");
     const table3 = page.locator(".floor-table").filter({ hasText: "Mesa 3" });
-    await table3.getByRole("button", { name: "Reservar" }).click();
+    await table3.locator(".floor-table__select").click();
+    await page.getByLabel("Acciones de Mesa 3", { exact: true }).getByRole("button", { name: "Reservar", exact: true }).click();
     await expect(table3).toContainText("Reservada");
-    await table3.getByRole("button", { name: "Liberar", exact: true }).click();
+    await page.getByLabel("Acciones de Mesa 3", { exact: true }).getByRole("button", { name: "Liberar", exact: true }).click();
     await expect(table3).toContainText("Libre");
 
     await page.locator(".floor-table").filter({ hasText: "Mesa 2" }).locator(".floor-table__select").click();
@@ -247,12 +248,11 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     await expect(page.getByText("Pedido guardado y enviado a cocina.")).toBeVisible();
     const table2WithOrder = page.locator(".floor-table").filter({ hasText: "Mesa 2" });
     await expect(table2WithOrder).toContainText(/PED-/);
-    await expect(table2WithOrder).toContainText("En cola");
+    await expect(table2WithOrder).toContainText("Pedido pendiente");
 
     await table3.locator(".floor-table__select").click();
     await selectContaining(page.locator(".new-order-composer").getByLabel("Mesa"), "Mesa 2");
-    await expect(page.locator(".active-order-warning")).toContainText(/Mesa 2 tiene el pedido PED-/);
-    await page.getByRole("button", { name: "Abrir pedido" }).click();
+    await expect(page.locator('.floor-table__select[aria-pressed="true"]')).toContainText("Mesa 2");
     const activeOrder = page.locator(".table-attention");
     await expect(activeOrder.getByText("Atención activa")).toBeVisible();
     await expect(activeOrder).toContainText("Lomo saltado");
@@ -308,7 +308,8 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     }
 
     await page.goto("/t/brasa-norte/floor");
-    await page.locator(".floor-table").filter({ hasText: "Mesa 3" }).getByRole("button", { name: "Marcar limpia" }).click();
+    await page.locator(".floor-table").filter({ hasText: "Mesa 3" }).locator(".floor-table__select").click();
+    await page.getByLabel("Acciones de Mesa 3", { exact: true }).getByRole("button", { name: "Marcar limpia" }).click();
     await expect(page.locator(".floor-table").filter({ hasText: "Mesa 3" })).toContainText("Libre");
 
     await page.goto("/t/brasa-norte/checkout");
@@ -383,9 +384,9 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     await sendToKitchen.click();
     await expect(page.getByText("Pedido guardado y enviado a cocina.")).toBeVisible();
 
-    const activeMobileTable = page.locator(".floor-table").filter({ hasText: "S/ 84.00" });
-    await activeMobileTable.locator(".floor-table__select").click();
+    await expect(page.locator('.floor-table__select[aria-pressed="true"]')).toContainText("Pedido pendiente");
     const activeMobilePanel = page.locator(".table-attention");
+    await expect(activeMobilePanel).toBeVisible();
     await activeMobilePanel.getByRole("button", { name: "Abrir carta y agregar productos" }).click();
     const mobileExpansion = page.locator(".active-expansion-panel");
     await mobileExpansion.getByRole("region", { name: "Agregar productos" }).getByLabel("Agregar Tequeños de queso").click();

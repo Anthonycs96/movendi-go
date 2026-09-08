@@ -64,27 +64,37 @@ test("consulta protegida, filtros y paginación sin exponer otra empresa, sede o
   expect(page.events.some((event: { action: string }) => event.action === "OLD_EVENT")).toBe(true);
 });
 
-for (const width of [1920, 1280, 768, 390]) test(`mesas a todo el ancho, pedido y actividad accesibles a ${width}px`, async ({ page }) => {
+for (const width of [1920, 1280, 768, 390]) test(`mesas compactas y cambio directo de pedido accesibles a ${width}px`, async ({ page }) => {
   await login(page.request);
   await page.setViewportSize({ width, height: 950 });
   await page.goto("/t/brasa-norte/floor");
   const map = page.locator(".floor-map");
   expect((await map.locator(".floor-table__select > strong").allTextContents()).slice(0, 3)).toEqual(["Mesa 1", "Mesa 2", "Mesa 3"]);
   const work = page.locator(".floor-order-layout");
-  expect((await map.boundingBox())!.width / (await work.boundingBox())!.width).toBeGreaterThan(.95);
-  expect((await page.locator(".floor-table").first().boundingBox())!.width).toBeGreaterThanOrEqual(230);
-  await expect(page.locator(".new-order-composer")).not.toBeVisible();
+  if (width >= 1600) expect((await map.boundingBox())!.width).toBeLessThanOrEqual(300);
+  else expect((await map.boundingBox())!.width / (await work.boundingBox())!.width).toBeGreaterThan(.95);
+  expect((await page.locator(".floor-table").first().boundingBox())!.width).toBeGreaterThanOrEqual(100);
+  expect((await page.locator(".floor-table").first().boundingBox())!.height).toBeLessThanOrEqual(125);
+  expect((await page.locator(".floor-table").first().boundingBox())!.height).toBeGreaterThanOrEqual(80);
+  await expect(page.locator(".new-order-composer")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Volver a las mesas", exact: true })).toHaveCount(0);
   await mkdir("outputs/staff-review", { recursive: true });
   await page.screenshot({ path: `outputs/staff-review/mesas-${width}.png`, fullPage: true });
   await page.locator(".floor-table--available .floor-table__select").first().click();
   await expect(page.locator(".new-order-composer")).toBeVisible();
-  await expect(map).not.toBeVisible();
+  await expect(map).toBeVisible();
   const product = page.locator(".new-order-composer .touch-product").first();
   await product.getByRole("button", { name: /^Agregar / }).click();
   await expect(product.locator(".quantity-stepper b")).toHaveText("1");
-  await page.getByRole("button", { name: "Volver a las mesas", exact: true }).click();
+  await page.locator(".floor-table--available .floor-table__select").nth(1).click();
+  await expect(product.locator(".quantity-stepper b")).toHaveText("0");
+  await page.locator(".floor-table--available .floor-table__select").first().click();
+  await expect(product.locator(".quantity-stepper b")).toHaveText("1");
   await expect(map).toBeVisible();
-  await page.getByRole("navigation", { name: "Vistas del salón" }).getByRole("button", { name: "Pedido", exact: true }).click();
+  await page.locator(".new-order-composer").getByLabel("Modalidad", { exact: true }).selectOption("TAKEAWAY");
+  await expect(product.locator(".quantity-stepper b")).toHaveText("0");
+  await page.locator(".floor-table--available .floor-table__select").first().click();
+  await expect(page.locator(".new-order-composer").getByLabel("Modalidad", { exact: true })).toHaveValue("DINE_IN");
   await expect(product.locator(".quantity-stepper b")).toHaveText("1");
   await page.getByRole("navigation", { name: "Vistas del salón" }).getByRole("button", { name: "Actividad del personal" }).click();
   await expect(page.getByRole("heading", { name: "Actividad del personal" })).toBeVisible();
@@ -113,7 +123,7 @@ test("cambiar sucursal reinicia pestaña, filtros y datos de actividad", async (
   await page.getByLabel("Filtrar trabajador").selectOption(workerId);
   await expect(page.locator(".staff-activity__workers article")).toHaveCount(1);
   await page.getByRole("combobox", { name: "Sucursal", exact: true }).selectOption({ label: "Sucursal aislada" });
-  await expect(tabs.getByRole("button", { name: "Mesas", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(tabs.getByRole("button", { name: "Mesas y pedido", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator(".staff-activity")).toHaveCount(0);
   await tabs.getByRole("button", { name: "Actividad del personal" }).click();
   await expect(page.locator(".staff-activity")).toBeVisible();
