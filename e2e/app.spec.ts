@@ -285,11 +285,14 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     orderRow = page.getByRole("row").filter({ hasText: "Mesa 3" });
 
     await page.goto("/t/brasa-norte/kitchen");
-    const ticket = page.locator(".kitchen-ticket").filter({ hasText: "Mesa 3" });
-    await expect(ticket).toBeVisible();
-    await ticket.getByRole("button", { name: "Iniciar preparación" }).click();
-    await ticket.getByRole("button", { name: "Marcar listo" }).click();
-    await expect(ticket.getByRole("button", { name: "Entregado" })).toBeVisible();
+    const tickets = page.locator(".kitchen-ticket").filter({ hasText: "Mesa 3" });
+    await expect(tickets).toHaveCount(2);
+    for (const product of ["Chicha morada", "Lomo saltado"]) {
+      const ticket = tickets.filter({ hasText: product });
+      await ticket.getByRole("button", { name: "Iniciar preparación" }).click();
+      await ticket.getByRole("button", { name: "Marcar listo" }).click();
+      await expect(ticket.getByRole("button", { name: "Entregado" })).toBeVisible();
+    }
 
     await page.goto("/t/brasa-norte/orders");
     orderRow = page.getByRole("row").filter({ hasText: "Mesa 3" });
@@ -298,6 +301,11 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     const checkoutDialog = page.getByRole("dialog", { name: /Cobrar PED-/ });
     await checkoutDialog.getByRole("button", { name: "Confirmar cobro" }).click();
     await expect(orderRow).toContainText("Pagado");
+
+    await page.goto("/t/brasa-norte/kitchen");
+    for (const product of ["Chicha morada", "Lomo saltado"]) {
+      await page.locator(".kitchen-ticket").filter({ hasText: "Mesa 3" }).filter({ hasText: product }).getByRole("button", { name: "Entregado", exact: true }).click();
+    }
 
     await page.goto("/t/brasa-norte/floor");
     await page.locator(".floor-table").filter({ hasText: "Mesa 3" }).getByRole("button", { name: "Marcar limpia" }).click();

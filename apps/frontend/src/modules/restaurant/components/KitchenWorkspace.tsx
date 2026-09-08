@@ -61,14 +61,14 @@ export function KitchenWorkspace({
         }
       />
       {canWrite ? <KitchenPrintStation businessName={businessName} printers={data.printDevices.filter((printer) => printer.active)} /> : null}
-      <label className="compact-select">Área de preparación<Select aria-label="Área de preparación" value={area} onChange={(event) => setArea(event.target.value)}><option value="ALL">Todas las áreas</option>{areas.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</Select></label>
+      <div className="kitchen-area-filter"><label htmlFor="kitchen-area">Área de preparación</label><Select id="kitchen-area" value={area} onChange={(event) => setArea(event.target.value)}><option value="ALL">Todas las áreas</option>{areas.map(([key, name]) => <option key={key} value={key}>{localizeCode(name, locale)}</option>)}</Select></div>
       {tickets.length ? (
         <section className="kitchen-grid">
           {tickets.map((order) => (
             <Card className="kitchen-ticket" key={`${order.id}:${order.areaKey}`}>
               <header>
                 <div>
-                  <span>{order.code} · {order.areaName}{order.paid ? " · Pagado" : ""}</span>
+                  <span>{order.code} · {localizeCode(order.areaName, locale)}{order.paid ? " · Pagado" : ""}</span>
                   <h3>
                     {order.table?.name ??
                       (order.source === "DELIVERY"

@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
+import { startLocalHttpsProxy } from "./e2e-https-proxy.mjs";
 
 const nodeMajor = Number(process.versions.node.split(".")[0]);
 const prismaCli = resolve("node_modules", "prisma", "build", "index.js");
@@ -46,6 +47,15 @@ function run(command, args, cwd = process.cwd(), env = {}) {
   return result.status ?? 1;
 }
 
+function runBrowserSuite(suite) {
+  // Keep this event loop available to serve the local HTTPS proxy.
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(process.execPath, [playwrightCli, "test", suite], { env: { ...process.env, E2E_REUSE_SERVER: "1" }, stdio: "inherit" });
+    child.once("error", reject);
+    child.once("exit", (code) => resolveRun(code ?? 1));
+  });
+}
+
 function buildWorkspace(name) {
   return run(process.execPath, [nextCli, "build"], resolve("apps", name))
     || run(process.execPath, [resolve("scripts", "prepare-standalone.mjs"), name]);
@@ -74,7 +84,9 @@ async function startServers() {
   ].map(({ name, port, env }) => spawn(process.execPath, [resolve("scripts", "start-service.mjs"), name, port], {
     env: { ...process.env, ...env, PORT: port, HOSTNAME: "127.0.0.1" }, stdio: "inherit",
   }));
+  let closeHttps = async () => {};
   const stop = async () => {
+    await closeHttps();
     await Promise.all(children.map((child) => new Promise((done) => {
       if (child.exitCode !== null || child.signalCode !== null) return done();
       child.once("exit", done);
@@ -82,6 +94,7 @@ async function startServers() {
     })));
   };
   try {
+    if (process.env.E2E_CROSS_BROWSER === "1") closeHttps = await startLocalHttpsProxy();
     const deadline = Date.now() + 120_000;
     for (;;) {
       if (children.some((child) => child.exitCode !== null)) throw new Error("Un servicio E2E no pudo iniciarse.");
@@ -130,7 +143,7 @@ if (run(process.execPath, [prismaCli, "migrate", "deploy", "--schema", schema]) 
       break;
     }
     const stop = await startServers();
-    try { exitCode = run(process.execPath, [playwrightCli, "test", suite], process.cwd(), { E2E_REUSE_SERVER: "1" }); }
+    try { exitCode = await runBrowserSuite(suite); }
     finally { await stop(); }
     if (exitCode) break;
   }

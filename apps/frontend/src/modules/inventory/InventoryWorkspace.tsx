@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -452,8 +452,9 @@ function PurchaseDialog({ items }: { items: InventoryItemDto[] }) {
   );
 }
 
-function CountDialog({ items }: { items: InventoryItemDto[] }) {
+function CountDialog({ items, restaurant = false }: { items: InventoryItemDto[]; restaurant?: boolean }) {
   const router = useRouter();
+  const requestRef = useRef<{ payload: string; key: string } | null>(null);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -464,15 +465,11 @@ function CountDialog({ items }: { items: InventoryItemDto[] }) {
     setPending(true);
     setError("");
     try {
-      await send("/api/operations/inventory/counts", {
-        countedAt: form.get("countedAt") || undefined,
-        notes: form.get("notes"),
-        idempotencyKey: crypto.randomUUID(),
-        lines: lines.map((line) => ({
-          itemId: line.itemId,
-          countedQuantity: line.quantity,
-        })),
-      });
+      const payload = { countedAt: form.get("countedAt") || undefined, notes: form.get("notes"), lines: lines.map((line) => ({ itemId: line.itemId, countedQuantity: line.quantity })) };
+      const serialized = JSON.stringify(payload);
+      if (requestRef.current?.payload !== serialized) requestRef.current = { payload: serialized, key: crypto.randomUUID() };
+      await send("/api/operations/inventory/counts", { ...payload, idempotencyKey: requestRef.current.key });
+      requestRef.current = null;
       setOpen(false);
       setLines([{ itemId: "", quantity: "" }]);
       router.refresh();
@@ -495,7 +492,7 @@ function CountDialog({ items }: { items: InventoryItemDto[] }) {
       <Dialog
         open={open}
         title="Conteo físico"
-        description="Compara lo contado con el sistema y crea los ajustes necesarios."
+        description={restaurant ? "Cuenta las existencias físicas, incluidos los insumos reservados que aún no se prepararon. Excluye lo que ya entró en preparación. El ajuste conserva las reservas pendientes." : "Compara lo contado con el sistema y crea los ajustes necesarios."}
         onClose={() => !pending && setOpen(false)}
         footer={
           <>
@@ -716,7 +713,7 @@ export function InventoryWorkspace({
     (item) => item.trackStock && item.stock <= item.minimumStock,
   );
   const tabs: Array<{ id: Tab; label: string }> = [
-    { id: "stock", label: "Stock actual" },
+    { id: "stock", label: "Stock disponible" },
     { id: "kardex", label: "Kardex" },
     { id: "purchases", label: "Compras" },
     { id: "counts", label: "Conteos" },
@@ -800,7 +797,7 @@ export function InventoryWorkspace({
           </Button>
         ))}
         <span />
-        {canWrite ? <CountDialog items={activeItems} /> : null}
+        {canWrite ? <CountDialog items={activeItems} restaurant={tenantType === "RESTAURANT"} /> : null}
         {canWrite && tenantType === "RESTAURANT" ? <RecipeDialog data={data} /> : null}
       </div>
       {tab === "stock" ? (

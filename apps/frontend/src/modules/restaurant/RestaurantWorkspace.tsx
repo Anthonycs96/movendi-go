@@ -67,7 +67,7 @@ export function RestaurantWorkspace({
       permissions={permissions}
       platformAdmin={platformAdmin}
     />
-    {["orders", "checkout"].includes(section) ? <RestaurantHistory initialKind={section === "orders" ? "orders" : "sales"} canRefund={data.canApproveRefund} canIssue={hasPermission(permissions, "restaurant:sunat:write")} /> : null}
+    {["orders", "checkout"].includes(section) ? <RestaurantHistory initialKind={section === "orders" ? "orders" : "sales"} canRefund={data.canApproveRefund} canIssue={data.configuration.integrations.sunatEnabled && hasPermission(permissions, "restaurant:sunat:write")} /> : null}
     </>
   );
 }

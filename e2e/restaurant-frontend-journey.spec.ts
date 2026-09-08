@@ -1,4 +1,6 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { mkdir } from "node:fs/promises";
+import { resolve } from "node:path";
 
 // All business writes in this suite are made by the application's own UI.
 const slug = `ui-${Date.now().toString(36)}`;
@@ -41,7 +43,8 @@ async function navigate(page: Page, section: string) {
 
 async function capture(page: Page, info: TestInfo, name: string) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), `${name}: no horizontal page overflow`).toBe(true);
-  const path = info.outputPath(`${name}.png`);
+  await mkdir("outputs/restaurant-completion-ui", { recursive: true });
+  const path = resolve("outputs/restaurant-completion-ui", `${name}.png`);
   await page.screenshot({ path, fullPage: true });
   await info.attach(name, { path, contentType: "image/png" });
 }
@@ -296,7 +299,7 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
     await page.getByRole("button", { name: "Devolver venta", exact: true }).first().click();
     const dialog = page.getByRole("dialog", { name: "Devolución total", exact: true });
     await dialog.getByLabel("Motivo", { exact: true }).fill("Devolución total solicitada por el cliente");
-    await dialog.getByLabel("Destino de los insumos").selectOption("WASTE");
+    await dialog.getByLabel("Destino de los insumos", { exact: true }).selectOption("WASTE");
     await dialog.getByRole("checkbox").check();
     await dialog.getByRole("button", { name: "Registrar devolución total" }).click();
     await expect(dialog).not.toBeVisible();

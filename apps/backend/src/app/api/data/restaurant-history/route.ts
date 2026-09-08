@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     const paging = { take: 25, skip: (page - 1) * 25 };
     if (kind === "sales") {
       const where = { ...base, orderId: { not: null }, createdAt: dates, ...(q ? { code: { contains: q } } : {}) };
-      const [total, rows] = await prisma.$transaction([prisma.sale.count({ where }), prisma.sale.findMany({ where, ...paging, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, code: true, status: true, totalCents: true, createdAt: true, paymentMethod: true, refund: { select: { id: true, reason: true, creditStatus: true, creditError: true, creditResponse: true } }, electronicDocument: { select: { status: true, kind: true, series: true, number: true, lastError: true, pdfUrl: true } } } })]);
+      const [total, rows] = await prisma.$transaction([prisma.sale.count({ where }), prisma.sale.findMany({ where, ...paging, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, code: true, status: true, totalCents: true, createdAt: true, paymentMethod: true, refund: { select: { id: true, reason: true, creditStatus: true, creditError: true, creditResponse: true } }, electronicDocument: { select: { status: true, kind: true, series: true, number: true, lastError: true, pdfUrl: true, xmlUrl: true, cdrUrl: true } } } })]);
       return Response.json({ kind, page, total, pageSize: 25, rows: rows.map((row) => ({ ...row, refund: refundView(row.refund) })) });
     }
     if (kind === "orders") {

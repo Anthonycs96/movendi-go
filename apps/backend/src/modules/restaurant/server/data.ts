@@ -25,11 +25,12 @@ export async function getRestaurantData(scope: TenantScope, reportPeriod?: Resta
   const canDashboard = hasPermission(scope.permissions, "dashboard:read");
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: scope.tenantId }, select: { timezone: true } });
   const { start, end } = restaurantBusinessDay(new Date(), tenant.timezone, configuration.reports.cutoffHour);
+  const preparationProductSelect = { productType: true, kitchenArea: true, areaAssignmentMode: true, preparationArea: { select: { id: true, name: true } }, category: { select: { preparationArea: { select: { id: true, name: true } } } } } as const;
   const orderInclude = {
     table: { select: { id: true, name: true } },
     customer: { select: { id: true, name: true } },
     createdBy: { select: { id: true, name: true } },
-    items: { select: { preparationAreaKey: true, preparationAreaName: true, id: true, productId: true, parentProductId: true, name: true, quantity: true, totalCents: true, status: true, notes: true, product: { select: { productType: true } } } },
+    items: { select: { recipeSnapshot: true, preparationAreaKey: true, preparationAreaName: true, id: true, productId: true, parentProductId: true, name: true, quantity: true, totalCents: true, status: true, notes: true, product: { select: preparationProductSelect }, parentProduct: { select: preparationProductSelect } } },
     kitchenTicket: { select: { id: true, status: true, createdAt: true } },
     sale: { select: { id: true } },
   } as const;
@@ -56,7 +57,13 @@ export async function getRestaurantData(scope: TenantScope, reportPeriod?: Resta
   ]);
 
   const toOrderDto = (item: typeof orders[number]): RestaurantOrderDto => ({
-    id: item.id, code: item.code, source: item.source, deliveryPhone: item.deliveryPhone, deliveryAddress: item.deliveryAddress, deliveryReference: item.deliveryReference, deliveryFeeCents: item.deliveryFeeCents, deliveryStatus: item.deliveryStatus, status: item.status, notes: item.notes, subtotalCents: item.subtotalCents, discountCents: item.discountCents, totalCents: item.totalCents, promotionName: item.promotionName, promotionCode: item.promotionCode, createdAt: item.createdAt.toISOString(), table: item.table, customer: item.customer, waiter: item.createdBy, items: item.items.map(({ product, ...line }) => ({ ...line, productType: product.productType })),
+    id: item.id, code: item.code, source: item.source, deliveryPhone: item.deliveryPhone, deliveryAddress: item.deliveryAddress, deliveryReference: item.deliveryReference, deliveryFeeCents: item.deliveryFeeCents, deliveryStatus: item.deliveryStatus, status: item.status, notes: item.notes, subtotalCents: item.subtotalCents, discountCents: item.discountCents, totalCents: item.totalCents, promotionName: item.promotionName, promotionCode: item.promotionCode, createdAt: item.createdAt.toISOString(), table: item.table, customer: item.customer, waiter: item.createdBy, items: item.items.map(({ product, parentProduct, recipeSnapshot, ...line }) => {
+      // Active orders created before area snapshots use current routing, without inventing historical recipes.
+      const routed = product.areaAssignmentMode === "INHERIT_FROM_PRODUCT" && parentProduct ? parentProduct : product;
+      const area = routed.preparationArea ?? routed.category.preparationArea;
+      const legacyActive = recipeSnapshot === null && line.preparationAreaKey === "GENERAL" && !["COMPLETED", "CANCELLED"].includes(item.status);
+      return { ...line, productType: product.productType, ...(legacyActive ? { preparationAreaKey: area?.id ?? routed.kitchenArea ?? "GENERAL", preparationAreaName: area?.name ?? routed.kitchenArea ?? "General" } : {}) };
+    }),
     kitchenTicket: item.kitchenTicket ? { ...item.kitchenTicket, createdAt: item.kitchenTicket.createdAt.toISOString() } : null,
     paid: Boolean(item.sale),
   });

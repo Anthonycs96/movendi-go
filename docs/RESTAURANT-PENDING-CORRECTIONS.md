@@ -1,5 +1,7 @@
 # Reporte de correcciones pendientes: backend y frontend
 
+> **Seguimiento:** este documento conserva el diagnóstico previo. Las correcciones autorizadas y su evidencia actual se detallan en [Cierre de correcciones de Restaurante](RESTAURANT-COMPLETION-VALIDATION.md). Los pendientes descritos abajo no deben interpretarse como el estado actual sin consultar ese seguimiento.
+
 Fecha: 7 de septiembre de 2026. Proyecto: multi-business-saasV2.
 
 ## Alcance y conclusión

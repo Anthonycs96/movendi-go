@@ -60,6 +60,7 @@ async function clearDatabase() {
   await prisma.kitchenTicket.deleteMany();
   await prisma.orderItem.deleteMany();
   await prisma.restaurantOrder.deleteMany();
+  await prisma.promotion.deleteMany();
   await prisma.diningTable.deleteMany();
   await prisma.diningArea.deleteMany();
   await prisma.product.deleteMany();

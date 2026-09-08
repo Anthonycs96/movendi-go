@@ -64,7 +64,7 @@ export function DataTable<T>({ rows, columns, rowKey, emptyTitle = "Sin resultad
 
   return (
     <div className="data-table">
-      <div className="data-table__scroll">
+      <div className="data-table__scroll" tabIndex={0} role="region" aria-label="Tabla desplazable">
         <table>
           <thead><tr>{columns.map((column) => {
             const sortable = sortableColumns.has(column.key);

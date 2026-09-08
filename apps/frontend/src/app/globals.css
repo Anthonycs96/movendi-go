@@ -9,18 +9,18 @@
   --surface-soft: #f7f8fa;
   --surface-muted: #eef1f4;
   --text: #15171a;
-  --text-soft: #69707a;
-  --text-faint: #9aa1aa;
+  --text-soft: #59626e;
+  --text-faint: #5d6570;
   --border: #e3e6ea;
   --border-strong: #d7dbe0;
   --primary: hsl(213 84% 46%);
   --primary-dark: hsl(213 84% 38%);
   --primary-soft: hsl(214 95% 93%);
-  --amber: #e7a51b;
+  --amber: #865600;
   --amber-soft: #fff6dc;
-  --green: #168663;
+  --green: #117553;
   --green-soft: #e7f7f1;
-  --red: #d44646;
+  --red: #b12e36;
   --red-soft: #fff0f0;
   --violet: #7657c7;
   --violet-soft: #f0ebff;
@@ -39,7 +39,7 @@
   --surface-muted: #202329;
   --text: #f1f3f5;
   --text-soft: #a4aab2;
-  --text-faint: #747b84;
+  --text-faint: #99a2af;
   --border: #272a30;
   --border-strong: #343840;
   --primary: #e7a51b;
@@ -170,7 +170,7 @@ kbd { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; bac
 .appointment-row__price { text-align: right; font-size: 12px; }
 .badge { width: fit-content; display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid transparent; border-radius: 999px; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .badge__dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.badge--neutral { color: var(--text-soft); background: var(--surface-muted); }.badge--info { color: #2867c8; background: #eaf2ff; }.badge--success { color: var(--green); background: var(--green-soft); }.badge--warning { color: #a36b00; background: var(--amber-soft); }.badge--danger { color: var(--red); background: var(--red-soft); }.badge--violet { color: var(--violet); background: var(--violet-soft); }
+.badge--neutral { color: var(--text-soft); background: var(--surface-muted); }.badge--info { color: #2867c8; background: #eaf2ff; }.badge--success { color: var(--green); background: var(--green-soft); }.badge--warning { color: #865600; background: var(--amber-soft); }.badge--danger { color: var(--red); background: var(--red-soft); }.badge--violet { color: var(--violet); background: var(--violet-soft); }
 .dark .badge--info { color: #8ab6ff; background: #17233b; }.dark .badge--warning { color: #efbd51; }.dark .badge--neutral { background: #22252a; }
 .team-utilization { display: flex; flex-direction: column; gap: 16px; }
 .team-utilization__top { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 9px; }
@@ -1039,3 +1039,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .restaurant-history .pagination > div { display: flex; gap: .5rem; }
 .field-error-link { border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; text-decoration: underline; padding: .35rem 0; font: inherit; }
 [aria-invalid="true"] { border-color: #b42318; }
+
+/* Keep small labels and selected controls readable on their tinted backgrounds. */
+:root:not(.dark) .live-chip--amber { color: #865600; }
+:root:not(.dark) .settings-card .badge--info,
+:root:not(.dark) .settings-card .badge--success,
+:root:not(.dark) .config-transition-options label.selected,
+:root:not(.dark) .setup-choice-section label.selected { color: color-mix(in srgb, var(--primary) 75%, #000); }
+
+:root:not(.dark) .mobile-bottom-nav a.active { color: color-mix(in srgb, var(--primary) 75%, #000); }
+.dark .report-periods a.active, .dark .report-view-tabs button.active { color: #1b1608; }
+.kitchen-area-filter { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
+.kitchen-area-filter label { flex-shrink: 0; font-size: 12px; font-weight: 600; }
+.kitchen-area-filter select { max-width: 320px; min-width: 0; }
+@media (max-width: 600px) { .kitchen-area-filter { display: grid; gap: 7px; } .kitchen-area-filter select { max-width: none; } }
+
+.data-table__scroll:focus-visible, .hourly-chart:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+.dark .app-shell .sidebar__item--active { color: #1b1608; }

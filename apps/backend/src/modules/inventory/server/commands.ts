@@ -93,11 +93,18 @@ export async function handleInventoryCommand(method: string, segments: string[],
         }
       }
       const count = await tx.inventoryCount.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, createdById: scope.actorId, code, notes: input.notes || null, countedAt: input.countedAt ?? new Date() } });
+      const reservations = await tx.inventoryMovement.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, itemId: { in: input.lines.map((line) => line.itemId) }, type: "ORDER_RESERVATION" }, select: { itemId: true, originId: true, quantity: true } });
+      const unprepared = new Set((await tx.orderItem.findMany({ where: { tenantId: scope.tenantId, id: { in: reservations.flatMap((movement) => movement.originId ? [movement.originId] : []) }, status: { in: ["PENDING", "HELD"] } }, select: { id: true } })).map((line) => line.id));
+      const reservedOnHand = new Map<string, number>();
+      for (const movement of reservations) if (movement.originId && unprepared.has(movement.originId)) reservedOnHand.set(movement.itemId, (reservedOnHand.get(movement.itemId) ?? 0) + movement.quantity);
       for (const [index, line] of input.lines.entries()) {
         const item = await tx.inventoryItem.findFirst({ where: { id: line.itemId, tenantId: scope.tenantId, OR: [{ branchId: scope.branchId }, { branchId: null }], active: true } });
         if (!item) throw new AppError("INVENTORY_ITEM_NOT_FOUND", 404, "Uno de los artículos del conteo ya no existe.");
-        const difference = line.countedQuantity - item.stock;
-        await tx.inventoryCountLine.create({ data: { countId: count.id, itemId: item.id, expectedQuantity: item.stock, countedQuantity: line.countedQuantity, difference } });
+        // Available stock already excludes reservations. Unprepared reservations
+        // still exist physically; counting them must not make them available twice.
+        const expectedQuantity = item.stock + (reservedOnHand.get(item.id) ?? 0);
+        const difference = line.countedQuantity - expectedQuantity;
+        await tx.inventoryCountLine.create({ data: { countId: count.id, itemId: item.id, expectedQuantity, countedQuantity: line.countedQuantity, difference } });
         if (Math.abs(difference) > 1e-9) await applyInventoryMovement(tx, scope, { itemId: item.id, type: "COUNT_ADJUSTMENT", direction: difference > 0 ? "IN" : "OUT", quantity: Math.abs(difference), originType: "COUNT", originId: count.id, countId: count.id, idempotencyKey: input.idempotencyKey ? `COUNT:${input.idempotencyKey}:${index}` : `COUNT:${count.id}:${item.id}`, reference: code, notes: input.notes || null, occurredAt: input.countedAt });
       }
       return count;

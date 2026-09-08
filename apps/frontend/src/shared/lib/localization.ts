@@ -1,6 +1,7 @@
 export type SupportedLocale = "es-PE" | "es-ES" | "en-US";
 
 const es: Record<string, string> = {
+  HELD: "Pendiente de envío", REFUNDED: "Devuelta",
   AVAILABLE: "Disponible", RESERVED: "Reservada", IN_SERVICE: "En atención", CLEANING: "En limpieza",
   DRAFT: "Borrador", PLACED: "Enviado", QUEUED: "En cola", PREPARING: "Preparando", READY: "Listo", SERVED: "Servido", COMPLETED: "Completado", CANCELLED: "Cancelado",
   PENDING: "Pendiente", DISPATCHED: "En camino", DELIVERED: "Entregado", PAID: "Pagado", OPEN: "Abierta", CLOSED: "Cerrada", ACTIVE: "Activo", INACTIVE: "Inactivo",
@@ -13,6 +14,7 @@ const es: Record<string, string> = {
 };
 
 const en: Record<string, string> = {
+  HELD: "Held", REFUNDED: "Refunded",
   AVAILABLE: "Available", RESERVED: "Reserved", IN_SERVICE: "In service", CLEANING: "Cleaning",
   DRAFT: "Draft", PLACED: "Placed", QUEUED: "Queued", PREPARING: "Preparing", READY: "Ready", SERVED: "Served", COMPLETED: "Completed", CANCELLED: "Cancelled",
   PENDING: "Pending", DISPATCHED: "On the way", DELIVERED: "Delivered", PAID: "Paid", OPEN: "Open", CLOSED: "Closed", ACTIVE: "Active", INACTIVE: "Inactive",

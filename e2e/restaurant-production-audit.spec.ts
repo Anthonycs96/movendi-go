@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import type { RestaurantData } from "@movendi/contracts";
 import { PrismaClient } from "@prisma/client";
-import { writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 
 const password = "Audit-local-2026!";
 const changedPasswords = new Map<string, string>();
@@ -579,6 +579,38 @@ test("la sesión solo ofrece la sede asignada y explica su desactivación", asyn
   }
 });
 
+test("el conteo físico conserva reservas y el formulario reutiliza la solicitud tras perder la respuesta", async ({ request, page }) => {
+  const initial = await data(request);
+  const ingredient = await command(request, "inventory/items", { sku: "COUNT-RESERVED", name: "Insumo reservado para conteo", kind: "INPUT", unit: "UND", openingStock: 10, unitCost: 1 });
+  const product = await command(request, "restaurant/products", { name: "Plato para conteo", categoryId: initial.categories[0].id, price: 10, cost: 1 });
+  await command(request, `inventory/recipes/${product.id}`, { yieldQuantity: 1, ingredients: [{ itemId: ingredient.id, quantity: 1 }] });
+  const created = await order(request, { items: [{ productId: product.id, quantity: 1 }] });
+  const stock = async () => { const response = await request.get("/api/data/tenant?section=inventory"); return (await response.json()).data.inventoryModule.items.find((row: { id: string }) => row.id === ingredient.id).stock; };
+  expect(await stock()).toBe(9);
+  await login(page.request); await page.goto(`/t/${slug}/inventory`);
+  const keys: string[] = [];
+  await page.route("**/api/operations/inventory/counts", async (route) => {
+    keys.push(route.request().postDataJSON().idempotencyKey);
+    if (keys.length === 1) { expect((await route.fetch()).status()).toBe(200); await route.abort("failed"); }
+    else await route.continue();
+  });
+  await page.getByRole("button", { name: "Conteo físico", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Conteo físico", exact: true });
+  await dialog.getByLabel("Artículo", { exact: true }).selectOption(ingredient.id);
+  await dialog.getByLabel("Cantidad", { exact: true }).fill("10");
+  await dialog.getByRole("button", { name: "Aplicar conteo" }).click();
+  await expect(dialog.locator(".form-error")).toBeVisible();
+  expect(await stock()).toBe(9);
+  await command(request, "inventory/movements", { itemId: ingredient.id, type: "RESTOCK", quantity: 2 });
+  await dialog.getByRole("button", { name: "Aplicar conteo" }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(keys).toHaveLength(2); expect(keys[1]).toBe(keys[0]); expect(await stock()).toBe(11);
+  const queued = (await data(request)).orders.find((row) => row.id === created.id)!;
+  await command(request, `restaurant/kitchen/${queued.kitchenTicket!.id}/status`, { status: "PREPARING" }, "PATCH");
+  await command(request, "inventory/counts", { lines: [{ itemId: ingredient.id, countedQuantity: 11 }] });
+  expect(await stock()).toBe(11);
+});
+
 test("conciliación directa de ventas, pagos, caja, recetas y claves foráneas", async ({}, testInfo) => {
   expect(process.env.DATABASE_URL, "Ejecuta esta suite con scripts/run-e2e.mjs y su base aislada").toBeTruthy();
   const db = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL! } } });
@@ -605,7 +637,9 @@ test("conciliación directa de ventas, pagos, caja, recetas y claves foráneas",
     for (const item of inventory) expect(item.stock, item.sku).toBeCloseTo(item.movements.reduce((sum, movement) => sum + (movement.direction === "IN" ? movement.quantity : -movement.quantity), 0), 6);
     if (process.env.DATABASE_URL!.startsWith("file:")) expect(await db.$queryRawUnsafe("PRAGMA foreign_key_check")).toEqual([]);
     const ledgerPath = testInfo.outputPath("restaurant-ledger.json");
-    await writeFile(ledgerPath, JSON.stringify({ tenant: slug, setup: tenant.setup, sales: sales.length, orders: orders.length, cashSessions: cashSessions.map(({ status, openingCents, expectedCents, countedCents }) => ({ status, openingCents, expectedCents, countedCents })), inventory: inventory.map(({ sku, stock }) => ({ sku, stock })), totalSalesCents: sales.reduce((sum, sale) => sum + sale.totalCents, 0), balanced: true }, null, 2));
+    await writeFile(ledgerPath, JSON.stringify({ tenant: slug, setup: tenant.setup, sales: sales.length, orders: orders.length, cashSessions: cashSessions.map(({ status, openingCents, expectedCents, countedCents }) => ({ status, openingCents, expectedCents, countedCents })), inventory: inventory.map(({ sku, stock }) => ({ sku, stock })), netPaidSalesCents: sales.filter((sale) => sale.status === "PAID").reduce((sum, sale) => sum + sale.totalCents, 0), refundedSalesCents: sales.filter((sale) => sale.status === "REFUNDED").reduce((sum, sale) => sum + sale.totalCents, 0), totalSalesCents: sales.reduce((sum, sale) => sum + sale.totalCents, 0), balanced: true }, null, 2));
+    await mkdir("outputs", { recursive: true });
+    await copyFile(ledgerPath, "outputs/restaurant-completion-ledger.json");
     await testInfo.attach("restaurant-ledger.json", { contentType: "application/json", path: ledgerPath });
   } finally { await db.$disconnect(); }
 });

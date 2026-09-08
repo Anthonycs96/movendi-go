@@ -2,6 +2,17 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Button, Card, DataTable, Field, Input, OperationButton, OperationForm, Select } from "@/shared/components/ui";
 import { formatCurrencyCents, formatDateTime } from "@/shared/lib/format";
+import { localizeCode } from "@/shared/lib/localization";
+
+type ElectronicDocument = { kind: string; series: string; number: number; status: string; lastError: string | null; pdfUrl: string | null; xmlUrl: string | null; cdrUrl: string | null };
+function FiscalHistoryActions({ row, canIssue }: { row: Row; canIssue: boolean }) {
+  const doc = row.electronicDocument;
+  if (row.status === "REFUNDED") return null;
+  return <div className="table-primary">
+    {doc ? <><small>{doc.kind} {doc.series}-{doc.number} · {doc.status === "ISSUED" ? "Aceptado" : "Pendiente de aceptación"}</small>{(["pdfUrl", "xmlUrl", "cdrUrl"] as const).map((key) => doc[key] ? <a key={key} href={doc[key]!} target="_blank" rel="noreferrer">Ver {key.slice(0, 3).toUpperCase()}</a> : null)}{doc.lastError ? <small className="form-error">{doc.lastError}</small> : null}</> : null}
+    {canIssue && row.status === "PAID" && doc?.status !== "ISSUED" ? <div className="table-actions"><OperationButton endpoint={`/api/operations/restaurant/sales/${row.id}/electronic-document`} method="POST" body={{ kind: doc?.kind ?? "BOLETA" }}>{doc ? "Consultar / reintentar" : "Boleta"}</OperationButton>{!doc ? <OperationButton endpoint={`/api/operations/restaurant/sales/${row.id}/electronic-document`} method="POST" body={{ kind: "FACTURA" }}>Factura</OperationButton> : null}</div> : null}
+  </div>;
+}
 
 type RefundView = { id: string; reason: string; creditStatus: string; creditError?: string | null; pdfUrl?: string | null; xmlUrl?: string | null; cdrUrl?: string | null };
 export function RefundActions({ sale, canRefund, canIssue }: { sale: { id: string; status: string; totalCents: number; refund: RefundView | null }; canRefund: boolean; canIssue: boolean }) {
@@ -13,7 +24,7 @@ export function RefundActions({ sale, canRefund, canIssue }: { sale: { id: strin
   </OperationForm> : <span>{sale.status === "PAID" ? "Pagada" : sale.status}</span>;
 }
 
-type Row = { id: string; code?: string; status?: string; totalCents?: number; createdAt?: string; openedAt?: string; closedAt?: string | null; openingCents?: number; expectedCents?: number; countedCents?: number | null; amountCents?: number; type?: string; reason?: string; openedBy?: { name: string }; closedBy?: { name: string } | null; createdBy?: { name: string }; refund?: RefundView | null; items?: Array<{ name: string; quantity: number; status: string; preparationAreaName: string }> };
+type Row = { electronicDocument?: ElectronicDocument | null; id: string; code?: string; status?: string; totalCents?: number; createdAt?: string; openedAt?: string; closedAt?: string | null; openingCents?: number; expectedCents?: number; countedCents?: number | null; amountCents?: number; type?: string; reason?: string; openedBy?: { name: string }; closedBy?: { name: string } | null; createdBy?: { name: string }; refund?: RefundView | null; items?: Array<{ name: string; quantity: number; status: string; preparationAreaName: string }> };
 type History = { rows: Row[]; total: number; page: number; pageSize: number };
 export function RestaurantHistory({ initialKind, canRefund, canIssue }: { initialKind: "orders" | "sales"; canRefund: boolean; canIssue: boolean }) {
   const [kind, setKind] = useState<string>(initialKind);
@@ -49,9 +60,9 @@ export function RestaurantHistory({ initialKind, canRefund, canIssue }: { initia
     {error ? <p role="alert" className="form-error">{error}</p> : null}
     {loading ? <p role="status">Cargando historial…</p> : result && !error ? <><DataTable rows={result.rows} rowKey={(row) => row.id} paginationMode="external" columns={[
       { key: "code", header: "Registro / fecha", cell: (row) => <span className="table-primary"><strong>{row.code ?? (kind === "cash" ? "Caja" : row.type === "IN" ? "Ingreso" : "Salida")}</strong><small>{formatDateTime(row.createdAt ?? row.openedAt ?? "")}</small></span> },
-      { key: "status", header: "Detalle", cell: (row) => <span className="table-primary"><strong>{row.status ?? row.reason}</strong>{row.items?.map((item, index) => <small key={index}>{item.quantity}× {item.name} · {item.preparationAreaName} · {item.status}</small>)}{row.openedBy ? <small>Abrió: {row.openedBy.name} · Cerró: {row.closedBy?.name ?? "Pendiente"}{row.closedAt ? ` · ${formatDateTime(row.closedAt)}` : ""}</small> : null}{row.createdBy ? <small>{row.createdBy.name}</small> : null}</span> },
+      { key: "status", header: "Detalle", cell: (row) => <span className="table-primary"><strong>{row.status ? localizeCode(row.status) : row.reason}</strong>{row.items?.map((item, index) => <small key={index}>{item.quantity}× {item.name} · {item.preparationAreaName} · {localizeCode(item.status)}</small>)}{row.openedBy ? <small>Abrió: {row.openedBy.name} · Cerró: {row.closedBy?.name ?? "Pendiente"}{row.closedAt ? ` · ${formatDateTime(row.closedAt)}` : ""}</small> : null}{row.createdBy ? <small>{row.createdBy.name}</small> : null}</span> },
       { key: "total", header: "Importes", cell: (row) => kind === "cash" ? <span className="table-primary"><small>Apertura: {formatCurrencyCents(row.openingCents ?? 0)}</small><strong>Esperado: {formatCurrencyCents(row.expectedCents ?? 0)}</strong><small>Contado: {row.countedCents == null ? "Pendiente" : formatCurrencyCents(row.countedCents)}</small>{row.countedCents != null ? <small>Diferencia: {formatCurrencyCents(row.countedCents - (row.expectedCents ?? 0))}</small> : null}</span> : formatCurrencyCents(row.totalCents ?? row.amountCents ?? 0) },
-      { key: "actions", header: "Acciones", cell: (row) => kind === "sales" ? <RefundActions sale={{ id: row.id, status: row.status!, totalCents: row.totalCents!, refund: row.refund ?? null }} canRefund={canRefund} canIssue={canIssue} /> : kind === "cash" ? <Button variant="secondary" onClick={() => { setCashId(row.id); setKind("movements"); setPage(1); setLoading(true); }}>Ver movimientos</Button> : "—" },
+      { key: "actions", header: "Acciones", cell: (row) => kind === "sales" ? <><FiscalHistoryActions row={row} canIssue={canIssue} /><RefundActions sale={{ id: row.id, status: row.status!, totalCents: row.totalCents!, refund: row.refund ?? null }} canRefund={canRefund} canIssue={canIssue} /></> : kind === "cash" ? <Button variant="secondary" onClick={() => { setCashId(row.id); setKind("movements"); setPage(1); setLoading(true); }}>Ver movimientos</Button> : "—" },
     ]} /><div className="pagination"><span>{result.total} registros · Página {page} de {Math.max(1, Math.ceil(result.total / result.pageSize))}</span><div><Button variant="secondary" disabled={page === 1} onClick={() => { setLoading(true); setPage(page - 1); }}>Anterior</Button><Button variant="secondary" disabled={page * result.pageSize >= result.total} onClick={() => { setLoading(true); setPage(page + 1); }}>Siguiente</Button></div></div></> : null}
   </Card>;
 }
