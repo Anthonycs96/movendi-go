@@ -1,0 +1,6 @@
+-- PostgreSQL truncates identifiers at 63 bytes; align existing names with Prisma's generated names.
+ALTER INDEX "TransportCustomFieldDefinition_tenantId_entityType_active_sortO" RENAME TO "TransportCustomFieldDefinition_tenantId_entityType_active_s_idx";
+ALTER INDEX "TransportCustomFieldValue_tenantId_definitionId_normalizedValue" RENAME TO "TransportCustomFieldValue_tenantId_definitionId_normalizedV_idx";
+ALTER INDEX "TransportVehicleComponent_tenantId_vehicleId_componentType_acti" RENAME TO "TransportVehicleComponent_tenantId_vehicleId_componentType__idx";
+ALTER INDEX "TransportWorkflowDefinition_tenantId_scopeType_scopeId_active_i" RENAME TO "TransportWorkflowDefinition_tenantId_scopeType_scopeId_acti_idx";
+ALTER INDEX "TransportWorkflowTransition_workflowId_fromStateId_toStateId_ke" RENAME TO "TransportWorkflowTransition_workflowId_fromStateId_toStateI_key";

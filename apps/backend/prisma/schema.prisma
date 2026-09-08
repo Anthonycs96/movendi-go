@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Tenant {
+  quotaVersion Int @default(0)
   id                     String    @id @default(cuid())
   slug                   String    @unique
   name                   String
@@ -704,6 +705,7 @@ model Category {
 }
 
 model Product {
+  taxCategory String @default("GRAVADA")
   id                 String   @id @default(cuid())
   tenantId           String
   branchId           String
@@ -870,7 +872,12 @@ model DiningTable {
 }
 
 model RestaurantOrder {
+  taxRatePct Float?
+  taxIncluded Boolean?
   id                String    @id @default(cuid())
+  version           Int       @default(0)
+  idempotencyKey    String?
+  requestHash       String?
   tenantId          String
   branchId          String
   tableId           String?
@@ -902,15 +909,28 @@ model RestaurantOrder {
   createdBy          User                 @relation(fields: [createdById], references: [id])
   items              OrderItem[]
   kitchenTicket      KitchenTicket?
+  requests           RestaurantOrderRequest[]
   printJobs          RestaurantPrintJob[]
   sale               Sale?
   promotion          Promotion?           @relation(fields: [promotionId], references: [id])
   inventoryMovements InventoryMovement[]
 
   @@unique([tenantId, code])
+  @@unique([tenantId, branchId, idempotencyKey])
   @@index([tenantId, branchId, status])
   @@index([tenantId, tableId, status])
   @@index([tenantId, createdAt])
+}
+
+model RestaurantOrderRequest {
+  id          String   @id @default(cuid())
+  orderId     String
+  key         String
+  requestHash String
+  createdAt   DateTime @default(now())
+  order       RestaurantOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, key])
 }
 
 model RestaurantPrintJob {
@@ -985,6 +1005,10 @@ model Promotion {
 }
 
 model OrderItem {
+  preparationAreaKey String @default("GENERAL")
+  preparationAreaName String @default("General")
+  recipeSnapshot String?
+  taxCategory String @default("GRAVADA")
   id              String  @id @default(cuid())
   tenantId        String
   orderId         String
@@ -993,6 +1017,7 @@ model OrderItem {
   name            String
   quantity        Int     @default(1)
   unitPriceCents  Int
+  unitCostCents   Int?
   totalCents      Int
   status          String  @default("PENDING")
   notes           String?
@@ -1050,6 +1075,8 @@ model CashSession {
 }
 
 model Sale {
+  loyaltyPointsEarned Int @default(0)
+  refund SaleRefund?
   id            String   @id @default(cuid())
   tenantId      String
   branchId      String
@@ -1081,6 +1108,31 @@ model Sale {
   @@unique([tenantId, code])
   @@index([tenantId, branchId, createdAt])
   @@index([tenantId, cashierId, createdAt])
+}
+
+model SaleRefund {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  saleId String @unique
+  actorId String
+  reason String
+  stockDisposition String
+  totalCents Int
+  cashCents Int
+  payments String
+  cashSessionId String?
+  createdAt DateTime @default(now())
+  creditStatus String @default("NOT_REQUIRED")
+  creditSeries String?
+  creditNumber Int?
+  creditPayload String?
+  creditResponse String?
+  creditError String?
+  creditUpdatedAt DateTime?
+  sale Sale @relation(fields: [saleId], references: [id])
+
+  @@index([tenantId, branchId, createdAt])
 }
 
 model SalePayment {
@@ -1122,6 +1174,7 @@ model CashMovement {
 }
 
 model RestaurantIntegrationCredential {
+  environment String @default("UNVERIFIED")
   id             String    @id @default(cuid())
   tenantId       String
   provider       String
@@ -1155,10 +1208,12 @@ model RestaurantDocumentSequence {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch Branch @relation(fields: [branchId], references: [id])
 
-  @@unique([tenantId, branchId, kind, series])
+  @@unique([tenantId, kind, series])
 }
 
 model RestaurantElectronicDocument {
+  environment String @default("UNVERIFIED")
+  requestPayload String?
   id        String    @id @default(cuid())
   tenantId  String
   branchId  String

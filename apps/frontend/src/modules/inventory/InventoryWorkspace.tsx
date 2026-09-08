@@ -48,6 +48,9 @@ const movementLabels: Record<string, string> = {
   CONSUMPTION: "Consumo",
   SALE_CONSUMPTION: "Venta / receta",
   SALE_RETURN: "Devolución de venta",
+  ORDER_RESERVATION: "Reserva de pedido",
+  RESERVATION_RELEASE: "Liberación de reserva",
+  RELEASED_RESERVATION: "Reserva liberada",
   WASTE: "Merma",
   LOSS: "Pérdida",
   ADJUSTMENT_IN: "Ajuste positivo",
@@ -681,11 +684,13 @@ export function InventoryWorkspace({
   tenantType,
   currency = "PEN",
   locale = "es-PE",
+  canWrite = true,
 }: {
   data: InventoryData;
   tenantType: string;
   currency?: string;
   locale?: string;
+  canWrite?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("stock");
   const [query, setQuery] = useState("");
@@ -727,12 +732,12 @@ export function InventoryWorkspace({
         description="Controla ingresos, consumos, pérdidas, compras y existencias reales por sede."
         icon={Boxes}
         actions={
-          <div className="inventory-actions">
+          canWrite ? <div className="inventory-actions">
             <MovementForm items={activeItems} />
             <PurchaseDialog items={activeItems} />
             {tenantType === "RESTAURANT" ? <SaleReturnDialog data={data} currency={currency} locale={locale} /> : null}
             <ItemForm />
-          </div>
+          </div> : null
         }
       />
       <div className="stats-grid stats-grid--four">
@@ -795,8 +800,8 @@ export function InventoryWorkspace({
           </Button>
         ))}
         <span />
-        <CountDialog items={activeItems} />
-        {tenantType === "RESTAURANT" ? <RecipeDialog data={data} /> : null}
+        {canWrite ? <CountDialog items={activeItems} /> : null}
+        {canWrite && tenantType === "RESTAURANT" ? <RecipeDialog data={data} /> : null}
       </div>
       {tab === "stock" ? (
         <Card className="table-card">
@@ -878,7 +883,7 @@ export function InventoryWorkspace({
                 key: "actions",
                 header: "",
                 sortable: false,
-                cell: (item) => <ItemForm item={item} />,
+                cell: (item) => canWrite ? <ItemForm item={item} /> : null,
               },
             ]}
           />

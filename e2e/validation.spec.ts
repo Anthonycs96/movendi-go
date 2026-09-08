@@ -186,18 +186,21 @@ test.describe.serial("validación final ampliada", () => {
   test("administración: empresa nueva, rol, usuario, permisos y aislamiento", async ({ page }) => {
     await login(page, "superadmin@multisaas.local", "nova-studio");
     await page.goto("/t/nova-studio/settings");
-    await page.getByRole("button", { name: "Empresa nueva" }).click();
-    const company = page.getByRole("dialog", { name: "Nueva empresa" });
-    await company.getByLabel("Razón comercial").fill("Empresa E2E Aislada");
+    await expect(page.getByRole("button", { name: "Empresa nueva" })).toHaveCount(0);
+    await page.getByRole("link", { name: "Abrir centro de control" }).click();
+    await page.getByRole("button", { name: "Nuevo negocio", exact: true }).click();
+    const company = page.getByRole("dialog");
+    await company.getByLabel("Nombre comercial").fill("Empresa E2E Aislada");
     await company.getByLabel("Nombre corto").fill("Empresa E2E");
-    await company.getByLabel("Identificador").fill("empresa-e2e-aislada");
-    await company.getByLabel("Tipo").selectOption("BARBERSHOP");
-    await company.getByLabel("Sede inicial").fill("Sede E2E");
+    await company.getByLabel(/Identificador URL/).fill("empresa-e2e-aislada");
+    await company.getByLabel("Rubro").selectOption("BARBERSHOP");
+    await company.getByLabel("Primera sede").fill("Sede E2E");
     await company.getByLabel("Administrador", { exact: true }).fill("Administrador Empresa E2E");
     await company.getByLabel("Correo del administrador").fill("admin@empresa-e2e.local");
-    await company.getByLabel("Contraseña temporal").fill(password);
-    await company.getByRole("button", { name: "Crear empresa" }).click();
-    await expect(page.getByText("Empresa, sede, suscripción y administrador creados correctamente.")).toBeVisible();
+    await company.getByLabel(/Clave temporal/).fill(password);
+    await company.getByRole("button", { name: /Crear y continuar/ }).click();
+    await expect(company.getByText("Negocio creado. Continúa con su implementación guiada.")).toBeVisible();
+    await company.getByRole("button", { name: "Cerrar", exact: true }).click();
 
     const duplicateTenant = await api(page, "/api/operations/platform/tenants", "POST", {
       name: "Duplicada", shortName: "Duplicada", slug: "empresa-e2e-aislada", type: "BARBERSHOP", branchName: "Principal",
@@ -206,7 +209,7 @@ test.describe.serial("validación final ampliada", () => {
     expect(duplicateTenant.status).toBe(409);
     expect(duplicateTenant.json.error.code).toBe("TENANT_EXISTS");
 
-    await page.getByRole("button", { name: "Cerrar sesión" }).click();
+    await page.request.post("/api/auth/logout");
     await login(page, "admin@empresa-e2e.local", "empresa-e2e-aislada");
     await expect(page.getByRole("heading", { name: "Beauty" })).toBeVisible();
     await page.reload();
@@ -219,7 +222,8 @@ test.describe.serial("validación final ampliada", () => {
 
     await page.getByRole("button", { name: "Rol", exact: true }).click();
     const role = page.getByRole("dialog", { name: "Nuevo rol" });
-    await role.getByLabel("Clave").fill("RECEPTION_E2E");
+    await expect(role.getByLabel("Clave automática")).toHaveAttribute("readonly", "");
+    await expect(role.getByLabel("Clave automática")).not.toHaveValue("");
     await role.getByLabel("Nombre").fill("Recepción E2E");
     await role.getByRole("checkbox", { name: /Ver el resumen del negocio/ }).check();
     await role.getByRole("checkbox", { name: /^Ver clientes/ }).check();

@@ -8,10 +8,11 @@ import { handleCoreCommand } from "@/core/tenancy/commands";
 import { handlePlatformCommand } from "@/core/platform/commands";
 import { assertTenantWriteEntitlement } from "@/core/platform/entitlements";
 import { handleInventoryCommand } from "@/modules/inventory/server/commands";
+import { assertRestaurantModule, restaurantOperationModule } from "@/modules/restaurant/server/access";
 
 type Context = { params: Promise<{ segments: string[] }> };
 
-function requiredPermission(moduleName: string, resource: string, method: string) {
+function requiredPermission(moduleName: string, resource: string, method: string, action?: string) {
   if (moduleName === "barbershop") {
     if (resource === "customers") return method === "GET" ? "customers:read" : "customers:write";
     if (resource === "staff" || resource === "schedules") return method === "GET" ? "barbershop:team:read" : "barbershop:team:write";
@@ -20,6 +21,8 @@ function requiredPermission(moduleName: string, resource: string, method: string
     if (resource === "cash") return "barbershop:cash:write";
   }
   if (moduleName === "restaurant") {
+    if (resource === "orders" && action === "checkout") return "restaurant:cash:write";
+    if (resource === "sales" && ["electronic-document", "credit-note"].includes(action ?? "")) return "restaurant:sunat:write";
     if (resource === "configuration") return method === "GET" ? "restaurant:configuration:read" : "restaurant:configuration:write";
     if (resource === "sunat") return method === "GET" ? "restaurant:sunat:read" : "restaurant:sunat:write";
     if (resource === "sales") return "restaurant:cash:write";
@@ -50,8 +53,8 @@ function requiredPermission(moduleName: string, resource: string, method: string
   return undefined;
 }
 
-function consumesMonthlyOperation(moduleName: string, resource: string, method: string) {
-  return method === "POST" && ((moduleName === "barbershop" && resource === "appointments")
+function consumesMonthlyOperation(moduleName: string, resource: string, method: string, id?: string) {
+  return method === "POST" && !id && ((moduleName === "barbershop" && resource === "appointments")
     || (moduleName === "restaurant" && resource === "orders")
     || (moduleName === "transport" && resource === "trips"));
 }
@@ -88,17 +91,19 @@ async function handle(request: Request, context: Context) {
 
     if (moduleName === "inventory") {
       const permission = ["GET", "HEAD"].includes(request.method) ? "inventory:read" : "inventory:write";
+      assertRestaurantModule(await requireSession(permission), "inventory");
       const scope = await requireTenantScope(permission);
       if (!["GET", "HEAD"].includes(request.method)) await assertTenantWriteEntitlement(scope.tenantId);
       return Response.json(await handleInventoryCommand(request.method, segments.slice(1), await bodyOf(request), scope));
     }
 
-    const session = await requireSession(requiredPermission(moduleName, resource, request.method));
+    const session = await requireSession(requiredPermission(moduleName, resource, request.method, segments[3]));
     const expectedType = moduleName === "barbershop" ? "BARBERSHOP" : moduleName === "restaurant" ? "RESTAURANT" : moduleName === "transport" ? "TRANSPORT" : null;
     if (!expectedType) throw new AppError("NOT_FOUND", 404, "Módulo no encontrado.");
     if (session.tenantType !== expectedType) throw new AppError("MODULE_ACCESS_DENIED", 403, "Este módulo no está habilitado para tu empresa.");
-    if (!["GET", "HEAD"].includes(request.method)) await assertTenantWriteEntitlement(session.tenantId, consumesMonthlyOperation(moduleName, resource, request.method));
-    const scope = await requireTenantScope(requiredPermission(moduleName, resource, request.method));
+    if (moduleName === "restaurant") assertRestaurantModule(session, restaurantOperationModule(resource, segments[3]));
+    if (!["GET", "HEAD"].includes(request.method)) await assertTenantWriteEntitlement(session.tenantId, moduleName !== "restaurant" && consumesMonthlyOperation(moduleName, resource, request.method, id));
+    const scope = await requireTenantScope(requiredPermission(moduleName, resource, request.method, segments[3]));
     const body = await bodyOf(request);
     const result = moduleName === "barbershop"
       ? await handleBarbershopCommand(request.method, segments.slice(1), body, scope)

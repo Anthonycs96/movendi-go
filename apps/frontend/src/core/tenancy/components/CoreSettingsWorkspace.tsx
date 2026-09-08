@@ -276,70 +276,18 @@ export function CoreSettingsWorkspace({
       <Card className="settings-actions" aria-label="Acciones de configuración">
         {extraActions}
         {platformAdmin ? (
-          <>
-            <Link
-              className="button button--secondary button--md"
-              href="/platform/dashboard"
-            >
-              Abrir centro de control
-            </Link>
-            <OperationForm
-              title="Nueva empresa"
-              description="Crea el tenant, su primera sede y el administrador inicial en una sola operación."
-              endpoint="/api/operations/platform/tenants"
-              triggerLabel="Empresa nueva"
-              submitLabel="Crear empresa"
-            >
-              <Field label="Razón comercial">
-                <Input name="name" required />
-              </Field>
-              <Field label="Nombre corto">
-                <Input name="shortName" required />
-              </Field>
-              <Field label="Identificador">
-                <Input
-                  name="slug"
-                  required
-                  pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                  placeholder="mi-empresa"
-                />
-              </Field>
-              <Field label="Tipo">
-                <Select name="type" defaultValue="BARBERSHOP">
-                  <option value="BARBERSHOP">Barbería</option>
-                  <option value="RESTAURANT">Restaurante</option>
-                  <option value="TRANSPORT">Transporte</option>
-                </Select>
-              </Field>
-              <Field label="Sede inicial">
-                <Input
-                  name="branchName"
-                  required
-                  defaultValue="Sede principal"
-                />
-              </Field>
-              <Field label="Administrador">
-                <Input name="adminName" required />
-              </Field>
-              <Field label="Correo del administrador">
-                <Input name="adminEmail" type="email" required />
-              </Field>
-              <Field label="Contraseña temporal">
-                <Input
-                  name="adminPassword"
-                  type="password"
-                  minLength={8}
-                  required
-                />
-              </Field>
-            </OperationForm>
-          </>
+          <Link
+            className="button button--secondary button--md"
+            href="/platform/dashboard"
+          >
+            Abrir centro de control
+          </Link>
         ) : null}
         <OperationForm
           title="Perfil empresarial"
           endpoint="/api/operations/core/tenant"
           method="PATCH"
-          triggerLabel="Empresa"
+          triggerLabel="Datos de la empresa"
           submitLabel="Actualizar"
         >
           <Field label="Razón comercial">

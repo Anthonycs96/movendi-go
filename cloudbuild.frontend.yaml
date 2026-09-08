@@ -1,16 +1,40 @@
 steps:
-  - name: gcr.io/cloud-builders/docker
+  - id: build-frontend
+    name: gcr.io/cloud-builders/docker
     args:
       - build
+      - --no-cache
       - --build-arg
-      - DEPLOYMENT_VERSION=${_VERSION}
+      - DEPLOYMENT_VERSION=$SHORT_SHA
       - --file
       - Dockerfile.frontend
       - --tag
-      - ${_IMAGE}
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/$REPO_NAME/${_SERVICE_NAME}:$COMMIT_SHA
       - .
-  - name: gcr.io/cloud-builders/docker
-    args: [push, "${_IMAGE}"]
-images: ["${_IMAGE}"]
+  - id: push-frontend
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/$REPO_NAME/${_SERVICE_NAME}:$COMMIT_SHA
+  - id: deploy-frontend
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update
+      - ${_SERVICE_NAME}
+      - --platform=managed
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/$REPO_NAME/${_SERVICE_NAME}:$COMMIT_SHA
+      - --region=${_REGION}
+      - --update-env-vars=DEPLOYMENT_VERSION=$SHORT_SHA,APP_VERSION=$SHORT_SHA
+      - --quiet
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/$REPO_NAME/${_SERVICE_NAME}:$COMMIT_SHA
+substitutions:
+  _REGION: us-west1
+  _REPOSITORY: cloud-run-source-deploy
+  _SERVICE_NAME: movendi-frontend
 options:
   logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE

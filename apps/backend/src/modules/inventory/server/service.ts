@@ -52,7 +52,12 @@ export async function applyInventoryMovement(transaction: Prisma.TransactionClie
   if (quantity <= 0) throw new AppError("INVALID_QUANTITY", 400, "La cantidad es menor que la precisión admitida.");
   if (input.idempotencyKey) {
     const existing = await transaction.inventoryMovement.findFirst({ where: { tenantId: scope.tenantId, idempotencyKey: input.idempotencyKey } });
-    if (existing) return existing;
+    if (existing) {
+      if (existing.branchId !== scope.branchId || existing.itemId !== input.itemId || existing.type !== input.type || existing.direction !== input.direction || Math.abs(existing.quantity - quantity) > 1e-9) {
+        throw new AppError("IDEMPOTENCY_CONFLICT", 409, "Esta solicitud ya se utilizó para otro movimiento de inventario.");
+      }
+      return existing;
+    }
   }
   const item = await transaction.inventoryItem.findFirst({ where: { id: input.itemId, tenantId: scope.tenantId, OR: [{ branchId: scope.branchId }, { branchId: null }], active: true } });
   if (!item) throw new AppError("INVENTORY_ITEM_NOT_FOUND", 404, "El producto o insumo no existe en esta sede.");
@@ -79,7 +84,13 @@ export async function applyInventoryMovement(transaction: Prisma.TransactionClie
   } });
 }
 
-export async function consumeRestaurantSaleInventory(transaction: Prisma.TransactionClient, scope: TenantScope, orderId: string, saleId: string, preventNegativeStock = true) {
+export async function consumeRestaurantSaleInventory(transaction: Prisma.TransactionClient, scope: TenantScope, orderId: string, saleId: string, preventNegativeStock = true, consumeLegacy = true) {
+  const snapshots = await transaction.orderItem.findMany({ where: { orderId, tenantId: scope.tenantId, status: { not: "CANCELLED" } }, select: { recipeSnapshot: true } });
+  if (snapshots.length && snapshots.every((line) => line.recipeSnapshot !== null)) {
+    const result = await transaction.inventoryMovement.updateMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, orderId, type: "ORDER_RESERVATION" }, data: { type: "SALE_CONSUMPTION", saleId } });
+    return result.count;
+  }
+  if (!consumeLegacy) return 0;
   const order = await transaction.restaurantOrder.findFirst({
     where: { id: orderId, tenantId: scope.tenantId, branchId: scope.branchId },
     select: { code: true, items: { where: { status: { not: "CANCELLED" } }, select: { quantity: true, product: { select: { recipe: { select: { active: true, yieldQuantity: true, ingredients: { select: { itemId: true, quantity: true, wastePercent: true } } } } } } } } },

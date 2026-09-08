@@ -93,6 +93,6 @@ Cada flujo afectado fue repetido después de su corrección. Tras la modularizac
 - Probar Firefox, WebKit/Safari y dispositivos físicos; la batería automatizada usó Chromium.
 - Integrar recuperación de contraseña, SUNAT/GRE, GPS externo y telemetría si pasan a formar parte del producto.
 
-Estos pendientes no afectan la operación local validada ni la preparación técnica incluida en `Dockerfile.frontend`, `Dockerfile.backend`, `railway.frontend.json`, `railway.backend.json`, `cloudbuild.yaml` y `docs/DEPLOYMENT.md`.
+Estos pendientes no afectan la operación local validada ni la preparación técnica incluida en `Dockerfile.frontend`, `Dockerfile.backend`, `railway.json`, `cloudbuild.frontend.yaml`, `cloudbuild.yaml` y `docs/DEPLOYMENT.md`.
 
 El comando `npm run e2e` copia primero `dev.db` a `e2e.db`, restaura el seed antes de cada archivo y nuevamente al terminar. Esto evita contaminación entre suites sin destruir la base principal. `npm run e2e:transport:30` repite sólo el bloque de Transporte con el mismo aislamiento.

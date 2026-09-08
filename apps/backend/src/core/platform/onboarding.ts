@@ -1,9 +1,11 @@
 import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { hash } from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/core/database/prisma";
+import { assertTransactionalQuota } from "./entitlements";
 import { AppError } from "@/core/auth/errors";
 import type { AuthSession } from "@/core/auth/types";
 import { defaultTransportConfiguration, saveTransportConfigurationSection, type TransportConfigurationSection } from "@/modules/transport/server/configuration";
@@ -21,7 +23,7 @@ const moduleKeys = {
 } as const;
 
 export const setupTemplates = [
-  { key: "RESTAURANT_SIMPLE", type: "RESTAURANT", name: "Restaurante esencial configurable", description: "Implementación guiada de salón, pedidos, cocina, carta, caja y reglas operativas.", modules: ["dashboard", "floor", "orders", "kitchen", "menu", "checkout", "settings"], preparationAreas: ["Cocina"], diningArea: "Salón", roles: ["WAITER", "KITCHEN", "CASHIER"], restaurantConfiguration: defaultRestaurantConfiguration },
+  { key: "RESTAURANT_SIMPLE", type: "RESTAURANT", name: "Restaurante esencial configurable", description: "Implementación guiada de salón, pedidos, cocina, carta, caja y reglas operativas.", modules: ["dashboard", "floor", "orders", "kitchen", "menu", "checkout", "settings"], preparationAreas: ["Cocina"], diningArea: "Salón", roles: ["WAITER", "KITCHEN", "CASHIER", "MANAGER"], restaurantConfiguration: defaultRestaurantConfiguration },
   { key: "RESTAURANT_COMPLETE", type: "RESTAURANT", name: "Restaurante completo configurable", description: "Operación completa con inventario, promociones, reportes, clientes e integraciones.", modules: [...moduleKeys.RESTAURANT], preparationAreas: ["Cocina", "Bar", "Postres"], diningArea: "Salón principal", roles: ["WAITER", "KITCHEN", "CASHIER", "MANAGER"], restaurantConfiguration: defaultRestaurantConfiguration },
   { key: "BARBERSHOP_STANDARD", type: "BARBERSHOP", name: "Barbería estándar", description: "Agenda, equipo, servicios, clientes, inventario y caja.", modules: [...moduleKeys.BARBERSHOP], preparationAreas: [], diningArea: null, roles: ["RECEPTION", "PROFESSIONAL", "CASHIER"] },
   { key: "TRANSPORT_STANDARD", type: "TRANSPORT", name: "Transporte configurable", description: "Implementación completa: operación, clientes, flota, conductores, reglas, finanzas, mantenimiento, seguridad e integraciones.", modules: [...moduleKeys.TRANSPORT], preparationAreas: [], diningArea: null, roles: ["DISPATCH", "DRIVER_MANAGER", "FINANCE"], transportConfiguration: defaultTransportConfiguration },
@@ -206,9 +208,9 @@ async function saveDraft(tenantId: string, step: StepKey, session: AuthSession, 
   });
 }
 
-export async function initializeBusinessSetup(tenantId: string, branchId: string, tenantType: "RESTAURANT" | "BARBERSHOP" | "TRANSPORT", templateKey: string | undefined, actorId: string) {
+export async function initializeBusinessSetup(tenantId: string, branchId: string, tenantType: "RESTAURANT" | "BARBERSHOP" | "TRANSPORT", templateKey: string | undefined, actorId: string, transaction?: Prisma.TransactionClient) {
   const template = setupTemplates.find((item) => item.key === templateKey && item.type === tenantType) ?? setupTemplates.find((item) => item.type === tenantType)!;
-  await prisma.$transaction(async (tx) => {
+  const initialize = async (tx: Prisma.TransactionClient) => {
     await tx.tenant.update({ where: { id: tenantId }, data: { enabledModules: JSON.stringify(template.modules) } });
     // En Restaurante la plantilla propone roles, áreas y ambientes dentro del
     // asistente. No crea entidades operativas antes de que el administrador las confirme.
@@ -223,7 +225,9 @@ export async function initializeBusinessSetup(tenantId: string, branchId: string
     if (tenantType === "TRANSPORT") await tx.transportConfiguration.upsert({ where: { tenantId }, create: { tenantId, settings: JSON.stringify(defaultTransportConfiguration) }, update: {} });
     const preparationAreas = template.preparationAreas.flatMap((name) => { const normalized = normalizeRestaurantArea(name); return normalized ? [{ name: normalized.name, normalizedKey: normalized.key, type: normalized.type, source: "TEMPLATE", dispatchMode: "KDS", enabled: true }] : []; });
     await tx.businessSetup.create({ data: { tenantId, templateKey: template.key, currentStep: "BUSINESS", completedSteps: JSON.stringify(["MODULES"]), data: JSON.stringify({ MODULES: { enabledModules: template.modules }, ...(tenantType === "RESTAURANT" ? { OPERATIONS: { preparationAreas }, TABLES: { zones: template.diningArea ? [{ name: template.diningArea, prefix: "Mesa", count: 10, seats: 4 }] : [] } } : {}) }), updatedById: actorId } });
-  });
+  };
+  if (transaction) await initialize(transaction);
+  else await prisma.$transaction(initialize);
   return template;
 }
 
@@ -285,6 +289,8 @@ export async function saveBusinessSetupStep(tenantId: string, raw: unknown, sess
         const generated = person.password || `Movendi-${randomBytes(6).toString("base64url")}!`;
         const isNewUser = !user;
         if (!user) user = await tx.user.create({ data: { name: person.name, email: person.email, passwordHash: await hash(generated, 12), mustChangePassword: true } });
+        const existingMember = await tx.membership.findUnique({ where: { tenantId_userId: { tenantId, userId: user.id } } });
+        if (!existingMember?.active) await assertTransactionalQuota(tx, tenantId, "users");
         await tx.membership.upsert({ where: { tenantId_userId: { tenantId, userId: user.id } }, create: { tenantId, userId: user.id, roleId: role.id, branchId: branch.id }, update: { roleId: role.id, branchId: branch.id, active: true } });
         if (isNewUser) credentials.push({ name: person.name, email: person.email, password: generated });
       }

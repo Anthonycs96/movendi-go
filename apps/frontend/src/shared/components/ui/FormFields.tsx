@@ -1,9 +1,14 @@
 "use client";
 
-import { Children, isValidElement, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, useMemo, useState } from "react";
+import { Children, cloneElement, isValidElement, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, useId, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  const generatedId = useId();
+  if (isValidElement<{ id?: string }>(children) && (typeof children.type !== "string" || ["input", "select", "textarea"].includes(children.type))) {
+    const id = children.props.id ?? generatedId;
+    return <div className="field"><label htmlFor={id}>{label}</label>{cloneElement(children, { id })}{hint ? <small>{hint}</small> : null}</div>;
+  }
   return <label className="field"><span>{label}</span>{children}{hint ? <small>{hint}</small> : null}</label>;
 }
 

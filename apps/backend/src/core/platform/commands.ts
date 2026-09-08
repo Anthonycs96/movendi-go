@@ -89,9 +89,9 @@ export async function handlePlatformCommand(method: string, segments: string[], 
       await tx.billingCustomer.create({ data: { tenantId: tenant.id, provider: "manual", providerCustomerRef: `manual_cus_${tenant.id}`, billingEmail: input.email || input.adminEmail, legalName: input.name, country: input.country, currency: input.currency } });
       await tx.billingSubscription.create({ data: { tenantId: tenant.id, planId: plan.id, provider: "manual", providerSubscriptionRef: `manual_sub_${tenant.id}`, status: input.subscriptionStatus, amountCents: plan.monthlyPriceCents, currency: input.currency, trialEndsAt: input.subscriptionStatus === "TRIAL" ? new Date(Date.now() + 14 * 86_400_000) : null } });
       await tx.auditLog.create({ data: { tenantId: tenant.id, branchId: branch.id, userId: session.userId, action: "PLATFORM_TENANT_CREATE", entityType: "Tenant", entityId: tenant.id, metadata: JSON.stringify({ createdBy: session.userEmail, planId: plan?.id ?? null }) } });
+      await initializeBusinessSetup(tenant.id, branch.id, input.type, input.templateKey, session.userId, tx);
       return { tenant, branch };
     });
-    await initializeBusinessSetup(entity.tenant.id, entity.branch.id, input.type, input.templateKey, session.userId);
     return { ok: true, id: entity.tenant.id, tenant: { id: entity.tenant.id, slug: entity.tenant.slug, name: entity.tenant.name, shortName: entity.tenant.shortName, type: entity.tenant.type }, message: input.startOnboarding ? "Negocio creado. Continúa con su implementación guiada." : "Empresa, sede, suscripción y administrador creados correctamente." };
   }
 

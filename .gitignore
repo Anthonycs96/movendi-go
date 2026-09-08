@@ -23,6 +23,10 @@ backups/
 output/
 tmp/
 coverage/
+.codex_tmp/
+outputs/
+Presentacion_Rinconcito_Ayacuchano.pptx
+Presentacion_Rinconcito_Ayacuchano.pptx.inspect.ndjson
 supabase/.temp/
 .object-storage/
 apps/backend/.object-storage/

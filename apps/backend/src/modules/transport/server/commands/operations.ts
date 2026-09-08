@@ -1,4 +1,5 @@
 import "server-only";
+import { assertTransactionalQuota } from "@/core/platform/entitlements";
 import { audit } from "@/core/audit/audit";
 import { AppError } from "@/core/auth/errors";
 import { prisma } from "@/core/database/prisma";
@@ -69,6 +70,7 @@ export const handleOperationsCommand: TransportCommandHandler = async (method, s
     ]);
     const code = await reserveTransportCode({ tenantId: scope.tenantId, branchId: scope.branchId, kind: "TRIP", prefix: configuration.general.tripPrefix });
     const entity = await prisma.$transaction(async (tx) => {
+      await assertTransactionalQuota(tx, scope.tenantId, "operations");
       const availableWorkflows = await tx.transportWorkflowDefinition.findMany({ where: { tenantId: scope.tenantId, active: true, isDefault: true, OR: [{ scopeType: "OPERATION", scopeId: operation?.id ?? "" }, { scopeType: "CUSTOMER", scopeId: customer.id }, { scopeType: "TENANT", scopeId: scope.tenantId }] }, include: { states: { where: { initial: true, active: true }, take: 1 } } });
       const workflow = availableWorkflows.find((item) => item.scopeType === "OPERATION" && item.scopeId === operation?.id) ?? availableWorkflows.find((item) => item.scopeType === "CUSTOMER" && item.scopeId === customer.id) ?? availableWorkflows.find((item) => item.scopeType === "TENANT");
       const created = await tx.transportTrip.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, code, operationId: operation?.id ?? null, customerId: customer.id, routeId: route.id, serviceType: input.serviceType, cargoDescription: input.cargoDescription, cargoWeightKg: input.cargoWeightKg ?? null, scheduledStartAt: input.scheduledStartAt, scheduledEndAt: input.scheduledEndAt, appointmentStartAt: input.appointmentStartAt, appointmentEndAt: input.appointmentEndAt, appointmentStatus: input.appointmentStartAt ? "PENDING" : "NONE", workflowDefinitionId: workflow?.id ?? null, workflowStateId: workflow?.states[0]?.id ?? null, priority: input.priority, referenceNo: input.referenceNo || null, notes: input.notes || null, freightCents: input.freight, budgetCents: input.budget } });

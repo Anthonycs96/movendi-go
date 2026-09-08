@@ -16,15 +16,18 @@ import {
 } from "@/shared/components/ui";
 import { formatCurrencyCents } from "@/shared/lib/format";
 import { localizeCode } from "@/shared/lib/localization";
+import { hasPermission } from "@/core/auth/permissions";
 
 export function RestaurantDashboard({
   data,
   locale,
   currency,
+  permissions,
 }: {
   data: RestaurantData;
   locale: string;
   currency: string;
+  permissions: string[];
 }) {
   return (
     <>
@@ -34,10 +37,10 @@ export function RestaurantDashboard({
         description="Salón, comandas, pedidos y ventas en una sola operación."
         icon={UtensilsCrossed}
         actions={
-          <Link className="button button--primary button--md" href="floor">
+          hasPermission(permissions, "restaurant:floor:read") && hasPermission(permissions, "restaurant:orders:write") ? <Link className="button button--primary button--md" href="floor">
             <span>Nuevo pedido</span>
             <ArrowUpRight size={15} />
-          </Link>
+          </Link> : null
         }
       />
       <section className="stats-grid">

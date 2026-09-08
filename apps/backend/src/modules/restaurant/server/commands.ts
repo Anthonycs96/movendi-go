@@ -1,11 +1,17 @@
 import "server-only";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/core/database/prisma";
 import { AppError } from "@/core/auth/errors";
 import { hasPermission } from "@/core/auth/permissions";
 import type { TenantScope } from "@/core/auth/types";
 import { audit } from "@/core/audit/audit";
+import { refundRestaurantSale } from "./refunds";
+import { issueRestaurantCreditNote } from "./sunat";
+import { reserveOrderIngredients, cancelOrderIngredients, aggregatePreparationStatus, assertDiscountLimit } from "./preparation";
+import { assertTransactionalQuota } from "@/core/platform/entitlements";
+import { allocateCents } from "./money-allocation";
 import { calculatePromotion } from "./promotions";
 import { createRoutedPrintJobs } from "./printing";
 import { consumeRestaurantSaleInventory, withInventoryTransaction } from "@/modules/inventory/server/service";
@@ -18,11 +24,12 @@ import { electronicDocumentSchema, getSunatConnectionStatus, issueRestaurantElec
 const configuredKey = z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]+$/).min(1).max(80);
 const customerSchema = z.object({ name: z.string().trim().min(2).max(120), documentType: configuredKey.optional().or(z.literal("")), dni: z.string().trim().max(20).optional(), segment: configuredKey.optional().or(z.literal("")), phone: z.string().trim().max(30).optional(), email: z.union([z.string().email(), z.literal("")]).optional(), notes: z.string().trim().max(500).optional() });
 const categorySchema = z.object({ name: z.string().trim().min(2).max(100) });
-const productSchema = z.object({ name: z.string().trim().min(2).max(140), description: z.string().trim().max(400).optional(), categoryId: z.string().min(1), price: z.coerce.number().nonnegative().max(100000), cost: z.coerce.number().nonnegative().max(100000).default(0), kitchenArea: z.string().trim().min(1).max(40).optional().default("GENERAL"), productType: configuredKey.optional().default("FOOD"), areaAssignmentMode: z.enum(["INHERIT_FROM_PRODUCT", "SPECIFIC_AREA"]).optional().default("SPECIFIC_AREA"), preparationAreaId: z.string().optional().or(z.literal("")) });
+const productSchema = z.object({ taxCategory: z.enum(["GRAVADA", "EXONERADA", "INAFECTA"]).default("GRAVADA"), name: z.string().trim().min(2).max(140), description: z.string().trim().max(400).optional(), categoryId: z.string().min(1), price: z.coerce.number().nonnegative().max(100000), cost: z.coerce.number().nonnegative().max(100000).default(0), kitchenArea: z.string().trim().min(1).max(40).optional().default("GENERAL"), productType: configuredKey.optional().default("FOOD"), areaAssignmentMode: z.enum(["INHERIT_FROM_PRODUCT", "SPECIFIC_AREA"]).optional().default("SPECIFIC_AREA"), preparationAreaId: z.string().optional().or(z.literal("")) });
 const areaSchema = z.object({ name: z.string().trim().min(2).max(80) });
 const tableSchema = z.object({ name: z.string().trim().min(1).max(40), seats: z.coerce.number().int().min(1).max(50), areaId: z.string().min(1) });
 const orderItemsSchema = z.array(z.object({ productId: z.string().min(1), parentProductId: z.string().min(1).optional(), quantity: z.coerce.number().int().min(1).max(50), notes: z.string().trim().max(300).optional() })).min(1).max(50);
 const orderSchema = z.object({
+  idempotencyKey: z.string().trim().min(8).max(120).optional(),
   source: configuredKey.default("DINE_IN"),
   tableId: z.string().optional(), customerId: z.string().optional(),
   deliveryPhone: z.string().trim().max(30).optional(), deliveryAddress: z.string().trim().max(300).optional(), deliveryReference: z.string().trim().max(300).optional(),
@@ -32,7 +39,7 @@ const orderSchema = z.object({
 }).superRefine((input, context) => {
   if (input.source === "DINE_IN" && !input.tableId) context.addIssue({ code: z.ZodIssueCode.custom, path: ["tableId"], message: "Selecciona una mesa." });
 });
-const kitchenStatusSchema = z.object({ status: configuredKey });
+const kitchenStatusSchema = z.object({ itemIds: z.array(z.string().min(1)).min(1).max(200).optional(), status: configuredKey });
 const orderStatusSchema = z.object({ status: configuredKey, reason: z.string().trim().max(300).optional() });
 const deliveryStatusSchema = z.object({ status: configuredKey });
 const checkoutSchema = z.object({
@@ -49,7 +56,7 @@ const productUpdateSchema = productSchema.extend({ active: activeValue });
 const areaUpdateSchema = areaSchema.extend({ active: activeValue });
 const tableUpdateSchema = tableSchema.extend({ active: activeValue });
 const transferSchema = z.object({ tableId: z.string().min(1) });
-const addItemsSchema = z.object({ items: orderItemsSchema });
+const addItemsSchema = z.object({ items: orderItemsSchema, idempotencyKey: z.string().trim().min(8).max(120).optional() });
 const printStationSchema = z.object({ stationId: z.string().trim().min(8).max(100) });
 const printJobStatusSchema = printStationSchema.extend({ status: z.enum(["PRINTED", "FAILED"]), error: z.string().trim().max(300).optional() });
 const PRINT_JOB_LEASE_MS = 10 * 60 * 1000;
@@ -66,7 +73,7 @@ const reservationSchema = z.object({
   notes: z.string().trim().max(300).optional(),
 });
 const cashCloseSchema = z.object({ countedAmount: z.coerce.number().nonnegative().max(1000000) });
-const cashMovementSchema = z.object({ type: z.enum(["IN", "OUT"]), amount: z.coerce.number().positive().max(1_000_000), reason: z.string().trim().min(3).max(200) });
+const cashMovementSchema = z.object({ type: z.enum(["IN", "OUT"]), amount: z.coerce.number().positive().max(1_000_000), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().trim().min(8).max(120).optional() });
 const promotionSchema = z.object({
   name: z.string().trim().min(2).max(120),
   code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{3,40}$/).optional().or(z.literal("")),
@@ -106,8 +113,10 @@ function parentForOrderItem(item: { productId: string; parentProductId?: string 
   throw new AppError("ADDON_PARENT_REQUIRED", 400, `Selecciona el producto base del adicional “${product.name}” para heredar correctamente su área.`);
 }
 
-function configuredOrderTotal(amountAfterDiscountCents: number, deliveryFeeCents: number, configuration: Awaited<ReturnType<typeof getRestaurantConfiguration>>) {
-  const taxCents = configuration.general.taxIncluded ? 0 : Math.round(amountAfterDiscountCents * configuration.general.taxRatePct / 100);
+function configuredOrderTotal(amountAfterDiscountCents: number, deliveryFeeCents: number, configuration: Awaited<ReturnType<typeof getRestaurantConfiguration>>, lines: Array<{ totalCents: number; taxCategory: string }>) {
+  const shares = allocateCents(amountAfterDiscountCents, lines.map((line) => line.totalCents));
+  const taxable = lines.reduce((sum, line, index) => sum + (line.taxCategory === "GRAVADA" ? shares[index] : 0), 0);
+  const taxCents = configuration.general.taxIncluded ? 0 : Math.round(taxable * configuration.general.taxRatePct / 100);
   const serviceChargeCents = Math.round(amountAfterDiscountCents * configuration.general.serviceChargePct / 100);
   return amountAfterDiscountCents + taxCents + serviceChargeCents + deliveryFeeCents;
 }
@@ -116,6 +125,20 @@ async function required<T>(promise: Promise<T | null>, label: string): Promise<T
   const value = await promise;
   if (!value) throw new AppError("NOT_FOUND", 404, `${label} no existe en esta empresa o sucursal.`);
   return value;
+}
+
+// Claim the exact version that was validated. Every order mutation shares this
+// guard, so checkout/cancellation cannot race an addition or kitchen update.
+async function claimOrder(tx: Prisma.TransactionClient, scope: TenantScope, order: { id: string; version: number }, allowPaidPreparation = false) {
+  const claimed = await tx.restaurantOrder.updateMany({
+    where: { id: order.id, tenantId: scope.tenantId, branchId: scope.branchId, version: order.version, status: { notIn: allowPaidPreparation ? ["CANCELLED"] : ["COMPLETED", "CANCELLED"] } },
+    data: { version: { increment: 1 } },
+  });
+  if (claimed.count !== 1) throw new AppError("ORDER_CHANGED", 409, "El pedido cambió durante la operación. Actualízalo antes de volver a intentar.");
+}
+
+function operationCode(prefix: string) {
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 8).toUpperCase()}`;
 }
 
 async function assertDniAvailable(scope: TenantScope, dni: string | undefined, excludeId?: string) {
@@ -156,7 +179,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   if (method === "POST" && resource === "sales" && id && action === "electronic-document") {
     const input = parse(electronicDocumentSchema, body);
     const document = await issueRestaurantElectronicDocument(scope, id, input.kind);
-    return { ok: true, id: document.id, document, message: `${input.kind === "FACTURA" ? "Factura" : "Boleta"} electrónica emitida.` };
+    return { ok: true, id: document.id, document, message: document.status === "ISSUED" ? "Comprobante aceptado." : "Comprobante enviado; aceptación pendiente de confirmar." };
   }
   if (method === "GET" && resource === "print-jobs") {
     const now = new Date();
@@ -204,7 +227,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   if (method === "PATCH" && resource === "print-jobs" && id && action === "status") {
     const input = parse(printJobStatusSchema, body);
     const updated = await prisma.restaurantPrintJob.updateMany({
-      where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "PROCESSING", stationId: input.stationId },
+      where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "PROCESSING", stationId: input.stationId, leaseExpiresAt: { gt: new Date() } },
       data: { status: input.status, lastError: input.status === "FAILED" ? input.error || "La impresora no confirmó el trabajo." : null, printedAt: input.status === "PRINTED" ? new Date() : null, leaseExpiresAt: null },
     });
     if (updated.count !== 1) throw new AppError("PRINT_JOB_NOT_CLAIMED", 409, "La comanda ya fue tomada por otra estación o su reserva venció.");
@@ -379,7 +402,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     ]);
     validateProductConfiguration(input, configuration, storedConfiguration, category);
     const routedArea = preparationArea ?? category.preparationArea;
-    const entity = await prisma.product.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, categoryId: category.id, name: input.name, description: input.description || null, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null } });
+    const entity = await prisma.product.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, categoryId: category.id, name: input.name, description: input.description || null, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null } });
     await audit(scope, "CREATE", "Product", entity.id);
     return { ok: true, id: entity.id, message: "Producto creado correctamente." };
   }
@@ -394,7 +417,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     ]);
     validateProductConfiguration(input, configuration, storedConfiguration, category);
     const routedArea = preparationArea ?? category.preparationArea;
-    await prisma.product.update({ where: { id: product.id }, data: { name: input.name, description: input.description || null, categoryId: category.id, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null, active: input.active } });
+    await prisma.product.update({ where: { id: product.id }, data: { name: input.name, description: input.description || null, categoryId: category.id, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null, active: input.active } });
     await audit(scope, "UPDATE", "Product", product.id, { active: input.active });
     return { ok: true, id: product.id, message: "Producto actualizado correctamente." };
   }
@@ -425,7 +448,8 @@ export async function handleRestaurantCommand(method: string, segments: string[]
       required(prisma.diningArea.findFirst({ where: { id: input.areaId, tenantId: scope.tenantId, branchId: scope.branchId, active: true }, select: { id: true } }), "El ambiente"),
     ]);
     if (!input.active && table.status === "IN_SERVICE") throw new AppError("TABLE_IN_SERVICE", 409, "No puedes desactivar una mesa con atención activa.");
-    await prisma.diningTable.update({ where: { id: table.id }, data: { name: input.name, seats: input.seats, areaId: area.id, active: input.active } });
+    const changed = await prisma.diningTable.updateMany({ where: { id: table.id, tenantId: scope.tenantId, branchId: scope.branchId, ...(!input.active ? { status: { not: "IN_SERVICE" } } : {}) }, data: { name: input.name, seats: input.seats, areaId: area.id, active: input.active } });
+    if (!changed.count) throw new AppError("TABLE_IN_SERVICE", 409, "La mesa inició una atención. Actualiza antes de editarla.");
     await audit(scope, "UPDATE", "DiningTable", table.id, { active: input.active });
     return { ok: true, id: table.id, message: "Mesa actualizada correctamente." };
   }
@@ -447,6 +471,14 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   }
   if (method === "POST" && resource === "orders" && !id) {
     const input = parse(orderSchema, body);
+    const requestHash = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    if (input.idempotencyKey) {
+      const existing = await prisma.restaurantOrder.findUnique({ where: { tenantId_branchId_idempotencyKey: { tenantId: scope.tenantId, branchId: scope.branchId, idempotencyKey: input.idempotencyKey } }, select: { id: true, requestHash: true } });
+      if (existing) {
+        if (existing.requestHash !== requestHash) throw new AppError("IDEMPOTENCY_CONFLICT", 409, "Esta solicitud ya se utilizó con otro pedido.");
+        return { ok: true, id: existing.id, message: "El pedido ya quedó registrado." };
+      }
+    }
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
     const storedConfiguration = await hasStoredRestaurantConfiguration(scope.tenantId);
     if (storedConfiguration) assertRestaurantConfigured(configuration.orders.sources, input.source, "El origen del pedido");
@@ -462,15 +494,17 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     if (input.customerId) await required(prisma.customer.findFirst({ where: { id: input.customerId, tenantId: scope.tenantId, active: true }, select: { id: true } }), "El cliente");
     const orderedProductIds = [...new Set(input.items.map((item) => item.productId))];
     const referencedProductIds = [...new Set(input.items.flatMap((item) => [item.productId, ...(item.parentProductId ? [item.parentProductId] : [])]))];
-    const products = await prisma.product.findMany({ where: { id: { in: referencedProductIds }, tenantId: scope.tenantId, branchId: scope.branchId, active: true }, select: { id: true, name: true, priceCents: true, categoryId: true, productType: true, areaAssignmentMode: true } });
+    const products = await prisma.product.findMany({ where: { id: { in: referencedProductIds }, tenantId: scope.tenantId, branchId: scope.branchId, active: true }, select: { id: true, name: true, priceCents: true, costCents: true, taxCategory: true, categoryId: true, productType: true, areaAssignmentMode: true } });
     if (products.length !== referencedProductIds.length) throw new AppError("INVALID_PRODUCTS", 400, "Uno o más productos o adicionales no pertenecen a esta sucursal.");
     const byId = new Map(products.map((item) => [item.id, item]));
     const availableBaseProductIds = new Set(orderedProductIds.filter((productId) => byId.get(productId)?.productType !== "ADDON"));
-    const lines = input.items.map((item) => { const product = byId.get(item.productId)!; return { tenantId: scope.tenantId, productId: product.id, parentProductId: parentForOrderItem(item, product, availableBaseProductIds), name: product.name, quantity: item.quantity, unitPriceCents: product.priceCents, totalCents: product.priceCents * item.quantity, notes: item.notes || null }; });
-    const promotionResult = await calculatePromotion(scope, input.items.map((item) => { const product = byId.get(item.productId)!; return { productId: product.id, categoryId: product.categoryId, quantity: item.quantity, unitPriceCents: product.priceCents, totalCents: product.priceCents * item.quantity }; }), input.promotionCode);
+    const lines = input.items.map((item) => { const product = byId.get(item.productId)!; return { tenantId: scope.tenantId, productId: product.id, parentProductId: parentForOrderItem(item, product, availableBaseProductIds), status: configuration.kitchen.autoQueue ? "PENDING" : "HELD", name: product.name, quantity: item.quantity, unitPriceCents: product.priceCents, unitCostCents: product.costCents, taxCategory: product.taxCategory, totalCents: product.priceCents * item.quantity, notes: item.notes || null }; });
+    const promotionResult = await calculatePromotion(scope, input.items.map((item) => { const product = byId.get(item.productId)!; return { productId: product.id, categoryId: product.categoryId, quantity: item.quantity, unitPriceCents: product.priceCents, unitCostCents: product.costCents, taxCategory: product.taxCategory, totalCents: product.priceCents * item.quantity }; }), input.promotionCode);
     const deliveryFeeCents = input.source === "DELIVERY" ? (input.deliveryFee > 0 ? Math.round(input.deliveryFee * 100) : configuration.delivery.defaultFeeCents) : 0;
-    const configuredTotalCents = configuredOrderTotal(promotionResult.totalCents, deliveryFeeCents, configuration);
-    const entity = await prisma.$transaction(async (tx) => {
+    assertDiscountLimit(promotionResult.subtotalCents, promotionResult.discountCents, configuration.sales.maxDiscountPct);
+    const configuredTotalCents = configuredOrderTotal(promotionResult.totalCents, deliveryFeeCents, configuration, lines);
+    const entity = await withInventoryTransaction(async (tx) => {
+      await assertTransactionalQuota(tx, scope.tenantId, "operations");
       const claimedTable = table ? await tx.diningTable.updateMany({
         where: { id: table.id, tenantId: scope.tenantId, branchId: scope.branchId, active: true, status: "AVAILABLE" },
         data: { status: "IN_SERVICE" },
@@ -478,28 +512,55 @@ export async function handleRestaurantCommand(method: string, segments: string[]
       if (claimedTable && claimedTable.count !== 1) throw new AppError("TABLE_NOT_AVAILABLE", 409, "La mesa acaba de ser ocupada. Abre su pedido activo o selecciona otra mesa.");
       const duplicateOrder = table ? await tx.restaurantOrder.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, tableId: table.id, status: { notIn: ["COMPLETED", "CANCELLED"] } }, select: { id: true } }) : null;
       if (duplicateOrder) throw new AppError("TABLE_OCCUPIED", 409, "La mesa ya tiene un pedido activo.");
-      const order = await tx.restaurantOrder.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, tableId: table?.id ?? null, customerId: input.customerId || null, createdById: scope.actorId, code: `${configuration.general.orderPrefix}-${Date.now().toString().slice(-7)}`, source: input.source, status: "PLACED", notes: input.notes || null, deliveryPhone: input.source === "DELIVERY" ? input.deliveryPhone : null, deliveryAddress: input.source === "DELIVERY" ? input.deliveryAddress : null, deliveryReference: input.source === "DELIVERY" ? input.deliveryReference || null : null, deliveryFeeCents, deliveryStatus: input.source === "DELIVERY" ? "PENDING" : null, subtotalCents: promotionResult.subtotalCents, discountCents: promotionResult.discountCents, totalCents: configuredTotalCents, promotionId: promotionResult.promotion?.id ?? null, promotionName: promotionResult.promotion?.name ?? null, promotionCode: promotionResult.promotion?.code ?? null, items: { create: lines } } });
-      await tx.kitchenTicket.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, orderId: order.id } });
-      await createRoutedPrintJobs(tx, scope, { orderId: order.id, type: "INITIAL", lines, orderNotes: input.notes || null });
+      const order = await tx.restaurantOrder.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, taxRatePct: configuration.general.taxRatePct, taxIncluded: configuration.general.taxIncluded, idempotencyKey: input.idempotencyKey, requestHash: input.idempotencyKey ? requestHash : null, tableId: table?.id ?? null, customerId: input.customerId || null, createdById: scope.actorId, code: operationCode(configuration.general.orderPrefix), source: input.source, status: "PLACED", notes: input.notes || null, deliveryPhone: input.source === "DELIVERY" ? input.deliveryPhone : null, deliveryAddress: input.source === "DELIVERY" ? input.deliveryAddress : null, deliveryReference: input.source === "DELIVERY" ? input.deliveryReference || null : null, deliveryFeeCents, deliveryStatus: input.source === "DELIVERY" ? "PENDING" : null, subtotalCents: promotionResult.subtotalCents, discountCents: promotionResult.discountCents, totalCents: configuredTotalCents, promotionId: promotionResult.promotion?.id ?? null, promotionName: promotionResult.promotion?.name ?? null, promotionCode: promotionResult.promotion?.code ?? null, items: { create: lines } } });
+      await reserveOrderIngredients(tx, scope, order.id, configuration.inventory.autoDeductRecipes, configuration.inventory.preventNegativeStock && !configuration.menu.allowOutOfStockSales);
+      await tx.kitchenTicket.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, orderId: order.id, status: configuration.kitchen.autoQueue ? "QUEUED" : "HELD" } });
+      if (configuration.kitchen.autoQueue) await createRoutedPrintJobs(tx, scope, { orderId: order.id, type: "INITIAL", lines, orderNotes: input.notes || null });
       return order;
     });
     await audit(scope, "CREATE", "RestaurantOrder", entity.id, { source: input.source, tableId: table?.id ?? null, subtotalCents: promotionResult.subtotalCents, discountCents: promotionResult.discountCents, deliveryFeeCents, totalCents: configuredTotalCents, promotionId: promotionResult.promotion?.id ?? null });
-    return { ok: true, id: entity.id, message: promotionResult.discountCents ? `Pedido guardado con ${promotionResult.promotion?.name} y enviado a cocina.` : "Pedido guardado y enviado a cocina." };
+    return { ok: true, id: entity.id, message: !configuration.kitchen.autoQueue ? "Pedido guardado. Usa Enviar a cocina cuando desees iniciar la preparación." : promotionResult.discountCents ? `Pedido guardado con ${promotionResult.promotion?.name} y enviado a cocina.` : "Pedido guardado y enviado a cocina." };
+  }
+  if (method === "POST" && resource === "sales" && id && action === "refund") return refundRestaurantSale(scope, id, body);
+  if (method === "POST" && resource === "sales" && id && action === "credit-note") return issueRestaurantCreditNote(scope, id);
+  if (method === "POST" && resource === "orders" && id && action === "queue") {
+    await withInventoryTransaction(async (tx) => {
+      const order = await tx.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: { not: "CANCELLED" } }, include: { items: true, kitchenTicket: true } });
+      if (!order?.kitchenTicket) throw new AppError("NOT_FOUND", 404, "El pedido no está disponible.");
+      await claimOrder(tx, scope, order, true);
+      const pending = order.items.filter((item) => item.status === "HELD");
+      if (!pending.length) throw new AppError("TICKET_NOT_HELD", 409, "Los productos ya fueron enviados.");
+      await tx.orderItem.updateMany({ where: { id: { in: pending.map((item) => item.id) } }, data: { status: "PENDING" } });
+      await tx.kitchenTicket.update({ where: { id: order.kitchenTicket.id }, data: { status: aggregatePreparationStatus(order.items.map((line) => line.status === "HELD" ? "PENDING" : line.status)), createdAt: new Date() } });
+      await createRoutedPrintJobs(tx, scope, { orderId: id, type: "ADDITION", lines: pending, orderNotes: order.notes });
+    });
+    await audit(scope, "QUEUE", "RestaurantOrder", id);
+    return { ok: true, message: "Pedido enviado a las áreas de preparación." };
   }
   if (method === "PATCH" && resource === "orders" && id && action === "items") {
     const input = parse(addItemsSchema, body);
+    const requestHash = createHash("sha256").update(JSON.stringify(input.items)).digest("hex");
+    if (input.idempotencyKey) {
+      const previous = await prisma.restaurantOrderRequest.findFirst({ where: { orderId: id, key: input.idempotencyKey, order: { tenantId: scope.tenantId, branchId: scope.branchId } }, select: { requestHash: true } });
+      if (previous) {
+        if (previous.requestHash !== requestHash) throw new AppError("IDEMPOTENCY_CONFLICT", 409, "Esta solicitud ya se utilizó para otra ampliación.");
+        return { ok: true, id, message: "La ampliación ya quedó registrada." };
+      }
+    }
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
     const order = await required(prisma.restaurantOrder.findFirst({
       where: { id, tenantId: scope.tenantId, branchId: scope.branchId },
-      select: { id: true, status: true, promotionCode: true, deliveryFeeCents: true, sale: { select: { id: true } }, items: { select: { productId: true, quantity: true, totalCents: true, product: { select: { categoryId: true, productType: true } } } } },
+      select: { id: true, version: true, taxRatePct: true, taxIncluded: true, status: true, promotionCode: true, deliveryFeeCents: true, sale: { select: { id: true } }, items: { where: { status: { not: "CANCELLED" } }, select: { productId: true, quantity: true, taxCategory: true, totalCents: true, product: { select: { categoryId: true, productType: true } } } } },
     }), "El pedido");
+    configuration.general.taxRatePct = order.taxRatePct ?? configuration.general.taxRatePct;
+    configuration.general.taxIncluded = order.taxIncluded ?? configuration.general.taxIncluded;
     if (order.sale || ["COMPLETED", "CANCELLED"].includes(order.status)) throw new AppError("ORDER_CLOSED", 409, "El pedido ya está cerrado y no admite productos.");
     if (await hasStoredRestaurantConfiguration(scope.tenantId) && !configuration.orders.allowAddItemsAfterKitchen && order.status !== "PLACED") throw new AppError("ORDER_ITEMS_LOCKED", 409, "La configuración no permite agregar productos después de iniciar cocina.");
     if (await hasStoredRestaurantConfiguration(scope.tenantId) && !configuration.orders.allowItemNotes && input.items.some((item) => item.notes)) throw new AppError("ITEM_NOTES_DISABLED", 400, "Las observaciones por producto están deshabilitadas.");
     const referencedProductIds = [...new Set(input.items.flatMap((item) => [item.productId, ...(item.parentProductId ? [item.parentProductId] : [])]))];
     const products = await prisma.product.findMany({
       where: { id: { in: referencedProductIds }, tenantId: scope.tenantId, branchId: scope.branchId, active: true },
-      select: { id: true, name: true, priceCents: true, categoryId: true, productType: true, areaAssignmentMode: true },
+      select: { id: true, name: true, priceCents: true, costCents: true, taxCategory: true, categoryId: true, productType: true, areaAssignmentMode: true },
     });
     if (products.length !== referencedProductIds.length) throw new AppError("INVALID_PRODUCTS", 400, "Uno o más productos o adicionales no pertenecen a esta sucursal.");
     const byId = new Map(products.map((item) => [item.id, item]));
@@ -509,32 +570,40 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     ]);
     const lines = input.items.map((item) => {
       const product = byId.get(item.productId)!;
-      return { tenantId: scope.tenantId, orderId: order.id, productId: product.id, parentProductId: parentForOrderItem(item, product, availableBaseProductIds), name: product.name, quantity: item.quantity, unitPriceCents: product.priceCents, totalCents: product.priceCents * item.quantity, notes: item.notes || null };
+      return { tenantId: scope.tenantId, orderId: order.id, productId: product.id, parentProductId: parentForOrderItem(item, product, availableBaseProductIds), status: configuration.kitchen.autoQueue ? "PENDING" : "HELD", name: product.name, quantity: item.quantity, unitPriceCents: product.priceCents, unitCostCents: product.costCents, taxCategory: product.taxCategory, totalCents: product.priceCents * item.quantity, notes: item.notes || null };
     });
     const promotionResult = await calculatePromotion(scope, [
       ...order.items.map((item) => ({ productId: item.productId, categoryId: item.product.categoryId, quantity: item.quantity, unitPriceCents: Math.round(item.totalCents / item.quantity), totalCents: item.totalCents })),
-      ...input.items.map((item) => { const product = byId.get(item.productId)!; return { productId: product.id, categoryId: product.categoryId, quantity: item.quantity, unitPriceCents: product.priceCents, totalCents: product.priceCents * item.quantity }; }),
+      ...input.items.map((item) => { const product = byId.get(item.productId)!; return { productId: product.id, categoryId: product.categoryId, quantity: item.quantity, unitPriceCents: product.priceCents, unitCostCents: product.costCents, taxCategory: product.taxCategory, totalCents: product.priceCents * item.quantity }; }),
     ], order.promotionCode);
-    await prisma.$transaction(async (tx) => {
+    await withInventoryTransaction(async (tx) => {
+      await claimOrder(tx, scope, order);
+      if (input.idempotencyKey) await tx.restaurantOrderRequest.create({ data: { orderId: order.id, key: input.idempotencyKey, requestHash } });
+      assertDiscountLimit(promotionResult.subtotalCents, promotionResult.discountCents, configuration.sales.maxDiscountPct);
       await tx.orderItem.createMany({ data: lines });
-      await tx.restaurantOrder.update({ where: { id: order.id }, data: { status: "PLACED", subtotalCents: promotionResult.subtotalCents, discountCents: promotionResult.discountCents, totalCents: configuredOrderTotal(promotionResult.totalCents, order.deliveryFeeCents, configuration), promotionId: promotionResult.promotion?.id ?? null, promotionName: promotionResult.promotion?.name ?? null, promotionCode: promotionResult.promotion?.code ?? null } });
-      await tx.kitchenTicket.updateMany({ where: { orderId: order.id }, data: { status: "QUEUED", createdAt: new Date() } });
-      await createRoutedPrintJobs(tx, scope, { orderId: order.id, type: "ADDITION", lines });
+      await reserveOrderIngredients(tx, scope, order.id, configuration.inventory.autoDeductRecipes, configuration.inventory.preventNegativeStock && !configuration.menu.allowOutOfStockSales);
+      await tx.restaurantOrder.update({ where: { id: order.id }, data: { status: "PLACED", subtotalCents: promotionResult.subtotalCents, discountCents: promotionResult.discountCents, totalCents: configuredOrderTotal(promotionResult.totalCents, order.deliveryFeeCents, configuration, [...order.items, ...lines]), promotionId: promotionResult.promotion?.id ?? null, promotionName: promotionResult.promotion?.name ?? null, promotionCode: promotionResult.promotion?.code ?? null } });
+      const preparation = await tx.orderItem.findMany({ where: { orderId: order.id }, select: { status: true } });
+      await tx.kitchenTicket.updateMany({ where: { orderId: order.id }, data: { status: aggregatePreparationStatus(preparation.map((line) => line.status)), createdAt: new Date() } });
+      if (configuration.kitchen.autoQueue) await createRoutedPrintJobs(tx, scope, { orderId: order.id, type: "ADDITION", lines });
     });
     await audit(scope, "ADD_ITEMS", "RestaurantOrder", order.id, { subtotalCents: promotionResult.subtotalCents, discountCents: promotionResult.discountCents, lineCount: lines.length });
-    return { ok: true, id: order.id, message: "Productos agregados y nueva comanda enviada a cocina." };
+    return { ok: true, id: order.id, message: configuration.kitchen.autoQueue ? "Productos agregados y nueva comanda enviada a cocina." : "Productos agregados. Usa Enviar a cocina para continuar." };
   }
   if (method === "PATCH" && resource === "orders" && id && action === "status") {
     const input = parse(orderStatusSchema, body);
+    if (input.status === "COMPLETED") throw new AppError("CHECKOUT_REQUIRED", 409, "Completa el cobro para cerrar el pedido y registrar su venta.");
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
     const storedConfiguration = await hasStoredRestaurantConfiguration(scope.tenantId);
-    const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true, tableId: true, status: true, sale: { select: { id: true } } } }), "El pedido");
+    const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true, version: true, tableId: true, status: true, sale: { select: { id: true } } } }), "El pedido");
     if (order.sale || ["COMPLETED", "CANCELLED"].includes(order.status)) throw new AppError("ORDER_CLOSED", 409, "El pedido ya está cerrado y no admite cambios.");
     const currentStatus = configuration.orders.statuses.find((item) => item.active && item.key === order.status);
-    if (storedConfiguration && !currentStatus?.allowedNext.includes(input.status)) throw new AppError("INVALID_STATUS_TRANSITION", 409, `No se puede cambiar de ${order.status} a ${input.status} según el flujo configurado.`);
+    if (!currentStatus?.allowedNext.includes(input.status)) throw new AppError("INVALID_STATUS_TRANSITION", 409, `No se puede cambiar de ${order.status} a ${input.status} según el flujo configurado.`);
     if (storedConfiguration && input.status === "CANCELLED" && configuration.orders.requireCancellationReason && !input.reason) throw new AppError("CANCELLATION_REASON_REQUIRED", 400, "Selecciona o escribe el motivo de cancelación.");
     if (input.status === "CANCELLED") {
-      await prisma.$transaction(async (tx) => {
+      await withInventoryTransaction(async (tx) => {
+        await claimOrder(tx, scope, order);
+        await cancelOrderIngredients(tx, scope, order.id, input.reason || "Pedido cancelado");
         await tx.restaurantOrder.update({ where: { id: order.id }, data: { status: "CANCELLED", completedAt: new Date(), notes: input.reason || undefined } });
         await tx.kitchenTicket.updateMany({ where: { orderId: order.id }, data: { status: "CANCELLED" } });
         await tx.orderItem.updateMany({ where: { orderId: order.id }, data: { status: "CANCELLED" } });
@@ -542,7 +611,16 @@ export async function handleRestaurantCommand(method: string, segments: string[]
         await createRoutedPrintJobs(tx, scope, { orderId: order.id, type: "CANCELLATION", lines: [], orderNotes: "PEDIDO COMPLETO ANULADO" });
       });
     } else {
-      await prisma.restaurantOrder.update({ where: { id: order.id }, data: { status: input.status } });
+      await withInventoryTransaction(async (tx) => {
+        await claimOrder(tx, scope, order);
+        await tx.restaurantOrder.update({ where: { id: order.id }, data: { status: input.status } });
+        if (["PREPARING", "READY", "SERVED"].includes(input.status)) {
+          const areas = await tx.orderItem.findMany({ where: { orderId: order.id, status: { notIn: ["CANCELLED", "SERVED"] } }, select: { preparationAreaKey: true } });
+          if (new Set(areas.map((line) => line.preparationAreaKey)).size > 1) throw new AppError("USE_KITCHEN_STATIONS", 409, "Actualiza cada área desde Cocina para conservar su avance independiente.");
+          await tx.kitchenTicket.updateMany({ where: { orderId: order.id }, data: { status: input.status } });
+          await tx.orderItem.updateMany({ where: { orderId: order.id, status: { not: "CANCELLED" } }, data: { status: input.status } });
+        }
+      });
     }
     await audit(scope, "STATUS_CHANGE", "RestaurantOrder", order.id, { status: input.status });
     return { ok: true, message: "Estado del pedido actualizado." };
@@ -550,25 +628,28 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   if (method === "PATCH" && resource === "orders" && id && action === "delivery-status") {
     const input = parse(deliveryStatusSchema, body);
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
-    const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, source: "DELIVERY" }, select: { id: true, status: true, deliveryStatus: true } }), "El delivery");
+    const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, source: "DELIVERY" }, select: { id: true, version: true, status: true, deliveryStatus: true } }), "El delivery");
     if (["COMPLETED", "CANCELLED"].includes(order.status) && input.status !== "DELIVERED") throw new AppError("ORDER_CLOSED", 409, "El pedido está cerrado.");
     if (await hasStoredRestaurantConfiguration(scope.tenantId)) {
       const currentStatus = configuration.delivery.statuses.find((item) => item.active && item.key === order.deliveryStatus);
       if (!currentStatus?.allowedNext.includes(input.status)) throw new AppError("INVALID_DELIVERY_TRANSITION", 409, `No se puede cambiar de ${order.deliveryStatus} a ${input.status}.`);
     }
-    await prisma.restaurantOrder.update({ where: { id: order.id }, data: { deliveryStatus: input.status } });
+    const updated = await prisma.restaurantOrder.updateMany({ where: { id: order.id, version: order.version }, data: { deliveryStatus: input.status, version: { increment: 1 } } });
+    if (updated.count !== 1) throw new AppError("ORDER_CHANGED", 409, "El delivery cambió durante la operación. Actualiza el pedido.");
     await audit(scope, "DELIVERY_STATUS_CHANGE", "RestaurantOrder", order.id, { from: order.deliveryStatus, status: input.status });
     return { ok: true, id: order.id, message: `Delivery actualizado a ${input.status}.` };
   }
   if (method === "PATCH" && resource === "orders" && id && action === "transfer") {
     const input = parse(transferSchema, body);
     const [order, target] = await Promise.all([
-      required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: { notIn: ["COMPLETED", "CANCELLED"] } }, select: { id: true, tableId: true } }), "El pedido"),
+      required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, source: "DINE_IN", status: { notIn: ["COMPLETED", "CANCELLED"] } }, select: { id: true, version: true, tableId: true } }), "El pedido"),
       required(prisma.diningTable.findFirst({ where: { id: input.tableId, tenantId: scope.tenantId, branchId: scope.branchId, active: true, status: "AVAILABLE" }, select: { id: true } }), "La mesa destino"),
     ]);
-    await prisma.$transaction(async (tx) => {
+    await withInventoryTransaction(async (tx) => {
+      await claimOrder(tx, scope, order);
+      const claimed = await tx.diningTable.updateMany({ where: { id: target.id, status: "AVAILABLE", active: true }, data: { status: "IN_SERVICE" } });
+      if (claimed.count !== 1) throw new AppError("TABLE_NOT_AVAILABLE", 409, "La mesa destino acaba de ser ocupada.");
       await tx.restaurantOrder.update({ where: { id: order.id }, data: { tableId: target.id } });
-      await tx.diningTable.update({ where: { id: target.id }, data: { status: "IN_SERVICE" } });
       if (order.tableId) await tx.diningTable.update({ where: { id: order.tableId }, data: { status: "AVAILABLE" } });
     });
     await audit(scope, "TRANSFER", "RestaurantOrder", order.id, { fromTableId: order.tableId, toTableId: target.id });
@@ -577,20 +658,31 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   if (method === "PATCH" && resource === "kitchen" && id && action === "status") {
     const input = parse(kitchenStatusSchema, body);
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
-    const ticket = await required(prisma.kitchenTicket.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true, orderId: true, status: true, order: { select: { tableId: true, source: true, status: true, sale: { select: { id: true } } } } } }), "La comanda");
-    if (ticket.order.sale || ["SERVED", "CANCELLED"].includes(ticket.status) || ["COMPLETED", "CANCELLED"].includes(ticket.order.status)) throw new AppError("TICKET_CLOSED", 409, "La comanda ya está cerrada y no admite cambios.");
-    if (await hasStoredRestaurantConfiguration(scope.tenantId)) {
-      const currentStatus = configuration.kitchen.ticketStatuses.find((item) => item.active && item.key === ticket.status);
-      if (!currentStatus?.allowedNext.includes(input.status)) throw new AppError("INVALID_KITCHEN_TRANSITION", 409, `No se puede cambiar de ${ticket.status} a ${input.status}.`);
+    const ticket = await required(prisma.kitchenTicket.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true, orderId: true, status: true, order: { select: { id: true, version: true, tableId: true, source: true, status: true, sale: { select: { id: true } } } } } }), "La comanda");
+    if (["SERVED", "CANCELLED", "HELD"].includes(ticket.status) || ticket.order.status === "CANCELLED") throw new AppError("TICKET_CLOSED", 409, "La comanda ya está cerrada y no admite cambios.");
+    await withInventoryTransaction(async (tx) => {
+      if (ticket.order.sale && input.status === "CANCELLED") throw new AppError("REFUND_REQUIRED", 409, "Este pedido está pagado. Registra la devolución desde la venta.");
+      await claimOrder(tx, scope, ticket.order, true);
+      const lines = await tx.orderItem.findMany({ where: { orderId: ticket.orderId, tenantId: scope.tenantId, status: { not: "CANCELLED" } } });
+      const selected = input.itemIds ? lines.filter((line) => input.itemIds!.includes(line.id)) : lines.filter((line) => line.status !== "SERVED");
+      if (!selected.length || (input.itemIds && selected.length !== new Set(input.itemIds).size)) throw new AppError("INVALID_TICKET_ITEMS", 400, "Los productos seleccionados no pertenecen a esta comanda.");
+      if (input.status === "CANCELLED" && input.itemIds) throw new AppError("CANCEL_WHOLE_ORDER", 409, "Anula el pedido completo desde Pedidos para conciliar insumos e importes.");
       if (input.status === "CANCELLED" && !configuration.kitchen.allowKitchenCancellation) throw new AppError("KITCHEN_CANCELLATION_DISABLED", 409, "La cancelación desde cocina está deshabilitada.");
-    }
-    const orderStatus = input.status === "SERVED" ? "SERVED" : input.status === "CANCELLED" ? "CANCELLED" : input.status;
-    await prisma.$transaction(async (tx) => {
-      await tx.kitchenTicket.update({ where: { id: ticket.id }, data: { status: input.status } });
-      await tx.restaurantOrder.update({ where: { id: ticket.orderId }, data: { status: orderStatus, completedAt: input.status === "CANCELLED" ? new Date() : undefined, ...(ticket.order.source === "DELIVERY" && input.status === "READY" ? { deliveryStatus: "READY" } : {}), ...(ticket.order.source === "DELIVERY" && input.status === "CANCELLED" ? { deliveryStatus: "CANCELLED" } : {}) } });
-      await tx.orderItem.updateMany({ where: { orderId: ticket.orderId, tenantId: scope.tenantId, status: { not: "CANCELLED" } }, data: { status: input.status } });
-      if (input.status === "CANCELLED" && ticket.order.tableId) await tx.diningTable.update({ where: { id: ticket.order.tableId }, data: { status: "AVAILABLE" } });
-      if (input.status === "CANCELLED") await createRoutedPrintJobs(tx, scope, { orderId: ticket.orderId, type: "CANCELLATION", lines: [], orderNotes: "COMANDA ANULADA DESDE COCINA" });
+      if (!input.itemIds && input.status !== "CANCELLED" && new Set(selected.map((line) => line.preparationAreaKey)).size > 1) throw new AppError("SELECT_PREPARATION_AREA", 409, "Selecciona los productos del área que estás preparando.");
+      for (const line of selected) {
+        const current = line.status === "PENDING" ? "QUEUED" : line.status;
+        const allowed = configuration.kitchen.ticketStatuses.find((status) => status.active && status.key === current)?.allowedNext ?? [];
+        if (!allowed.includes(input.status)) throw new AppError("INVALID_KITCHEN_TRANSITION", 409, `No se puede cambiar ${line.name} de ${current} a ${input.status}.`);
+      }
+      if (input.status === "CANCELLED") await cancelOrderIngredients(tx, scope, ticket.orderId, "Comanda anulada desde cocina");
+      await tx.orderItem.updateMany({ where: { id: { in: selected.map((line) => line.id) }, tenantId: scope.tenantId, orderId: ticket.orderId }, data: { status: input.status } });
+      const remaining = await tx.orderItem.findMany({ where: { orderId: ticket.orderId }, select: { status: true } });
+      const aggregate = aggregatePreparationStatus(remaining.map((line) => line.status));
+      await tx.kitchenTicket.update({ where: { id: ticket.id }, data: { status: aggregate } });
+      await tx.restaurantOrder.update({ where: { id: ticket.orderId }, data: { status: ticket.order.sale ? "COMPLETED" : aggregate === "QUEUED" ? "PLACED" : aggregate, completedAt: aggregate === "CANCELLED" ? new Date() : undefined, ...(ticket.order.source === "DELIVERY" && ["READY", "CANCELLED"].includes(aggregate) ? { deliveryStatus: aggregate } : {}) } });
+      if (aggregate === "SERVED" && ticket.order.sale && ticket.order.tableId) await tx.diningTable.update({ where: { id: ticket.order.tableId }, data: { status: configuration.floor.cleaningRequired ? "CLEANING" : "AVAILABLE" } });
+      if (aggregate === "CANCELLED" && ticket.order.tableId) await tx.diningTable.update({ where: { id: ticket.order.tableId }, data: { status: "AVAILABLE" } });
+      if (aggregate === "CANCELLED") await createRoutedPrintJobs(tx, scope, { orderId: ticket.orderId, type: "CANCELLATION", lines: [], orderNotes: "COMANDA ANULADA DESDE COCINA" });
     });
     await audit(scope, "STATUS_CHANGE", "KitchenTicket", ticket.id, { status: input.status });
     return { ok: true, message: "Comanda actualizada." };
@@ -598,7 +690,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   if (method === "POST" && resource === "orders" && id && action === "checkout") {
     const input = parse(checkoutSchema, body);
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
-    const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, include: { sale: true } }), "El pedido");
+    const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, include: { sale: true, kitchenTicket: true } }), "El pedido");
     if (order.sale) throw new AppError("ALREADY_PAID", 409, "El pedido ya fue cobrado.");
     if (["COMPLETED", "CANCELLED"].includes(order.status)) throw new AppError("ORDER_CLOSED", 409, "El pedido está cerrado y no puede cobrarse.");
     const cash = await prisma.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, orderBy: { openedAt: "desc" } });
@@ -612,13 +704,16 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     if (paidCents !== order.totalCents) throw new AppError("PAYMENT_TOTAL_MISMATCH", 400, `Los pagos deben sumar exactamente S/ ${(order.totalCents / 100).toFixed(2)}.`);
     const cashPaidCents = payments.filter((payment) => payment.method === "CASH").reduce((sum, payment) => sum + payment.amountCents, 0);
     const sale = await withInventoryTransaction(async (tx) => {
-      const created = await tx.sale.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, customerId: order.customerId, orderId: order.id, cashSessionId: cash?.id ?? null, cashierId: scope.actorId, code: `${configuration.general.salePrefix}-${Date.now().toString().slice(-7)}`, paymentMethod: payments.length > 1 ? "SPLIT" : payments[0].method, subtotalCents: order.subtotalCents, discountCents: order.discountCents, promotionName: order.promotionName, totalCents: order.totalCents, payments: { create: payments.map((payment) => ({ tenantId: scope.tenantId, branchId: scope.branchId, method: payment.method, amountCents: payment.amountCents, reference: payment.reference })) } } });
-      if (configuration.inventory.autoDeductRecipes) await consumeRestaurantSaleInventory(tx, scope, order.id, created.id, configuration.inventory.preventNegativeStock && !configuration.menu.allowOutOfStockSales);
+      await claimOrder(tx, scope, order);
+      if (cash) {
+        const updated = await tx.cashSession.updateMany({ where: { id: cash.id, status: "OPEN" }, data: { expectedCents: { increment: cashPaidCents } } });
+        if (updated.count !== 1) throw new AppError("CASH_CLOSED", 409, "La caja se cerró durante el cobro. Actualiza la operación.");
+      }
+      const created = await tx.sale.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, customerId: order.customerId, loyaltyPointsEarned: configuration.customers.loyaltyEnabled && order.customerId ? Math.floor((order.totalCents / 100) * configuration.customers.pointsPerCurrencyUnit) : 0, orderId: order.id, cashSessionId: cash?.id ?? null, cashierId: scope.actorId, code: operationCode(configuration.general.salePrefix), paymentMethod: payments.length > 1 ? "SPLIT" : payments[0].method, subtotalCents: order.subtotalCents, discountCents: order.discountCents, promotionName: order.promotionName, totalCents: order.totalCents, payments: { create: payments.map((payment) => ({ tenantId: scope.tenantId, branchId: scope.branchId, method: payment.method, amountCents: payment.amountCents, reference: payment.reference })) } } });
+      await consumeRestaurantSaleInventory(tx, scope, order.id, created.id, configuration.inventory.preventNegativeStock && !configuration.menu.allowOutOfStockSales, configuration.inventory.autoDeductRecipes);
       await tx.restaurantOrder.update({ where: { id: order.id }, data: { status: "COMPLETED", completedAt: new Date() } });
-      if (configuration.customers.loyaltyEnabled && order.customerId) await tx.customer.update({ where: { id: order.customerId }, data: { loyaltyPoints: { increment: Math.floor((order.totalCents / 100) * configuration.customers.pointsPerCurrencyUnit) } } });
-      if (order.tableId) await tx.diningTable.update({ where: { id: order.tableId }, data: { status: configuration.floor.cleaningRequired ? "CLEANING" : "AVAILABLE" } });
-      await tx.kitchenTicket.updateMany({ where: { orderId: order.id, tenantId: scope.tenantId }, data: { status: "SERVED" } });
-      if (cash && cashPaidCents) await tx.cashSession.update({ where: { id: cash.id }, data: { expectedCents: { increment: cashPaidCents } } });
+      if (configuration.customers.loyaltyEnabled && order.customerId) await tx.customer.update({ where: { id: order.customerId }, data: { loyaltyPoints: { increment: created.loyaltyPointsEarned } } });
+      if (order.tableId && (!order.kitchenTicket || order.kitchenTicket.status === "SERVED")) await tx.diningTable.update({ where: { id: order.tableId }, data: { status: configuration.floor.cleaningRequired ? "CLEANING" : "AVAILABLE" } });
       return created;
     });
     await audit(scope, "CHECKOUT", "Sale", sale.id, { orderId: order.id, payments });
@@ -626,15 +721,16 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     if (configuration.integrations.sunatEnabled && configuration.integrations.sunatAutoIssue) {
       try {
         const customer = order.customerId ? await prisma.customer.findUnique({ where: { id: order.customerId }, select: { documentType: true } }) : null;
-        await issueRestaurantElectronicDocument(scope, sale.id, customer?.documentType === "RUC" ? "FACTURA" : "BOLETA");
-        electronicDocumentMessage = " Comprobante electrónico emitido.";
+        const document = await issueRestaurantElectronicDocument(scope, sale.id, customer?.documentType === "RUC" ? "FACTURA" : "BOLETA");
+        electronicDocumentMessage = document.status === "ISSUED" ? " Comprobante aceptado." : " Comprobante enviado; aceptación pendiente.";
       } catch { electronicDocumentMessage = " La venta quedó registrada; revisa el comprobante electrónico pendiente."; }
     }
-    return { ok: true, id: sale.id, message: `Venta registrada y mesa enviada a limpieza.${electronicDocumentMessage}` };
+    return { ok: true, id: sale.id, message: `Venta registrada.${order.kitchenTicket && order.kitchenTicket.status !== "SERVED" ? " La preparación y entrega siguen pendientes en Cocina." : order.tableId ? " Mesa enviada a limpieza." : ""}${electronicDocumentMessage}` };
   }
   if (method === "POST" && resource === "tables" && id && action === "clean") {
     const table = await required(prisma.diningTable.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "CLEANING" }, select: { id: true } }), "La mesa en limpieza");
-    await prisma.diningTable.update({ where: { id: table.id }, data: { status: "AVAILABLE" } });
+    const changed = await prisma.diningTable.updateMany({ where: { id: table.id, tenantId: scope.tenantId, branchId: scope.branchId, status: "CLEANING" }, data: { status: "AVAILABLE" } });
+    if (!changed.count) throw new AppError("TABLE_CHANGED", 409, "La mesa cambió de estado. Actualiza el salón.");
     await audit(scope, "CLEAN", "DiningTable", table.id);
     return { ok: true, message: "Mesa disponible nuevamente." };
   }
@@ -643,6 +739,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     if (await hasStoredRestaurantConfiguration(scope.tenantId) && !configuration.floor.reservationsEnabled) throw new AppError("RESERVATIONS_DISABLED", 409, "Las reservas están deshabilitadas para este restaurante.");
     const table = await required(prisma.diningTable.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, active: true }, select: { id: true, status: true, seats: true } }), "La mesa");
     if (!['AVAILABLE', 'RESERVED'].includes(table.status)) throw new AppError("TABLE_BUSY", 409, "La mesa está atendiendo un pedido y no puede reservarse.");
+    if (table.status === "RESERVED" && body && typeof body === "object" && Object.keys(body).length) throw new AppError("TABLE_ALREADY_RESERVED", 409, "La mesa ya tiene una reserva. Libérala explícitamente antes de registrar otra.");
     const status = table.status === "RESERVED" ? "AVAILABLE" : "RESERVED";
     const input = status === "RESERVED" ? parse(reservationSchema, body) : null;
     if (input?.partySize && input.partySize > table.seats) throw new AppError("TABLE_CAPACITY_EXCEEDED", 400, `Esta mesa admite hasta ${table.seats} personas.`);
@@ -655,7 +752,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
         if (duplicate) throw new AppError("DUPLICATE_RESERVATION", 409, `Ya existe una reserva para ese teléfono en ${duplicate.name} dentro del mismo horario.`);
       }
     }
-    await prisma.diningTable.update({ where: { id: table.id }, data: status === "RESERVED" ? {
+    const changed = await prisma.diningTable.updateMany({ where: { id: table.id, tenantId: scope.tenantId, branchId: scope.branchId, active: true, status: table.status }, data: status === "RESERVED" ? {
       status,
       reservationName: input!.name,
       reservationPhone: input!.phone || null,
@@ -670,12 +767,14 @@ export async function handleRestaurantCommand(method: string, segments: string[]
       reservationPartySize: null,
       reservationNotes: null,
     } });
+    if (!changed.count) throw new AppError("TABLE_CHANGED", 409, "La mesa cambió mientras registrabas la reserva. Actualiza el salón.");
     await audit(scope, "STATUS_CHANGE", "DiningTable", table.id, { status });
     return { ok: true, id: table.id, message: status === "RESERVED" ? "Mesa reservada." : "Reserva liberada." };
   }
   if (method === "POST" && resource === "tables" && id && action === "seat") {
     const table = await required(prisma.diningTable.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, active: true, status: "RESERVED" }, select: { id: true } }), "La mesa reservada");
-    await prisma.diningTable.update({ where: { id: table.id }, data: { status: "AVAILABLE", reservationName: null, reservationPhone: null, reservationAt: null, reservationPartySize: null, reservationNotes: null } });
+    const changed = await prisma.diningTable.updateMany({ where: { id: table.id, tenantId: scope.tenantId, branchId: scope.branchId, active: true, status: "RESERVED" }, data: { status: "AVAILABLE", reservationName: null, reservationPhone: null, reservationAt: null, reservationPartySize: null, reservationNotes: null } });
+    if (!changed.count) throw new AppError("TABLE_CHANGED", 409, "La reserva ya cambió de estado. Actualiza el salón.");
     await audit(scope, "SEAT", "DiningTable", table.id);
     return { ok: true, id: table.id, message: "Reserva recibida. Ya puedes abrir el pedido." };
   }
@@ -695,18 +794,28 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
     const differenceCents = countedCents - cash.expectedCents;
     if (Math.abs(differenceCents) > configuration.sales.cashDifferenceToleranceCents && !hasPermission(scope.permissions, "restaurant:cash:approve")) throw new AppError("CASH_DIFFERENCE_APPROVAL_REQUIRED", 403, `La diferencia supera la tolerancia de S/ ${(configuration.sales.cashDifferenceToleranceCents / 100).toFixed(2)} y requiere un responsable con permiso de aprobación.`);
-    await prisma.cashSession.update({ where: { id: cash.id }, data: { status: "CLOSED", countedCents, closedById: scope.actorId, closedAt: new Date() } });
+    const closed = await prisma.cashSession.updateMany({ where: { id: cash.id, status: "OPEN", expectedCents: cash.expectedCents }, data: { status: "CLOSED", countedCents, closedById: scope.actorId, closedAt: new Date() } });
+    if (closed.count !== 1) throw new AppError("CASH_CHANGED", 409, "La caja cambió mientras se cerraba. Actualiza los importes antes de cerrar.");
     await audit(scope, "CLOSE", "CashSession", cash.id, { countedCents, differenceCents });
     return { ok: true, id: cash.id, message: `Caja cerrada. Diferencia: S/ ${(differenceCents / 100).toFixed(2)}.` };
   }
   if (method === "POST" && resource === "cash" && id && action === "movement") {
     const input = parse(cashMovementSchema, body);
     if (input.type === "OUT" && !hasPermission(scope.permissions, "restaurant:cash:approve")) throw new AppError("CASH_OUT_APPROVAL_REQUIRED", 403, "Los retiros requieren un rol con permiso para aprobar movimientos de caja.");
+    const movementId = input.idempotencyKey ? `cm_${createHash("sha256").update(`${scope.tenantId}:${scope.branchId}:${id}:${input.idempotencyKey}`).digest("hex")}` : undefined;
+    if (movementId) {
+      const existing = await prisma.cashMovement.findUnique({ where: { id: movementId } });
+      if (existing) {
+        if (existing.type !== input.type || existing.amountCents !== Math.round(input.amount * 100) || existing.reason !== input.reason) throw new AppError("IDEMPOTENCY_CONFLICT", 409, "Esta solicitud ya se utilizó para otro movimiento de caja.");
+        return { ok: true, id: existing.id, message: "El movimiento ya quedó registrado." };
+      }
+    }
     const cash = await required(prisma.cashSession.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, select: { id: true } }), "La caja abierta");
     const amountCents = Math.round(input.amount * 100);
-    const movement = await prisma.$transaction(async (tx) => {
-      const created = await tx.cashMovement.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, cashSessionId: cash.id, createdById: scope.actorId, type: input.type, amountCents, reason: input.reason } });
-      await tx.cashSession.update({ where: { id: cash.id }, data: { expectedCents: { increment: input.type === "IN" ? amountCents : -amountCents } } });
+    const movement = await withInventoryTransaction(async (tx) => {
+      const updated = await tx.cashSession.updateMany({ where: { id: cash.id, status: "OPEN" }, data: { expectedCents: { increment: input.type === "IN" ? amountCents : -amountCents } } });
+      if (updated.count !== 1) throw new AppError("CASH_CLOSED", 409, "La caja ya está cerrada.");
+      const created = await tx.cashMovement.create({ data: { id: movementId, tenantId: scope.tenantId, branchId: scope.branchId, cashSessionId: cash.id, createdById: scope.actorId, type: input.type, amountCents, reason: input.reason } });
       return created;
     });
     await audit(scope, input.type === "IN" ? "CASH_IN" : "CASH_OUT", "CashMovement", movement.id, { amountCents, reason: input.reason });

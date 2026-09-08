@@ -1,0 +1,39 @@
+{
+  "tenant": "audit-mtqkwtwz",
+  "setup": {
+    "status": "READY",
+    "completedSteps": "[\"MODULES\",\"OPERATIONS\",\"CATALOG\",\"TEAM\",\"TABLES\",\"BUSINESS\",\"RESTAURANT_OPERATION\",\"RESTAURANT_KITCHEN\",\"RESTAURANT_SALES\",\"RESTAURANT_CONTROL\",\"RESTAURANT_INTEGRATIONS\",\"PRINTING\",\"REVIEW\"]"
+  },
+  "sales": 106,
+  "orders": 115,
+  "cashSessions": [
+    {
+      "status": "CLOSED",
+      "openingCents": 10000,
+      "expectedCents": 13000,
+      "countedCents": 13000
+    },
+    {
+      "status": "OPEN",
+      "openingCents": 10000,
+      "expectedCents": 10000,
+      "countedCents": null
+    }
+  ],
+  "inventory": [
+    {
+      "sku": "AUDIT-INPUT",
+      "stock": 895
+    },
+    {
+      "sku": "COUNT-AUDIT",
+      "stock": 15
+    },
+    {
+      "sku": "SCARCE",
+      "stock": 0
+    }
+  ],
+  "totalSalesCents": 215000,
+  "balanced": true
+}

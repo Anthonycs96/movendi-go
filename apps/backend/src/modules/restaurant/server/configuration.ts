@@ -31,7 +31,7 @@ export const defaultRestaurantConfiguration: RestaurantConfiguration = {
   promotions: { kinds: [option("PERCENT", "Porcentaje"), option("FIXED", "Monto fijo"), option("QUANTITY", "Por cantidad")], scopes: [option("ORDER", "Pedido"), option("CATEGORY", "Categoría"), option("PRODUCT", "Producto")], maxPercent: 100, requireManagerApproval: false },
   notifications: { rules: [
     { event: "KITCHEN_DELAY", label: "Demora en cocina", roleKeys: ["MANAGER", "KITCHEN"], channels: ["IN_APP"], active: true },
-    { event: "LOW_STOCK", label: "Stock bajo", roleKeys: ["MANAGER"], channels: ["IN_APP", "EMAIL"], active: true },
+    { event: "LOW_STOCK", label: "Stock bajo", roleKeys: ["MANAGER"], channels: ["IN_APP"], active: true },
     { event: "CASH_DIFFERENCE", label: "Diferencia de caja", roleKeys: ["MANAGER", "CASHIER"], channels: ["IN_APP"], active: true },
     { event: "DELIVERY_DELAY", label: "Delivery demorado", roleKeys: ["MANAGER", "WAITER"], channels: ["IN_APP"], active: true },
   ] },
@@ -133,6 +133,14 @@ function validateStatusFlow(section: RestaurantConfigurationSection, value: unkn
 export async function saveRestaurantConfigurationSection(tenantId: string, section: RestaurantConfigurationSection, raw: unknown, scope?: TenantScope) {
   const parsed = sectionSchemas[section].safeParse(raw);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", 400, "Revisa los parámetros de esta sección.", parsed.error.flatten());
+  if (section === "integrations") {
+    const value = parsed.data as RestaurantConfiguration["integrations"];
+    if (value.deliveryEnabled || value.reservationsIntegrationEnabled || value.accountingEnabled || value.webhookUrl) throw new AppError("INTEGRATION_UNAVAILABLE", 409, "Los conectores externos de delivery, reservas, contabilidad y webhook todavía no están disponibles.");
+  }
+  if (section === "notifications") {
+    const value = parsed.data as RestaurantConfiguration["notifications"];
+    value.rules = value.rules.map((rule) => ({ ...rule, channels: rule.channels.filter((channel) => channel === "IN_APP") }));
+  }
   validateStatusFlow(section, parsed.data);
   if (section === "kitchen" && (parsed.data as RestaurantConfiguration["kitchen"]).criticalMinutes <= (parsed.data as RestaurantConfiguration["kitchen"]).warningMinutes) throw new AppError("VALIDATION_ERROR", 400, "El umbral crítico de cocina debe ser mayor que el preventivo.");
   const targetScope = restaurantConfigurationScope(section);

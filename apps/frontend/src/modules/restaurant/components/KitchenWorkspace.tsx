@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChefHat } from "lucide-react";
 import type { RestaurantData } from "../types";
 import {
   Card,
+  Select,
   EmptyState,
   OperationButton,
   PageHeader,
@@ -24,12 +25,24 @@ export function KitchenWorkspace({
   data,
   locale,
   businessName,
+  canWrite,
 }: {
   data: RestaurantData;
   locale: string;
   businessName: string;
+  canWrite: boolean;
 }) {
   const router = useRouter();
+  const [area, setArea] = useState("ALL");
+  const areas = [...new Map(data.kitchen.flatMap((order) => order.items.map((item) => [item.preparationAreaKey, item.preparationAreaName] as const))).entries()];
+  const tickets = data.kitchen.flatMap((order) => {
+    const groups = [...new Set(order.items.filter((item) => !["CANCELLED", "SERVED", "HELD"].includes(item.status)).map((item) => item.preparationAreaKey))];
+    return groups.filter((key) => area === "ALL" || area === key).map((key) => {
+      const items = order.items.filter((item) => item.preparationAreaKey === key && !["CANCELLED", "SERVED", "HELD"].includes(item.status));
+      const state = items.every((item) => item.status === "READY") ? "READY" : items.some((item) => item.status === "PREPARING" || item.status === "READY") ? "PREPARING" : "QUEUED";
+      return { ...order, areaKey: key, areaName: items[0].preparationAreaName, items, kitchenTicket: order.kitchenTicket ? { ...order.kitchenTicket, status: state } : null };
+    });
+  });
   useEffect(() => {
     const timer = window.setInterval(() => router.refresh(), 10_000);
     return () => window.clearInterval(timer);
@@ -39,7 +52,7 @@ export function KitchenWorkspace({
       <PageHeader
         eyebrow="Producción"
         title="Cocina"
-        description="Comandas ordenadas por llegada y estados sincronizados con salón."
+        description="Cada área avanza sus propios productos. El pedido queda listo cuando todas terminan."
         actions={
           <div className="live-chip live-chip--amber">
             <span />
@@ -47,14 +60,15 @@ export function KitchenWorkspace({
           </div>
         }
       />
-      <KitchenPrintStation businessName={businessName} printers={data.printDevices.filter((printer) => printer.active)} />
-      {data.kitchen.length ? (
+      {canWrite ? <KitchenPrintStation businessName={businessName} printers={data.printDevices.filter((printer) => printer.active)} /> : null}
+      <label className="compact-select">Área de preparación<Select aria-label="Área de preparación" value={area} onChange={(event) => setArea(event.target.value)}><option value="ALL">Todas las áreas</option>{areas.map(([key, name]) => <option key={key} value={key}>{name}</option>)}</Select></label>
+      {tickets.length ? (
         <section className="kitchen-grid">
-          {data.kitchen.map((order) => (
-            <Card className="kitchen-ticket" key={order.id}>
+          {tickets.map((order) => (
+            <Card className="kitchen-ticket" key={`${order.id}:${order.areaKey}`}>
               <header>
                 <div>
-                  <span>{order.code}</span>
+                  <span>{order.code} · {order.areaName}{order.paid ? " · Pagado" : ""}</span>
                   <h3>
                     {order.table?.name ??
                       (order.source === "DELIVERY"
@@ -97,45 +111,35 @@ export function KitchenWorkspace({
                   </li>
                 ))}
               </ul>
-              <footer>
-                {order.kitchenTicket?.status === "QUEUED" ? (
+              {canWrite ? <footer>
+                {order.kitchenTicket && order.items.some((item) => ["PENDING", "QUEUED"].includes(item.status)) ? (
                   <OperationButton
                     endpoint={`/api/operations/restaurant/kitchen/${order.kitchenTicket.id}/status`}
-                    body={{ status: "PREPARING" }}
+                    body={{ status: "PREPARING", itemIds: order.items.filter((item) => ["PENDING", "QUEUED"].includes(item.status)).map((item) => item.id) }}
                     variant="primary"
                   >
                     Iniciar preparación
                   </OperationButton>
                 ) : null}
-                {order.kitchenTicket?.status === "PREPARING" ? (
+                {order.kitchenTicket && order.items.some((item) => item.status === "PREPARING") ? (
                   <OperationButton
                     endpoint={`/api/operations/restaurant/kitchen/${order.kitchenTicket.id}/status`}
-                    body={{ status: "READY" }}
+                    body={{ status: "READY", itemIds: order.items.filter((item) => item.status === "PREPARING").map((item) => item.id) }}
                     variant="primary"
                   >
                     Marcar listo
                   </OperationButton>
                 ) : null}
-                {order.kitchenTicket?.status === "READY" ? (
+                {order.kitchenTicket && order.items.some((item) => item.status === "READY") ? (
                   <OperationButton
                     endpoint={`/api/operations/restaurant/kitchen/${order.kitchenTicket.id}/status`}
-                    body={{ status: "SERVED" }}
+                    body={{ status: "SERVED", itemIds: order.items.filter((item) => item.status === "READY").map((item) => item.id) }}
                     variant="primary"
                   >
                     Entregado
                   </OperationButton>
                 ) : null}
-                {order.kitchenTicket ? (
-                  <OperationButton
-                    endpoint={`/api/operations/restaurant/kitchen/${order.kitchenTicket.id}/status`}
-                    body={{ status: "CANCELLED" }}
-                    variant="danger"
-                    confirmMessage="¿Cancelar la comanda y liberar la mesa?"
-                  >
-                    Cancelar
-                  </OperationButton>
-                ) : null}
-              </footer>
+              </footer> : null}
             </Card>
           ))}
         </section>

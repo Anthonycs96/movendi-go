@@ -224,6 +224,11 @@ test.describe.serial("Configuración integral de Restaurante", () => {
   });
 
   test("el Administrador gestiona configuración central y por módulo", async ({ page }) => {
+    // This scenario exercises optional modules; enable them explicitly instead
+    // of depending on the former API bypass of the essential template.
+    await login(page, "superadmin@multisaas.local", "nova-studio");
+    const modules = await page.request.patch("/api/operations/platform/onboarding/tenant-brasa", { data: { step: "MODULES", enabledModules: ["dashboard", "floor", "orders", "kitchen", "clients", "menu", "inventory", "promotions", "checkout", "reports", "settings"] } });
+    expect(modules.status(), await modules.text()).toBe(200);
     await login(page, "admin@brasa.local", "brasa-norte");
     await page.goto("/t/brasa-norte/settings");
     await expect(page.getByRole("heading", { name: "Parámetros centrales y por módulo" })).toBeVisible();
@@ -327,7 +332,7 @@ test.describe.serial("Configuración integral de Restaurante", () => {
     const rejectedCredentials = await page.request.post("/api/operations/restaurant/sunat/credentials", { data: { apiUrl: "https://example.invalid/nubefact", token: "token-super-seguro-e2e-123456" } });
     expect(rejectedCredentials.status()).toBe(400);
 
-    const credentials = await page.request.post("/api/operations/restaurant/sunat/credentials", { data: { apiUrl: "https://api.nubefact.com/api/v1/e2e", token: "token-super-seguro-e2e-123456" } });
+    const credentials = await page.request.post("/api/operations/restaurant/sunat/credentials", { data: { environment: "BETA", apiUrl: "https://api.nubefact.com/api/v1/e2e", token: "token-super-seguro-e2e-123456" } });
     expect(credentials.status(), await credentials.text()).toBe(200);
     const status = await page.request.get("/api/operations/restaurant/sunat/status");
     const sunat = await status.json() as { configured: boolean; tokenHint: string };

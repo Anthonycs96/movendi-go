@@ -1,6 +1,21 @@
 import "server-only";
 import { prisma } from "@/core/database/prisma";
 import { AppError } from "@/core/auth/errors";
+import type { Prisma } from "@prisma/client";
+
+// The tenant write lock serializes the count and the subsequent creation in the same transaction.
+export async function assertTransactionalQuota(tx: Prisma.TransactionClient, tenantId: string, kind: "users" | "operations") {
+  const tenant = await tx.tenant.update({ where: { id: tenantId }, data: { quotaVersion: { increment: 1 } }, include: { plan: true } });
+  if (!tenant.plan?.active) throw new AppError("PLAN_REQUIRED", 402, "La empresa necesita un plan activo.");
+  const monthStart = new Date();
+  monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const count = kind === "users" ? await tx.membership.count({ where: { tenantId, active: true, user: { active: true } } })
+    : tenant.type === "RESTAURANT" ? await tx.restaurantOrder.count({ where: { tenantId, createdAt: { gte: monthStart } } })
+      : tenant.type === "BARBERSHOP" ? await tx.appointment.count({ where: { tenantId, createdAt: { gte: monthStart } } })
+        : await tx.transportTrip.count({ where: { tenantId, createdAt: { gte: monthStart } } });
+  const limit = kind === "users" ? tenant.plan.maxUsers : tenant.plan.maxMonthlyOperations;
+  if (count >= limit) throw new AppError(kind === "users" ? "PLAN_USER_LIMIT" : "PLAN_OPERATION_LIMIT", 409, `La empresa alcanzó el límite de ${kind === "users" ? "usuarios" : "operaciones del mes"} de su plan.`, { limit });
+}
 
 async function tenantEntitlement(tenantId: string) {
   const tenant = await prisma.tenant.findUnique({

@@ -1,4 +1,5 @@
 import "server-only";
+import { assertTransactionalQuota } from "@/core/platform/entitlements";
 import { z } from "zod";
 import { prisma } from "@/core/database/prisma";
 import { AppError } from "@/core/auth/errors";
@@ -122,7 +123,7 @@ export async function handleBarbershopCommand(method: string, segments: string[]
     await assertWithinStaffSchedule(scope, staff.id, input.startsAt, endsAt);
     const conflict = await prisma.appointment.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, staffId: staff.id, status: { notIn: ["CANCELLED", "NO_SHOW"] }, startsAt: { lt: endsAt }, endsAt: { gt: input.startsAt } }, select: { id: true } });
     if (conflict) throw new AppError("SCHEDULE_CONFLICT", 409, "El barbero ya tiene una cita en ese horario.");
-    const entity = await prisma.appointment.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, customerId: customer.id, staffId: staff.id, serviceId: service.id, startsAt: input.startsAt, endsAt, priceCents: service.priceCents, notes: input.notes || null } });
+    const entity = await prisma.$transaction(async (tx) => { await assertTransactionalQuota(tx, scope.tenantId, "operations"); return tx.appointment.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, customerId: customer.id, staffId: staff.id, serviceId: service.id, startsAt: input.startsAt, endsAt, priceCents: service.priceCents, notes: input.notes || null } }); });
     await audit(scope, "CREATE", "Appointment", entity.id);
     return { ok: true, id: entity.id, message: "Cita guardada correctamente." };
   }

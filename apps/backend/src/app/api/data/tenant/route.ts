@@ -8,6 +8,7 @@ import { normalizeRestaurantReportPeriod } from "@/modules/restaurant/server/rep
 import { getTransportData, normalizeTransportDataSection, normalizeTransportQuery } from "@/modules/transport/server/data";
 import { getInventoryData } from "@/modules/inventory/server/data";
 import { hasPermission } from "@/core/auth/permissions";
+import { assertRestaurantModule } from "@/modules/restaurant/server/access";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export async function GET(request: Request) {
     const searchParams = new URL(request.url).searchParams;
     const requestedSection = searchParams.get("section");
     if (session.tenantType === "RESTAURANT") {
+      assertRestaurantModule(session, requestedSection ?? "dashboard");
       const required = restaurantSectionPermissions[requestedSection ?? "dashboard"];
       if (required && !hasPermission(session.permissions, required)) throw new AppError("FORBIDDEN", 403, "No tienes permiso para consultar esta sección del restaurante.");
     }
@@ -43,7 +45,7 @@ export async function GET(request: Request) {
     const [branches, core, industryData, inventoryModule] = await Promise.all([
       prisma.branch.findMany({ where: { tenantId: session.tenantId, active: true }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
       getCoreTenantData(scope, !requestedSection || requestedSection === "settings"),
-      session.tenantType === "BARBERSHOP" ? getBarbershopData(scope) : session.tenantType === "RESTAURANT" ? getRestaurantData(scope, requestedSection === "reports" ? restaurantReportPeriod : null) : getTransportData(scope, transportSection, transportQuery),
+      session.tenantType === "BARBERSHOP" ? getBarbershopData(scope) : session.tenantType === "RESTAURANT" ? getRestaurantData(scope, requestedSection === "reports" ? restaurantReportPeriod : undefined) : getTransportData(scope, transportSection, transportQuery),
       requestedSection === "inventory" ? getInventoryData(scope, session.tenantType) : Promise.resolve(null),
     ]);
     const data = inventoryModule ? { ...industryData, inventoryModule } : industryData;

@@ -88,7 +88,7 @@ test.describe("consola Super Admin: 15 flujos globales reales", () => {
     await page.getByLabel("Nombre comercial").fill("Prueba Plataforma E2E");
     await page.getByLabel("Nombre corto").fill("Prueba E2E");
     await page.getByLabel(/Identificador URL/).fill("prueba-plataforma-e2e");
-    await page.getByLabel("Rubro").selectOption("RESTAURANT");
+    await page.getByRole("dialog").getByLabel("Rubro").selectOption("RESTAURANT");
     await page.getByLabel("Primera sede").fill("Sede de validación");
     await page.getByLabel("Administrador", { exact: true }).fill("Admin Prueba E2E");
     await page.getByLabel("Correo del administrador").fill("admin@prueba-e2e.local");
@@ -97,5 +97,44 @@ test.describe("consola Super Admin: 15 flujos globales reales", () => {
     await expect(page.getByText("Negocio creado. Continúa con su implementación guiada.")).toBeVisible();
     const access = await page.request.post("/api/auth/login", { data: { email: "admin@prueba-e2e.local", password, businessSlug: "prueba-plataforma-e2e", rememberSession: false } });
     expect(access.status()).toBe(200);
+  });
+});
+
+test.describe("separación entre configuración del negocio y plataforma", () => {
+  for (const [slug, email] of [
+    ["nova-studio", "admin@nova.local"],
+    ["brasa-norte", "admin@brasa.local"],
+    ["andes-cargo", "admin@andes.local"],
+  ]) {
+    test(`${slug}: administra su perfil sin poder crear empresas`, async ({ page }) => {
+      await login(page, email, slug);
+      await page.goto(`/t/${slug}/settings`);
+      await expect(page.getByRole("button", { name: /Empresa nueva|Nueva empresa|Crear empresa/ })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Abrir centro de control" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Sucursal", exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Datos de la empresa", exact: true }).click();
+      const profile = page.getByRole("dialog", { name: "Perfil empresarial" });
+      await expect(profile.getByRole("button", { name: "Actualizar", exact: true })).toBeVisible();
+      await expect(profile.getByLabel("Razón comercial")).not.toHaveValue("");
+      await profile.getByRole("button", { name: "Cancelar", exact: true }).click();
+
+      const response = await page.request.post("/api/operations/platform/tenants", { data: {
+        name: "Empresa no autorizada", shortName: "No autorizada", slug: `bloqueada-${slug}`,
+        type: "RESTAURANT", branchName: "Principal", adminName: "Administrador no autorizado",
+        adminEmail: `bloqueado@${slug}.local`, adminPassword: "Tenant-boundary-2026!",
+      } });
+      expect(response.status()).toBe(403);
+      expect((await response.json()).error.code).toBe("FORBIDDEN");
+    });
+  }
+
+  test("el superadministrador crea empresas desde su centro de control", async ({ page }) => {
+    await login(page);
+    await page.goto("/t/nova-studio/settings");
+    await expect(page.getByRole("button", { name: /Empresa nueva|Nueva empresa|Crear empresa/ })).toHaveCount(0);
+    await page.getByRole("link", { name: "Abrir centro de control" }).click();
+    await expect(page).toHaveURL(/\/platform\/dashboard$/);
+    await page.getByRole("button", { name: "Nuevo negocio", exact: true }).click();
+    await expect(page.getByRole("dialog").getByLabel("Nombre comercial")).toBeVisible();
   });
 });

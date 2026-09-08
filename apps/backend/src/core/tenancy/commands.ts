@@ -7,7 +7,7 @@ import { prisma } from "@/core/database/prisma";
 import { AppError } from "@/core/auth/errors";
 import type { TenantScope } from "@/core/auth/types";
 import { audit } from "@/core/audit/audit";
-import { assertTenantUserLimit } from "@/core/platform/entitlements";
+import { assertTenantUserLimit, assertTransactionalQuota } from "@/core/platform/entitlements";
 
 const branchSchema = z.object({ name: z.string().trim().min(2).max(100), address: z.string().trim().max(200).optional(), phone: z.string().trim().max(30).optional() });
 const roleSchema = z.object({ name: z.string().trim().min(2).max(80), permissions: z.string().trim().min(1) });
@@ -142,6 +142,7 @@ export async function handleCoreCommand(method: string, segments: string[], body
     if (duplicate) throw new AppError("USER_EXISTS", 409, "El usuario ya pertenece a esta empresa.");
     const passwordHash = await hash(input.password, 12);
     const entity = await prisma.$transaction(async (tx) => {
+      await assertTransactionalQuota(tx, scope.tenantId, "users");
       let user = await tx.user.findFirst({ where: { email: input.email } });
       if (!user) user = await tx.user.create({ data: { name: input.name, email: input.email, passwordHash, mustChangePassword: true } });
       else if (!user.active) user = await tx.user.update({ where: { id: user.id }, data: { name: input.name, passwordHash, mustChangePassword: true, active: true } });
@@ -183,6 +184,8 @@ export async function handleCoreCommand(method: string, segments: string[], body
       if (!otherAdmins) throw new AppError("LAST_ADMIN", 409, "La empresa debe conservar al menos un administrador activo.");
     }
     await prisma.$transaction(async (tx) => {
+      const current = await tx.membership.findUniqueOrThrow({ where: { id: membership.id }, include: { user: true } });
+      if (input.active && (!current.active || !current.user.active)) await assertTransactionalQuota(tx, scope.tenantId, "users");
       await tx.membership.update({ where: { id: membership.id }, data: { roleId: role.id, branchId: branch.id, active: input.active } });
       const otherActiveMemberships = input.active ? 1 : await tx.membership.count({ where: { userId: id, id: { not: membership.id }, active: true } });
       await tx.user.update({ where: { id }, data: { name: input.name, active: input.active || otherActiveMemberships > 0 } });

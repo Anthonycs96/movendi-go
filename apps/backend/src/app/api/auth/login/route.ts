@@ -68,6 +68,7 @@ export async function POST(request: Request) {
       await recordLoginFailure(throttleKey);
       throw new AppError("INVALID_CREDENTIALS", 401, "Credenciales o negocio incorrectos.");
     }
+    if (membership.tenant.type === "RESTAURANT" && membership.branchId && !membership.branch?.active && !hasPermission(parsePermissions(membership.role.permissions), "settings:write")) throw new AppError("ASSIGNED_BRANCH_INACTIVE", 403, "Tu sucursal asignada está inactiva. Solicita al administrador que reactive la sede o te asigne otra.");
     const branch = membership.branch?.active ? membership.branch : await prisma.branch.findFirst({ where: { tenantId: membership.tenantId, active: true }, orderBy: { createdAt: "asc" } });
     if (!branch) throw new AppError("NO_ACTIVE_BRANCH", 403, "La empresa no tiene una sucursal activa.");
     await clearLoginFailures(throttleKey);

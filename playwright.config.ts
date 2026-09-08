@@ -21,10 +21,14 @@ export default defineConfig({
       ? "node scripts/start-e2e.mjs"
       : "node scripts/start-e2e.mjs --dev",
     url: "http://localhost:3100/login",
-    reuseExistingServer: true,
+    reuseExistingServer: process.env.E2E_REUSE_SERVER === "1",
     timeout: 120_000,
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    ...(process.env.E2E_CROSS_BROWSER === "1" ? [
+      { name: "firefox", use: { ...devices["Desktop Firefox"] } },
+      { name: "webkit", use: { ...devices["Desktop Safari"] } },
+    ] : []),
   ],
 });

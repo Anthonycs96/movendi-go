@@ -1,4 +1,6 @@
 "use client";
+import { RefundActions } from "./RestaurantHistory";
+import { hasPermission } from "@/core/auth/permissions";
 
 import { useState } from "react";
 import {
@@ -316,6 +318,7 @@ export function RestaurantDirectory({
   section,
   data,
   core,
+  permissions,
   platformAdmin = false,
 }: {
   section:
@@ -327,14 +330,16 @@ export function RestaurantDirectory({
     | "settings";
   data: RestaurantData;
   core: CoreTenantData;
+  permissions: string[];
   platformAdmin?: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [cashCloseNotice, setCashCloseNotice] = useState("");
   const locale = core.tenant.locale;
   const money = (value: number) => formatCurrencyCents(value, core.tenant.currency, locale);
-  const actor = core.users.find((user) => user.id === core.currentActorId);
-  const actorRole = core.roles.find((role) => role.id === actor?.roleId);
-  const canApproveCash = Boolean(actorRole?.permissions.includes("*") || actorRole?.permissions.includes("restaurant:cash:approve"));
+  const canApproveCash = hasPermission(permissions, "restaurant:cash:approve");
+  const canCharge = hasPermission(permissions, "restaurant:cash:write");
+  const canEditOrders = hasPermission(permissions, "restaurant:orders:write");
 
   if (section === "menu") {
     const rows = data.products.filter((item) =>
@@ -352,7 +357,7 @@ export function RestaurantDirectory({
           actions={
             <div className="header-actions">
               <OperationForm
-                title="Nueva categoría"
+                allowed={hasPermission(permissions, "restaurant:menu:write")} title="Nueva categoría"
                 endpoint="/api/operations/restaurant/categories"
                 triggerLabel="Categoría"
               >
@@ -361,7 +366,7 @@ export function RestaurantDirectory({
                 </Field>
               </OperationForm>
               <OperationForm
-                title="Nuevo producto"
+                allowed={hasPermission(permissions, "restaurant:menu:write")} title="Nuevo producto"
                 endpoint="/api/operations/restaurant/products"
                 triggerLabel="Nuevo producto"
               >
@@ -383,6 +388,7 @@ export function RestaurantDirectory({
                 <Field label="Descripción">
                   <Input name="description" />
                 </Field>
+                <Field label="Afectación tributaria"><Select name="taxCategory" defaultValue="GRAVADA"><option value="GRAVADA">Gravada</option><option value="EXONERADA">Exonerada</option><option value="INAFECTA">Inafecta</option></Select></Field>
                 <Field label="Precio (S/)">
                   <Input
                     name="price"
@@ -446,7 +452,7 @@ export function RestaurantDirectory({
                   header: "Acciones",
                   cell: (row) => (
                     <OperationForm
-                      title="Editar categoría"
+                      allowed={hasPermission(permissions, "restaurant:menu:write")} title="Editar categoría"
                       endpoint={`/api/operations/restaurant/categories/${row.id}`}
                       method="PATCH"
                       triggerLabel="Editar"
@@ -525,7 +531,7 @@ export function RestaurantDirectory({
                   header: "Acciones",
                   cell: (row) => (
                     <OperationForm
-                      title="Editar producto"
+                      allowed={hasPermission(permissions, "restaurant:menu:write")} title="Editar producto"
                       endpoint={`/api/operations/restaurant/products/${row.id}`}
                       method="PATCH"
                       triggerLabel="Editar"
@@ -609,7 +615,7 @@ export function RestaurantDirectory({
           title="Promociones y descuentos"
           description="Campañas automáticas o con código, vigentes por sede, fecha y horario."
           icon={BadgePercent}
-          actions={<PromotionForm data={data} />}
+          actions={hasPermission(permissions, "restaurant:promotions:write") ? <PromotionForm data={data} /> : null}
         />
         <section className="stats-grid stats-grid--three">
           <StatCard
@@ -703,7 +709,7 @@ export function RestaurantDirectory({
               {
                 key: "actions",
                 header: "Acciones",
-                cell: (row) => <PromotionForm data={data} promotion={row} />,
+                cell: (row) => hasPermission(permissions, "restaurant:promotions:write") ? <PromotionForm data={data} promotion={row} /> : null,
               },
             ]}
           />
@@ -829,7 +835,8 @@ export function RestaurantDirectory({
                 header: "Acciones",
                 cell: (row) => (
                   <div className="table-actions">
-                    {!row.paid &&
+                    {canEditOrders && row.items.some((item) => item.status === "HELD") ? <OperationButton method="POST" endpoint={`/api/operations/restaurant/orders/${row.id}/queue`}>Enviar a cocina</OperationButton> : null}
+                    {canEditOrders && row.source === "DINE_IN" && !row.paid &&
                     !["CANCELLED", "COMPLETED"].includes(row.status) &&
                     availableTables.length ? (
                       <OperationForm
@@ -854,7 +861,7 @@ export function RestaurantDirectory({
                         </Field>
                       </OperationForm>
                     ) : null}
-                    {!row.paid &&
+                    {canCharge && !row.paid &&
                     !["CANCELLED", "COMPLETED"].includes(row.status) ? (
                       <OperationForm
                         title={`Cobrar ${row.code}`}
@@ -867,7 +874,7 @@ export function RestaurantDirectory({
                         <CheckoutPaymentFields data={data} totalCents={row.totalCents} />
                       </OperationForm>
                     ) : null}
-                    {!row.paid &&
+                    {canEditOrders && !row.paid &&
                     !["CANCELLED", "COMPLETED"].includes(row.status) ? (
                       <OperationForm
                         title={`Cancelar ${row.code}`}
@@ -881,7 +888,7 @@ export function RestaurantDirectory({
                         <Field label="Motivo"><Select name="reason" required={data.configuration.orders.requireCancellationReason} defaultValue=""><option value="">Selecciona un motivo</option>{data.configuration.orders.cancellationReasons.filter((reason) => reason.active).map((reason) => <option key={reason.key} value={reason.label}>{reason.label}</option>)}</Select></Field>
                       </OperationForm>
                     ) : null}
-                    {row.source === "DELIVERY" &&
+                    {canEditOrders && row.source === "DELIVERY" &&
                     row.deliveryStatus === "READY" ? (
                       <OperationButton
                         endpoint={`/api/operations/restaurant/orders/${row.id}/delivery-status`}
@@ -891,7 +898,7 @@ export function RestaurantDirectory({
                         Enviar delivery
                       </OperationButton>
                     ) : null}
-                    {row.source === "DELIVERY" &&
+                    {canEditOrders && row.source === "DELIVERY" &&
                     row.deliveryStatus === "DISPATCHED" ? (
                       <OperationButton
                         endpoint={`/api/operations/restaurant/orders/${row.id}/delivery-status`}
@@ -931,7 +938,7 @@ export function RestaurantDirectory({
           description="Contactos y preferencias del restaurante, aislados por empresa."
           actions={
             <OperationForm
-              title="Nuevo cliente"
+              allowed={hasPermission(permissions, "customers:write")} title="Nuevo cliente"
               endpoint="/api/operations/restaurant/customers"
               triggerLabel="Nuevo cliente"
             >
@@ -1004,7 +1011,7 @@ export function RestaurantDirectory({
                 header: "Acciones",
                 cell: (row) => (
                   <OperationForm
-                    title="Editar cliente"
+                    allowed={hasPermission(permissions, "customers:write")} title="Editar cliente"
                     endpoint={`/api/operations/restaurant/customers/${row.id}`}
                     method="PATCH"
                     triggerLabel="Editar"
@@ -1050,9 +1057,10 @@ export function RestaurantDirectory({
           actions={
             !data.cashSession ? (
               <OperationForm
-                title="Abrir caja"
+                allowed={hasPermission(permissions, "restaurant:cash:write")} title="Abrir caja"
                 endpoint="/api/operations/restaurant/cash"
                 triggerLabel="Abrir caja"
+                onSuccess={() => setCashCloseNotice("")}
               >
                 <Field label="Monto inicial (S/)">
                   <Input
@@ -1071,11 +1079,12 @@ export function RestaurantDirectory({
                   Caja abierta
                 </div>
                 <OperationForm
-                  title="Cerrar caja"
+                  allowed={hasPermission(permissions, "restaurant:cash:write")} title="Cerrar caja"
                   description="Ingresa el efectivo y equivalentes contabilizados."
                   endpoint={`/api/operations/restaurant/cash/${data.cashSession.id}/close`}
                   triggerLabel="Cerrar caja"
                   submitLabel="Confirmar cierre"
+                  onSuccess={setCashCloseNotice}
                 >
                   <Field label="Monto contado (S/)">
                     <Input
@@ -1090,12 +1099,13 @@ export function RestaurantDirectory({
                     />
                   </Field>
                 </OperationForm>
-                <OperationForm title="Ingreso de efectivo" description="Registra fondos adicionales con motivo obligatorio." endpoint={`/api/operations/restaurant/cash/${data.cashSession.id}/movement`} triggerLabel="Ingreso"><input type="hidden" name="type" value="IN" /><Field label="Monto (S/)"><Input name="amount" type="number" min="0.01" step="0.01" required /></Field><Field label="Motivo"><Input name="reason" minLength={3} required /></Field></OperationForm>
+                <OperationForm allowed={hasPermission(permissions, "restaurant:cash:write")} title="Ingreso de efectivo" description="Registra fondos adicionales con motivo obligatorio." endpoint={`/api/operations/restaurant/cash/${data.cashSession.id}/movement`} triggerLabel="Ingreso"><input type="hidden" name="type" value="IN" /><Field label="Monto (S/)"><Input name="amount" type="number" min="0.01" step="0.01" required /></Field><Field label="Motivo"><Input name="reason" minLength={3} required /></Field></OperationForm>
                 {canApproveCash ? <OperationForm title="Retiro de efectivo" description="Registra una salida de caja con trazabilidad." endpoint={`/api/operations/restaurant/cash/${data.cashSession.id}/movement`} triggerLabel="Retiro"><input type="hidden" name="type" value="OUT" /><Field label="Monto (S/)"><Input name="amount" type="number" min="0.01" step="0.01" required /></Field><Field label="Motivo"><Input name="reason" minLength={3} required /></Field></OperationForm> : null}
               </div>
             )
           }
         />
+        {cashCloseNotice ? <p className="cash-close-notice" role="status">{cashCloseNotice}</p> : null}
         <section className="stats-grid stats-grid--three">
           <StatCard
             label="Caja esperada"
@@ -1173,10 +1183,11 @@ export function RestaurantDirectory({
                 align: "right",
                 cell: (row) => money(row.totalCents),
               },
+              { key: "refund", header: "Devolución", cell: (row: RestaurantData["sales"][number]) => <RefundActions sale={row} canRefund={data.canApproveRefund} canIssue={hasPermission(permissions, "restaurant:sunat:write")} /> },
               ...(data.configuration.integrations.sunatEnabled ? [{
                 key: "sunat",
                 header: "Comprobante electrónico",
-                cell: (row: RestaurantData["sales"][number]) => row.electronicDocument?.status === "ISSUED" ? <span className="table-primary"><StatusBadge tone="success">{row.electronicDocument.kind} {row.electronicDocument.series}-{row.electronicDocument.number}</StatusBadge>{row.electronicDocument.pdfUrl ? <a href={row.electronicDocument.pdfUrl} target="_blank" rel="noreferrer">Ver PDF</a> : null}</span> : <div className="table-actions"><OperationButton endpoint={`/api/operations/restaurant/sales/${row.id}/electronic-document`} method="POST" body={{ kind: row.electronicDocument?.kind ?? "BOLETA" }}>{row.electronicDocument ? "Reintentar" : "Boleta"}</OperationButton>{!row.electronicDocument ? <OperationButton endpoint={`/api/operations/restaurant/sales/${row.id}/electronic-document`} method="POST" body={{ kind: "FACTURA" }}>Factura</OperationButton> : null}{row.electronicDocument?.lastError ? <small className="form-error">{row.electronicDocument.lastError}</small> : null}</div>,
+                cell: (row: RestaurantData["sales"][number]) => row.status === "REFUNDED" ? <span>Venta devuelta · consultar nota de crédito</span> : row.electronicDocument?.status === "ISSUED" ? <span className="table-primary"><StatusBadge tone="success">{row.electronicDocument.kind} {row.electronicDocument.series}-{row.electronicDocument.number}</StatusBadge>{row.electronicDocument.pdfUrl ? <a href={row.electronicDocument.pdfUrl} target="_blank" rel="noreferrer">Ver PDF</a> : null}</span> : hasPermission(permissions, "restaurant:sunat:write") ? <div className="table-actions"><OperationButton endpoint={`/api/operations/restaurant/sales/${row.id}/electronic-document`} method="POST" body={{ kind: row.electronicDocument?.kind ?? "BOLETA" }}>{row.electronicDocument ? "Reintentar" : "Boleta"}</OperationButton>{!row.electronicDocument ? <OperationButton endpoint={`/api/operations/restaurant/sales/${row.id}/electronic-document`} method="POST" body={{ kind: "FACTURA" }}>Factura</OperationButton> : null}{row.electronicDocument?.lastError ? <small className="form-error">{row.electronicDocument.lastError}</small> : null}</div> : <span>Emisión pendiente por administración</span>,
               }] : []),
             ]}
           />
@@ -1196,7 +1207,7 @@ export function RestaurantDirectory({
         extraActions={
           <>
             <OperationForm
-              title="Nuevo ambiente"
+              allowed={hasPermission(permissions, "restaurant:floor:write")} title="Nuevo ambiente"
               endpoint="/api/operations/restaurant/areas"
               triggerLabel="Ambiente"
             >
@@ -1205,7 +1216,7 @@ export function RestaurantDirectory({
               </Field>
             </OperationForm>
             <OperationForm
-              title="Nueva mesa"
+              allowed={hasPermission(permissions, "restaurant:floor:write")} title="Nueva mesa"
               endpoint="/api/operations/restaurant/tables"
               triggerLabel="Mesa"
             >
@@ -1276,7 +1287,7 @@ export function RestaurantDirectory({
                 header: "Acciones",
                 cell: (row) => (
                   <OperationForm
-                    title="Editar ambiente"
+                    allowed={hasPermission(permissions, "restaurant:floor:write")} title="Editar ambiente"
                     endpoint={`/api/operations/restaurant/areas/${row.id}`}
                     method="PATCH"
                     triggerLabel="Editar"
@@ -1328,7 +1339,7 @@ export function RestaurantDirectory({
                 header: "Acciones",
                 cell: (row) => (
                   <OperationForm
-                    title="Editar mesa"
+                    allowed={hasPermission(permissions, "restaurant:floor:write")} title="Editar mesa"
                     endpoint={`/api/operations/restaurant/tables/${row.id}`}
                     method="PATCH"
                     triggerLabel="Editar"

@@ -1,5 +1,5 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ZodError, type ZodType } from "zod";
 import { audit } from "@/core/audit/audit";
 import { AppError } from "@/core/auth/errors";
@@ -81,7 +81,17 @@ export async function handleInventoryCommand(method: string, segments: string[],
     const input = parse(inventoryCountSchema, body);
     ensureUniqueIds(input.lines.map((line) => line.itemId), "El conteo");
     const entity = await withInventoryTransaction(async (tx) => {
-      const code = operationCode("CNT");
+      const code = input.idempotencyKey
+        ? `CNT-${createHash("sha256").update(`${scope.branchId}:${input.idempotencyKey}`).digest("hex").slice(0, 24).toUpperCase()}`
+        : operationCode("CNT");
+      if (input.idempotencyKey) {
+        const existing = await tx.inventoryCount.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, code }, include: { lines: true } });
+        if (existing) {
+          const matches = existing.lines.length === input.lines.length && input.lines.every((line) => existing.lines.some((stored) => stored.itemId === line.itemId && stored.countedQuantity === line.countedQuantity));
+          if (!matches) throw new AppError("IDEMPOTENCY_CONFLICT", 409, "Esta solicitud ya se utilizó para otro conteo.");
+          return existing;
+        }
+      }
       const count = await tx.inventoryCount.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, createdById: scope.actorId, code, notes: input.notes || null, countedAt: input.countedAt ?? new Date() } });
       for (const [index, line] of input.lines.entries()) {
         const item = await tx.inventoryItem.findFirst({ where: { id: line.itemId, tenantId: scope.tenantId, OR: [{ branchId: scope.branchId }, { branchId: null }], active: true } });

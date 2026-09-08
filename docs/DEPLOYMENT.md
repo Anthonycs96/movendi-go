@@ -56,7 +56,7 @@ crearse en Railway servicios de frontend, workers, bases de datos ni buckets.
 
 | Servicio | Config file | Dominio público |
 | --- | --- | --- |
-| Backend | `/railway.backend.json` | Sí, consumido por Cloud Run |
+| Backend | `/railway.json` | Sí, desplegado automáticamente por Railway |
 
 Variables de Backend:
 
@@ -91,7 +91,7 @@ BOOTSTRAP_ADMIN_PASSWORD=una-clave-unica-de-12-o-mas-caracteres
 
 `BOOTSTRAP_TENANT_TYPE` acepta `BARBERSHOP`, `RESTAURANT` o `TRANSPORT`.
 
-`railway.backend.json` ejecuta las migraciones y comprueba `/api/ready`. En Cloud
+`railway.json` ejecuta las migraciones y comprueba `/api/ready`. En Cloud
 Run, `API_INTERNAL_URL` debe usar la URL HTTPS pública del backend de Railway.
 `APP_PUBLIC_URL` debe ser `https://web.movendi-go.com` para cookies, redirecciones
 y CORS coherentes.
@@ -111,6 +111,26 @@ railway run npm run db:bootstrap:prod
 No configures el seed demo como pre-deploy.
 
 Referencias oficiales: [monorepos](https://docs.railway.com/deployments/monorepo), [Config as Code](https://docs.railway.com/config-as-code) y [Supabase Database](https://supabase.com/docs/guides/database/overview).
+
+## Despliegue continuo desde GitHub
+
+El repositorio privado `Anthonycs96/movendi-go` usa `main` como rama de
+producción. Cada `git push origin main` activa dos despliegues independientes:
+
+- Railway reconstruye el backend con `Dockerfile.backend`, ejecuta
+  `npm run db:deploy:prod` contra Supabase y publica el contenedor solo si las
+  migraciones terminan correctamente.
+- Cloud Build ejecuta `cloudbuild.frontend.yaml`, construye
+  `Dockerfile.frontend` y actualiza `movendi-frontend` en Cloud Run.
+
+Railway observa cambios del backend, contratos compartidos, scripts de
+construcción y archivos raíz. Cloud Build observa el frontend, contratos
+compartidos, su Dockerfile, lockfile y configuración. Los cambios exclusivos de
+documentación no generan despliegues.
+
+Antes de publicar ejecuta `npm run release:check`. No ejecutes `db:seed` en
+producción; las migraciones versionadas son el único mecanismo automático para
+modificar el esquema de Supabase.
 
 ## Google Cloud Run + Cloud SQL PostgreSQL
 

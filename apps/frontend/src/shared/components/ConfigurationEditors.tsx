@@ -71,7 +71,7 @@ export function StatusEditor({ title, items, onChange, requiredKeys = [] }: { ti
 
 const channels = [["IN_APP", "En la aplicación"], ["EMAIL", "Correo"], ["SMS", "SMS"], ["WEBHOOK", "Webhook"]] as const;
 
-export function NotificationRulesEditor({ rules, onChange, roleKeys }: { rules: NotificationRule[]; onChange: (rules: NotificationRule[]) => void; roleKeys: string[] }) {
+export function NotificationRulesEditor({ rules, onChange, roleKeys, availableChannels }: { availableChannels?: string[]; rules: NotificationRule[]; onChange: (rules: NotificationRule[]) => void; roleKeys: string[] }) {
   const automaticRows = useRef(new Set<number>());
   const update = (index: number, value: Partial<NotificationRule>) => onChange(rules.map((rule, itemIndex) => itemIndex === index ? { ...rule, ...value } : rule));
   const updateLabel = (index: number, label: string) => update(index, {
@@ -92,7 +92,7 @@ export function NotificationRulesEditor({ rules, onChange, roleKeys }: { rules: 
     <div>{rules.map((rule, index) => <article key={`notification-${index}`}>
       <div className="config-status-main"><Field label="Nombre"><Input value={rule.label} onChange={(event) => updateLabel(index, event.target.value)} /></Field><Field label="Evento interno (automático)"><Input value={rule.event} readOnly aria-readonly="true" title="Se genera automáticamente y no se puede editar" /></Field><label className="platform-check compact"><input type="checkbox" checked={rule.active} onChange={(event) => update(index, { active: event.target.checked })} /><span><strong>Activa</strong></span></label><button type="button" className="remove-setup-row" onClick={() => remove(index)} aria-label={`Eliminar alerta ${rule.label || rule.event}`}><Trash2 size={15} /></button></div>
       <fieldset><legend>Destinatarios</legend><div className="config-transition-options">{roleKeys.map((role) => <label key={role} className={rule.roleKeys.includes(role) ? "selected" : ""}><input type="checkbox" checked={rule.roleKeys.includes(role)} onChange={(event) => update(index, { roleKeys: event.target.checked ? [...rule.roleKeys, role] : rule.roleKeys.filter((key) => key !== role) })} />{role}</label>)}</div></fieldset>
-      <fieldset><legend>Canales</legend><div className="config-transition-options">{channels.map(([key, label]) => <label key={key} className={rule.channels.includes(key) ? "selected" : ""}><input type="checkbox" checked={rule.channels.includes(key)} onChange={(event) => update(index, { channels: event.target.checked ? [...rule.channels, key] : rule.channels.filter((channel) => channel !== key) })} />{label}</label>)}</div></fieldset>
+      <fieldset><legend>Canales</legend><div className="config-transition-options">{channels.map(([key, label]) => <label key={key} className={rule.channels.includes(key) ? "selected" : ""}><input type="checkbox" disabled={availableChannels ? !availableChannels.includes(key) : false} checked={rule.channels.includes(key) && (!availableChannels || availableChannels.includes(key))} onChange={(event) => update(index, { channels: event.target.checked ? [...rule.channels, key] : rule.channels.filter((channel) => channel !== key) })} />{label}{availableChannels && !availableChannels.includes(key) ? " (no disponible)" : ""}</label>)}</div></fieldset>
     </article>)}</div>
   </section>;
 }

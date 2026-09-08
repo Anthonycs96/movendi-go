@@ -1,4 +1,5 @@
 "use client";
+import { hasPermission } from "@/core/auth/permissions";
 
 import Link from "next/link";
 import Image from "next/image";
@@ -332,7 +333,7 @@ function CustomerPicker({
   customers: Customer[];
   value: string;
   onChange: (id: string) => void;
-  onNew: () => void;
+  onNew?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const normalized = normalize(query);
@@ -372,14 +373,14 @@ function CustomerPicker({
             </option>
           ))}
         </select>
-        <Button type="button" variant="secondary" onClick={onNew}>
+        {onNew ? <Button type="button" variant="secondary" onClick={onNew}>
           <UserPlus size={16} />
           Nuevo cliente
-        </Button>
+        </Button> : null}
       </div>
       {normalized && visible.length === 0 ? (
         <small className="order-empty-inline">
-          No encontramos clientes. Puedes registrarlo ahora.
+          {onNew ? "No encontramos clientes. Puedes registrarlo ahora." : "No encontramos clientes. Revisa la búsqueda o solicita su registro al administrador."}
         </small>
       ) : null}
     </div>
@@ -705,28 +706,33 @@ function ActiveOrderExpansionPanel({
     });
   };
 
+  const additionRequest = useRef<{ payload: string; key: string } | null>(null);
+  const additionSubmitting = useRef(false);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected.length) return;
+    if (additionSubmitting.current || !selected.length) return;
     const unresolvedAddon = selected.find((product) => product.productType === "ADDON" && product.areaAssignmentMode === "INHERIT_FROM_PRODUCT" && !(addonParents[product.id] || baseProducts.length === 1));
     if (unresolvedAddon) { setFailed(true); setMessage(`Selecciona el producto base de ${unresolvedAddon.name}.`); return; }
+    additionSubmitting.current = true;
     setPending(true);
     setFailed(false);
     setMessage("");
     try {
+      const items = selected.map((product) => ({
+        productId: product.id,
+        parentProductId: product.productType === "ADDON" && product.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? addonParents[product.id] || baseProducts[0]?.id : undefined,
+        quantity: quantities[product.id],
+        notes: notes[product.id]?.trim() || undefined,
+      }));
+      const serialized = JSON.stringify(items);
+      if (additionRequest.current?.payload !== serialized) additionRequest.current = { payload: serialized, key: crypto.randomUUID() };
       const response = await fetch(
         `/api/operations/restaurant/orders/${order.id}/items`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            items: selected.map((product) => ({
-              productId: product.id,
-              parentProductId: product.productType === "ADDON" && product.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? addonParents[product.id] || baseProducts[0]?.id : undefined,
-              quantity: quantities[product.id],
-              notes: notes[product.id]?.trim() || undefined,
-            })),
-          }),
+          body: JSON.stringify({ items, idempotencyKey: additionRequest.current.key }),
         },
       );
       const result = await response.json().catch(() => ({}));
@@ -737,6 +743,7 @@ function ActiveOrderExpansionPanel({
       const successMessage =
         result.message ??
         "Productos agregados y nueva comanda enviada a cocina.";
+      additionRequest.current = null;
       setQuantities({});
       setNotes({});
       setAddonParents({});
@@ -751,6 +758,7 @@ function ActiveOrderExpansionPanel({
           : "No pudimos conectar con el servidor.",
       );
     } finally {
+      additionSubmitting.current = false;
       setPending(false);
     }
   }
@@ -960,6 +968,7 @@ function ActiveOrderPanel({
   warningMinutes,
   criticalMinutes,
   splitPaymentsEnabled,
+  permissions,
 }: {
   order: RestaurantOrderDto;
   products: RestaurantProductDto[];
@@ -967,6 +976,7 @@ function ActiveOrderPanel({
   warningMinutes: number;
   criticalMinutes: number;
   splitPaymentsEnabled: boolean;
+  permissions: string[];
 }) {
   const router = useRouter();
   const [paymentMethod, setPaymentMethod] = useState(paymentMethods.includes("CARD") ? "CARD" : paymentMethods[0] ?? "CASH");
@@ -1077,7 +1087,7 @@ function ActiveOrderPanel({
           </li>
         ))}
       </ul>
-      <Button
+      {hasPermission(permissions, "restaurant:orders:write") ? <Button
         type="button"
         size="lg"
         className="attention-add-button"
@@ -1085,8 +1095,8 @@ function ActiveOrderPanel({
       >
         <Plus size={18} />
         Abrir carta y agregar productos
-      </Button>
-      <div className="attention-checkout">
+      </Button> : null}
+      {hasPermission(permissions, "restaurant:cash:write") ? <div className="attention-checkout">
         {!splitMode ? <Select
           value={paymentMethod}
           onChange={(event) => setPaymentMethod(event.target.value)}
@@ -1110,10 +1120,10 @@ function ActiveOrderPanel({
         >
           Cobrar {formatCurrencyCents(order.totalCents)}
         </Button>
-      </div>
+      </div> : <p className="order-empty-inline">El cobro de este pedido lo realiza caja.</p>}
       <div className="attention-links">
-        <Link href="orders">Ver pedidos</Link>
-        <Link href="kitchen">Abrir cocina</Link>
+        {hasPermission(permissions, "restaurant:orders:read") ? <Link href="orders">Ver pedidos</Link> : null}
+        {hasPermission(permissions, "restaurant:kitchen:read") ? <Link href="kitchen">Abrir cocina</Link> : null}
       </div>
       {message ? (
         <p className="composer-message" role={failed ? "alert" : "status"}>
@@ -1127,6 +1137,7 @@ function ActiveOrderPanel({
 
 function NewOrderComposer({
   data,
+  canCreateCustomer,
   tableId,
   initialSource = "DINE_IN",
   onTableChange,
@@ -1135,6 +1146,7 @@ function NewOrderComposer({
 }: {
   data: RestaurantData;
   tableId: string;
+  canCreateCustomer: boolean;
   initialSource?: "DINE_IN" | "TAKEAWAY" | "DELIVERY";
   onTableChange: (id: string) => void;
   onFocusTable: (id: string) => void;
@@ -1244,8 +1256,12 @@ function NewOrderComposer({
     });
   }
 
+  const orderRequest = useRef<{ payload: string; key: string } | null>(null);
+  const orderSubmitting = useRef(false);
+
   async function createOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (orderSubmitting.current) return;
     if (
       source === "DINE_IN" &&
       (!selectedTable ||
@@ -1275,14 +1291,12 @@ function NewOrderComposer({
     }
     const unresolvedAddon = selected.find((product) => product.productType === "ADDON" && product.areaAssignmentMode === "INHERIT_FROM_PRODUCT" && !(addonParents[product.id] || baseProducts.length === 1));
     if (unresolvedAddon) { setFailed(true); setMessage(`Selecciona el producto base de ${unresolvedAddon.name}.`); return; }
+    orderSubmitting.current = true;
     setPending(true);
     setFailed(false);
     setMessage("");
     try {
-      const response = await fetch("/api/operations/restaurant/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const payload = {
           source,
           tableId: source === "DINE_IN" ? tableId : undefined,
           customerId: customerId || undefined,
@@ -1303,13 +1317,20 @@ function NewOrderComposer({
             quantity: quantities[product.id],
             notes: notes[product.id]?.trim() || undefined,
           })),
-        }),
+        };
+      const serialized = JSON.stringify(payload);
+      if (orderRequest.current?.payload !== serialized) orderRequest.current = { payload: serialized, key: crypto.randomUUID() };
+      const response = await fetch("/api/operations/restaurant/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, idempotencyKey: orderRequest.current.key }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok)
         throw new Error(result.error?.message ?? "No pudimos crear el pedido.");
       const successMessage =
         result.message ?? "Pedido guardado y enviado a cocina.";
+      orderRequest.current = null;
       setMessage(successMessage);
       setMobileView("menu");
       setQuantities({});
@@ -1333,6 +1354,7 @@ function NewOrderComposer({
           : "No pudimos conectar con el servidor.",
       );
     } finally {
+      orderSubmitting.current = false;
       setPending(false);
     }
   }
@@ -1425,7 +1447,7 @@ function NewOrderComposer({
             customers={customers}
             value={customerId}
             onChange={setCustomerId}
-            onNew={() => setCustomerDialogOpen(true)}
+            onNew={canCreateCustomer ? () => setCustomerDialogOpen(true) : undefined}
           />
         </div>
         {source === "DELIVERY" ? (
@@ -1910,12 +1932,14 @@ function TableQrScanner({
 }
 
 function FloorMap({
+  canWrite,
   tables,
   focusedId,
   onFocus,
   businessName,
   locale,
 }: {
+  canWrite: boolean;
   tables: RestaurantTableDto[];
   focusedId: string;
   onFocus: (id: string) => void;
@@ -2077,7 +2101,7 @@ function FloorMap({
               <div className="floor-table__actions">
                 <TableQrButton table={table} businessName={businessName} />
               </div>
-              {table.status === "CLEANING" ? (
+              {canWrite && table.status === "CLEANING" ? (
                 <OperationButton
                   endpoint={`/api/operations/restaurant/tables/${table.id}/clean`}
                   method="POST"
@@ -2085,7 +2109,7 @@ function FloorMap({
                   Marcar limpia
                 </OperationButton>
               ) : null}
-              {table.status === "AVAILABLE" ? (
+              {canWrite && table.status === "AVAILABLE" ? (
                 <div className="floor-table__actions">
                   <OperationButton
                     endpoint={`/api/operations/restaurant/tables/${table.id}/reserve`}
@@ -2124,7 +2148,7 @@ function FloorMap({
                   </OperationForm>
                 </div>
               ) : null}
-              {table.status === "RESERVED" ? (
+              {canWrite && table.status === "RESERVED" ? (
                 <div className="floor-table__actions">
                   <OperationButton
                     endpoint={`/api/operations/restaurant/tables/${table.id}/seat`}
@@ -2201,7 +2225,7 @@ function TableOperationalStatus({ table, locale }: { table: RestaurantTableDto; 
   );
 }
 
-export function FloorWorkspace({ data, businessName, locale }: { data: RestaurantData; businessName: string; locale: string }) {
+export function FloorWorkspace({ data, businessName, locale, permissions }: { data: RestaurantData; businessName: string; locale: string; permissions: string[] }) {
   const router = useRouter();
   const available = data.tables.filter(
     (table) => table.active && table.status === "AVAILABLE",
@@ -2265,14 +2289,14 @@ export function FloorWorkspace({ data, businessName, locale }: { data: Restauran
         actions={
           <div className="header-actions">
             <TableQrScanner onResolved={focusTable} />
-            {data.configuration.orders.sources.some((source) => source.active && source.key === "TAKEAWAY") ? <Button
+            {hasPermission(permissions, "restaurant:orders:write") && data.configuration.orders.sources.some((source) => source.active && source.key === "TAKEAWAY") ? <Button
               type="button"
               variant="secondary"
               onClick={() => openOffPremise("TAKEAWAY")}
             >
               Para llevar
             </Button> : null}
-            {data.configuration.delivery.enabled && data.configuration.orders.sources.some((source) => source.active && source.key === "DELIVERY") ? <Button
+            {hasPermission(permissions, "restaurant:orders:write") && data.configuration.delivery.enabled && data.configuration.orders.sources.some((source) => source.active && source.key === "DELIVERY") ? <Button
               type="button"
               variant="primary"
               onClick={() => openOffPremise("DELIVERY")}
@@ -2290,6 +2314,7 @@ export function FloorWorkspace({ data, businessName, locale }: { data: Restauran
       <section className={`floor-order-layout floor-order-layout--${workspaceView}`}>
         <div className="floor-order-layout__tables">
           <FloorMap
+            canWrite={hasPermission(permissions, "restaurant:floor:write")}
             tables={data.tables}
             focusedId={effectiveFocusedId}
             onFocus={focusTable}
@@ -2308,6 +2333,7 @@ export function FloorWorkspace({ data, businessName, locale }: { data: Restauran
           </button>
           {workspaceView === "active" && focused?.activeOrder ? (
             <ActiveOrderPanel
+              permissions={permissions}
               order={focused.activeOrder}
               products={data.products}
               paymentMethods={data.paymentMethods}
@@ -2315,8 +2341,9 @@ export function FloorWorkspace({ data, businessName, locale }: { data: Restauran
               criticalMinutes={data.configuration.kitchen.criticalMinutes}
               splitPaymentsEnabled={data.configuration.sales.splitPaymentsEnabled}
             />
-          ) : (
+          ) : hasPermission(permissions, "restaurant:orders:write") ? (
             <NewOrderComposer
+              canCreateCustomer={hasPermission(permissions, "customers:write")}
               key={`${orderSource}-${workspaceView}`}
               data={data}
               tableId={orderTableId}
@@ -2329,7 +2356,7 @@ export function FloorWorkspace({ data, businessName, locale }: { data: Restauran
                 setFloorNotice(message);
               }}
             />
-          )}
+          ) : <p className="empty-state">Selecciona una mesa para consultar su pedido.</p>}
         </div>
       </section>
       {floorNotice ? (
