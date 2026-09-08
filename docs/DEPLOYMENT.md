@@ -130,7 +130,7 @@ compartidos, su Dockerfile, lockfile y configuración. Los cambios exclusivos de
 documentación no generan despliegues.
 
 `cloudbuild.frontend.yaml` queda disponible para compilaciones manuales en
-Google Cloud. El disparador automático anterior de Cloud Build está deshabilitado
+Google Cloud. El disparador automático anterior de Cloud Build fue eliminado
 para evitar dos despliegues del frontend por el mismo commit.
 
 Antes de publicar ejecuta `npm run release:check`. No ejecutes `db:seed` en
