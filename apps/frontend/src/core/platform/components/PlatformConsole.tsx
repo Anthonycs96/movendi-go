@@ -14,7 +14,7 @@ import { Button, Card, Dialog, Field, Input, OperationButton, OperationForm, Pag
 import { formatCurrencyCents, formatDateTime, formatShortDate, initials } from "@/shared/lib/format";
 import type { PlatformBusinessView, PlatformData, PlatformPlanView } from "../types";
 import type { PlatformRole, PlatformSection } from "../access";
-import { BusinessSetupWizard } from "./BusinessSetupWizard";
+import { LazyBusinessSetupWizard as BusinessSetupWizard } from "./LazyBusinessSetupWizard";
 
 const businessStatus: Record<string, { label: string; tone: BadgeTone }> = { ACTIVE: { label: "Activo", tone: "success" }, SUSPENDED: { label: "Suspendido", tone: "warning" }, CANCELLED: { label: "Cancelado", tone: "danger" } };
 const subscriptionStatus: Record<string, { label: string; tone: BadgeTone }> = { ACTIVE: { label: "Activa", tone: "success" }, TRIAL: { label: "Prueba", tone: "info" }, PAST_DUE: { label: "Pago pendiente", tone: "warning" }, CANCELLED: { label: "Cancelada", tone: "danger" } };

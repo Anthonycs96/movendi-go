@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     const [branches, core, industryData, inventoryModule] = await Promise.all([
       prisma.branch.findMany({ where: { tenantId: session.tenantId, active: true }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
       getCoreTenantData(scope, !requestedSection || requestedSection === "settings"),
-      session.tenantType === "BARBERSHOP" ? getBarbershopData(scope) : session.tenantType === "RESTAURANT" ? getRestaurantData(scope, requestedSection === "reports" ? restaurantReportPeriod : undefined, requestedSection) : getTransportData(scope, transportSection, transportQuery),
+      session.tenantType === "BARBERSHOP" ? getBarbershopData(scope, requestedSection) : session.tenantType === "RESTAURANT" ? getRestaurantData(scope, requestedSection === "reports" ? restaurantReportPeriod : undefined, requestedSection) : getTransportData(scope, transportSection, transportQuery),
       requestedSection === "inventory" ? getInventoryData(scope, session.tenantType) : Promise.resolve(null),
     ]);
     const data = inventoryModule ? { ...industryData, inventoryModule } : industryData;

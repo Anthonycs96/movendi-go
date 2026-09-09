@@ -1,20 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { RouteLoading } from "@/shared/components/layout/RouteLoading";
+
 import type { CoreTenantData, TransportData } from "@movendi/contracts";
-import { Dashboard } from "./components/dashboard";
-import { Documents } from "./components/documents";
-import { Finance } from "./components/finance";
-import { Fleet } from "./components/fleet";
-import { FuelWorkspace } from "./components/fuel";
-import { Maintenance } from "./components/maintenance";
-import { Operations } from "./components/operations";
-import { Reports } from "./components/reports";
-import { Masters } from "./components/settings";
-import { Tires } from "./components/tires";
-import { Drivers } from "./components/workforce";
+
 import { TransportDataControls } from "./components/transport-data-controls";
 import { ExternalDataTableRows } from "@/shared/components/ui/DataTable";
-import { InventoryWorkspace } from "@/modules/inventory/InventoryWorkspace";
+
 import { ErrorState } from "@/shared/components/ui";
 
 type TransportWorkspaceProps = {
@@ -23,6 +16,19 @@ type TransportWorkspaceProps = {
   core: CoreTenantData;
   platformAdmin?: boolean;
 };
+
+const Dashboard = dynamic(() => import("./components/dashboard").then((module) => module.Dashboard), { loading: RouteLoading });
+const Documents = dynamic(() => import("./components/documents").then((module) => module.Documents), { loading: RouteLoading });
+const Finance = dynamic(() => import("./components/finance").then((module) => module.Finance), { loading: RouteLoading });
+const Fleet = dynamic(() => import("./components/fleet").then((module) => module.Fleet), { loading: RouteLoading });
+const FuelWorkspace = dynamic(() => import("./components/fuel").then((module) => module.FuelWorkspace), { loading: RouteLoading });
+const Maintenance = dynamic(() => import("./components/maintenance").then((module) => module.Maintenance), { loading: RouteLoading });
+const Operations = dynamic(() => import("./components/operations").then((module) => module.Operations), { loading: RouteLoading });
+const Reports = dynamic(() => import("./components/reports").then((module) => module.Reports), { loading: RouteLoading });
+const Masters = dynamic(() => import("./components/settings").then((module) => module.Masters), { loading: RouteLoading });
+const Tires = dynamic(() => import("./components/tires").then((module) => module.Tires), { loading: RouteLoading });
+const Drivers = dynamic(() => import("./components/workforce").then((module) => module.Drivers), { loading: RouteLoading });
+const InventoryWorkspace = dynamic(() => import("@/modules/inventory/InventoryWorkspace").then((module) => module.InventoryWorkspace), { loading: RouteLoading });
 
 export function TransportWorkspace({ section, data, core, platformAdmin = false }: TransportWorkspaceProps) {
   let workspace;

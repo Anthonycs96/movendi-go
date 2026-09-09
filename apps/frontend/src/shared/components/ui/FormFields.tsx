@@ -1,6 +1,6 @@
 "use client";
 
-import { Children, cloneElement, isValidElement, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, useId, useMemo, useState } from "react";
+import { Children, cloneElement, isValidElement, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, useDeferredValue, useId, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -29,18 +29,15 @@ export function Select({ children, className, onChange, value, defaultValue, sea
   const [query, setQuery] = useState("");
   const [internalValue, setInternalValue] = useState(() => String(defaultValue ?? ""));
 
-  if (!searchable || options.length <= 10) return <select className={`input${className ? ` ${className}` : ""}`} value={value} defaultValue={defaultValue} onChange={onChange} {...props}>{children}</select>;
-
   const selectedValue = String(value ?? internalValue);
-  const normalizedQuery = query.trim().toLocaleLowerCase("es");
-  const visibleOptions = options.filter((option) => {
-    const optionValue = String(option.props.value ?? "");
-    return !normalizedQuery || optionValue === "" || optionValue === selectedValue || optionText(option.props.children).toLocaleLowerCase("es").includes(normalizedQuery);
-  });
+  const normalizedQuery = useDeferredValue(query.trim().toLocaleLowerCase("es"));
+  const indexedOptions = useMemo(() => options.map((option) => ({ option, value: String(option.props.value ?? ""), text: optionText(option.props.children).toLocaleLowerCase("es") })), [options]);
+  const visibleOptions = useMemo(() => indexedOptions.filter((item) => !normalizedQuery || item.value === "" || item.value === selectedValue || item.text.includes(normalizedQuery)).map((item) => item.option), [indexedOptions, normalizedQuery, selectedValue]);
+  if (!searchable || options.length <= 10) return <select className={`input${className ? ` ${className}` : ""}`} value={value} defaultValue={defaultValue} onChange={onChange} {...props}>{children}</select>;
   const searchName = typeof props["aria-label"] === "string" ? props["aria-label"] : typeof props.name === "string" ? props.name : "opciones";
 
   return <div className="searchable-select">
-    <label className="searchable-select__search"><Search size={14} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label={`Buscar en ${searchName}`} placeholder="Buscar opción…" autoComplete="off" /></label>
+    <label className="searchable-select__search"><Search size={14} /><input type="search" disabled={props.disabled} value={query} onChange={(event) => setQuery(event.target.value)} aria-label={`Buscar en ${searchName}`} placeholder="Buscar opción…" autoComplete="off" /></label>
     <select className={`input${className ? ` ${className}` : ""}`} value={value} defaultValue={defaultValue} onChange={(event) => { setInternalValue(event.target.value); onChange?.(event); }} {...props}>{visibleOptions}</select>
     <small className="searchable-select__count">{visibleOptions.length} de {options.length} opciones</small>
   </div>;

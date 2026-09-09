@@ -15,6 +15,7 @@ export interface DataColumn<T> {
 }
 
 const ExternalRowsContext = createContext<readonly unknown[] | null>(null);
+const rowCollator = new Intl.Collator("es", { numeric: true, sensitivity: "base" });
 
 export function ExternalDataTableRows({ rows, children }: { rows: readonly unknown[] | null; children: ReactNode }) {
   return <ExternalRowsContext.Provider value={rows}>{children}</ExternalRowsContext.Provider>;
@@ -49,7 +50,7 @@ export function DataTable<T>({ rows, columns, rowKey, emptyTitle = "Sin resultad
       if (b == null) return -1;
       const comparison = typeof a === "number" && typeof b === "number"
         ? a - b
-        : String(a instanceof Date ? a.toISOString() : a).localeCompare(String(b instanceof Date ? b.toISOString() : b), "es", { numeric: true, sensitivity: "base" });
+        : rowCollator.compare(String(a instanceof Date ? a.toISOString() : a), String(b instanceof Date ? b.toISOString() : b));
       return sort.direction === "asc" ? comparison : -comparison;
     });
   }, [columns, rows, sort]);

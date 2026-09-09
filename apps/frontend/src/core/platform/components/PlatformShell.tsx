@@ -3,7 +3,7 @@
 import { navigateWithFreshSession } from "@/shared/lib/session-navigation";
 
 import Image from "next/image";
-import Link from "next/link";
+import { NavigationLink as Link } from "@/shared/components/layout/NavigationLink";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, BarChart3, BookOpenCheck, Building2, CreditCard, LayoutDashboard, LogOut, Menu, ReceiptText, Settings, ShieldCheck, Tags, Users, WalletCards, X } from "lucide-react";
@@ -66,7 +66,7 @@ export function PlatformShell({ user, currentTenantSlug, businesses, children }:
 
   const sidebar = <>
     <div className="platform-sidebar__brand">
-      <Link prefetch={false} href="/platform/dashboard" className="brand-mark" aria-label={`${APP_NAME}: consola de plataforma`}><Image src={APP_LOGO} alt={APP_NAME} width={40} height={40} priority /></Link>
+      <Link href="/platform/dashboard" className="brand-mark" aria-label={`${APP_NAME}: consola de plataforma`}><Image src={APP_LOGO} alt={APP_NAME} width={40} height={40} priority /></Link>
       <div><strong>{APP_NAME}</strong><span><ShieldCheck size={12} /> Centro de control</span></div>
       <button className="icon-button desktop-only" type="button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "Expandir navegación" : "Contraer navegación"} title={collapsed ? "Expandir navegación" : "Contraer navegación"} aria-expanded={!collapsed}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
       <button className="icon-button mobile-only" onClick={() => setMobileOpen(false)} aria-label="Cerrar navegación"><X size={17} /></button>
@@ -74,7 +74,7 @@ export function PlatformShell({ user, currentTenantSlug, businesses, children }:
     <div className="platform-sidebar__scope"><BarChart3 size={16} /><span><small>ALCANCE</small><strong>Toda la plataforma</strong></span></div>
     <nav className="platform-sidebar__nav" aria-label="Administración global">
       <span className="platform-sidebar__label">GESTIÓN</span>
-      {navigation.filter((item) => canAccessPlatformSection(user.role, item.path)).map((item) => { const Icon = item.icon; const active = pathname === `/platform/${item.path}` || (pathname === "/platform" && item.path === "dashboard"); return <Link prefetch={false} key={item.path} aria-label={item.label} title={item.label} aria-current={active ? "page" : undefined} href={`/platform/${item.path}`} className={cn("platform-sidebar__item", active && "platform-sidebar__item--active")} onClick={() => setMobileOpen(false)}><Icon size={17} /><span><strong>{item.label}</strong><small>{item.description}</small></span></Link>; })}
+      {navigation.filter((item) => canAccessPlatformSection(user.role, item.path)).map((item) => { const Icon = item.icon; const active = pathname === `/platform/${item.path}` || (pathname === "/platform" && item.path === "dashboard"); return <Link key={item.path} aria-label={item.label} title={item.label} aria-current={active ? "page" : undefined} href={`/platform/${item.path}`} className={cn("platform-sidebar__item", active && "platform-sidebar__item--active")} onClick={() => setMobileOpen(false)}><Icon size={17} /><span><strong>{item.label}</strong><small>{item.description}</small></span></Link>; })}
     </nav>
     <div className="platform-sidebar__return"><div className="platform-business-switcher" title="Entrar a un negocio"><Building2 size={15} /><span><small>ENTRAR A UN NEGOCIO</small><Select value={selectedTenant} disabled={switchingTenant} onChange={(event) => void changeTenant(event.target.value)} aria-label="Seleccionar negocio"><option value="" disabled>Elegir negocio…</option>{businesses.map((business) => <option value={business.slug} key={business.slug}>{business.name}{business.slug === currentTenantSlug ? " (actual)" : ""}</option>)}</Select>{switchingTenant ? <small role="status">Abriendo negocio…</small> : null}</span></div><ThemeToggle /></div>
     <div className="platform-sidebar__footer"><div className="avatar">{initials(user.name)}</div><span><strong>{user.name}</strong><small>{user.email}</small></span><button className="icon-button" onClick={logout} aria-label="Cerrar sesión"><LogOut size={16} /></button></div>

@@ -27,8 +27,17 @@ export function formatCurrency(value: number): string {
   return `S/ ${groupedFixed(value, 0)}`;
 }
 
+const currencyFormatters = new Map<string, Intl.NumberFormat>();
+
 export function formatCurrencyCents(value: number, currency = "PEN", locale = "es-PE"): string {
-  return new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2 }).format(value / 100).replace(/[\u00a0\u202f]/g, " ");
+  const key = `${locale}:${currency}`;
+  let formatter = currencyFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2 });
+    if (currencyFormatters.size >= 32) currencyFormatters.clear();
+    currencyFormatters.set(key, formatter);
+  }
+  return formatter.format(value / 100).replace(/[\u00a0\u202f]/g, " ");
 }
 
 export function formatDateInput(value: string | Date): string {

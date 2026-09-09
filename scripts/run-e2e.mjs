@@ -10,6 +10,8 @@ const prismaCli = resolve("node_modules", "prisma", "build", "index.js");
 const nextCli = resolve("node_modules", "next", "dist", "bin", "next");
 const playwrightCli = resolve("node_modules", "@playwright", "test", "cli.js");
 const defaultSuites = [
+  "e2e/workspace-scoping.spec.ts",
+  "e2e/app-performance.spec.ts",
   "e2e/app.spec.ts",
   "e2e/platform-superadmin.spec.ts",
   "e2e/real-attentions-40.spec.ts",

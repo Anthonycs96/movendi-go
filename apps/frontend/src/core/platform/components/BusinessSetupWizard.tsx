@@ -203,7 +203,7 @@ function validateRestaurantCatalog(catalog: Pick<CatalogDraft, "skip" | "categor
   return "";
 }
 
-export function BusinessSetupWizard({ plans, templates, business, triggerLabel = business ? "Configurar" : "Nuevo negocio" }: { plans: PlatformPlanView[]; templates: PlatformSetupTemplate[]; business?: PlatformBusinessView; triggerLabel?: string }) {
+export function BusinessSetupWizard({ plans, templates, business, triggerLabel = business ? "Configurar" : "Nuevo negocio", open: controlledOpen, onOpenChange }: { plans: PlatformPlanView[]; templates: PlatformSetupTemplate[]; business?: PlatformBusinessView; triggerLabel?: string; open?: boolean; onOpenChange?: (open: boolean) => void }) {
   const generalDraft = savedStep<GeneralDraft>(business, "BUSINESS");
   const modulesDraft = savedStep<{ enabledModules: string[] }>(business, "MODULES");
   const catalogDraft = savedStep<CatalogDraft>(business, "CATALOG");
@@ -217,7 +217,9 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
   const transportFleetDraft = savedStep<{ masterData?: Pick<TransportMasterData, "vehicles" | "trailers"> }>(business, "TRANSPORT_FLEET");
   const transportDriversDraft = savedStep<{ masterData?: Pick<TransportMasterData, "drivers"> }>(business, "TRANSPORT_DRIVERS");
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -405,7 +407,7 @@ export function BusinessSetupWizard({ plans, templates, business, triggerLabel =
   const progress = Math.round((visibleSteps.filter((step) => step.key !== "REVIEW" && completed.includes(step.key)).length / Math.max(1, visibleSteps.length - 1)) * 100);
 
   return <>
-    <Button type="button" size="sm" variant={business?.setup.status === "READY" ? "ghost" : "primary"} onClick={() => setOpen(true)}><WandSparkles size={15} />{triggerLabel}</Button>
+    {!onOpenChange ? <Button type="button" size="sm" variant={business?.setup.status === "READY" ? "ghost" : "primary"} onClick={() => setOpen(true)}><WandSparkles size={15} />{triggerLabel}</Button> : null}
     <Dialog open={open} title={created ? `Implementación · ${current?.shortName}` : "Nuevo negocio guiado"} description={created ? "Guarda cada paso y retoma la implementación cuando tengas la información pendiente." : "Crea el negocio y aplica una plantilla inicial en pocos minutos."} className="business-setup-dialog" onClose={() => { if (!pending) setOpen(false); }}>
       {!created ? <form className="business-create-step" onSubmit={(event) => { event.preventDefault(); void createBusiness(); }}>
         <div className="setup-intro"><WandSparkles size={24} /><div><strong>Crear la base del negocio</strong><span>Empresa, sede, plan, administrador y plantilla inicial en un solo paso.</span></div></div>

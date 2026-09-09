@@ -11,6 +11,7 @@ let routeId = "";
 let vehicleId = "";
 let restDriverId = "";
 let workDriverId = "";
+let workPresetId = "";
 let tripId = "";
 let overlapTripId = "";
 let incidentId = "";
@@ -103,7 +104,7 @@ test.describe.serial("30 escenarios reales de Transporte V2", () => {
 
   test("[04/30] navegación: las 11 áreas cargan sin error", async ({ page }) => {
     await login(page);
-    const views = [["dashboard", "Centro de control operativo"], ["operations", "Operaciones, viajes y trazabilidad"], ["fleet", "Flota operativa"], ["drivers", "Conductores, jornadas y descansos"], ["documents", "Documentos y vigencias"], ["finance", "Gastos, pagos y liquidaciones"], ["fuel", "Control de combustible"], ["maintenance", "Mantenimiento e inventario"], ["tires", "Gestión de neumáticos"], ["reports", "Rentabilidad y desempeño"], ["settings", "Configuración de Transporte"]] as const;
+    const views = [["dashboard", "Centro de control operativo"], ["operations", "Operaciones, viajes y trazabilidad"], ["fleet", "Flota operativa"], ["drivers", "Conductores, jornadas y descansos"], ["documents", "Documentos y vigencias"], ["finance", "Gastos, pagos y liquidaciones"], ["fuel", "Control de combustible"], ["maintenance", "Mantenimiento por vehículo y componente"], ["tires", "Gestión de neumáticos"], ["reports", "Rentabilidad y desempeño"], ["settings", "Configuración de Transporte"]] as const;
     for (const label of ["Centro operativo", "Operaciones", "Flota", "Conductores", "Documentos", "Finanzas", "Combustible", "Mantenimiento", "Neumáticos", "Reportes", "Configuración"]) {
       await expect(page.getByRole("link", { name: new RegExp(label, "i") }).first()).toBeVisible();
     }
@@ -202,21 +203,25 @@ test.describe.serial("30 escenarios reales de Transporte V2", () => {
 
   test("[20/30] asignación: bloquea conductor en descanso programado", async ({ page }) => {
     await login(page);
-    fails(await api(page, `/api/operations/transport/trips/${tripId}/assign`, "POST", { vehicleId, driverId: restDriverId }), 409, "DRIVER_SCHEDULED_REST");
+    const preset = await api(page, "/api/operations/transport/resource-presets", "POST", { vehicleId, driverIds: [restDriverId] });
+    ok(preset);
+    fails(await api(page, `/api/operations/transport/trips/${tripId}/assign`, "POST", { presetId: entityId(preset) }), 409, "DRIVER_SCHEDULED_REST");
   });
 
   test("[21/30] asignación: conductor hábil queda asignado", async ({ page }) => {
     await login(page);
     const driver = await api(page, "/api/operations/transport/drivers", "POST", { documentNo: "47881121", firstName: "Lucía", lastName: "Torres Vega", phone: "987701202", licenseNo: "T47881121", licenseClass: "AIIIB", licenseDueAt: "2035-12-31", hireDate: "2028-02-10", workRegimeName: "6x1 QA", workDays: 6, restDays: 1, workCycleAnchor: "2030-02-10" });
     ok(driver); workDriverId = entityId(driver);
-    ok(await api(page, `/api/operations/transport/trips/${tripId}/assign`, "POST", { vehicleId, driverId: workDriverId, reason: "Plan de despacho QA" }));
+    const preset = await api(page, "/api/operations/transport/resource-presets", "POST", { vehicleId, driverIds: [workDriverId] });
+    ok(preset); workPresetId = entityId(preset);
+    ok(await api(page, `/api/operations/transport/trips/${tripId}/assign`, "POST", { presetId: workPresetId, reason: "Plan de despacho QA" }));
   });
 
   test("[22/30] asignación: detecta solapamiento por intervalo", async ({ page }) => {
     await login(page);
     const created = await api(page, "/api/operations/transport/trips", "POST", { customerId, routeId, serviceType: "Distribución", cargoDescription: "Segundo servicio superpuesto", cargoWeightKg: 8000, scheduledStartAt: "2030-02-10T10:00:00", scheduledEndAt: "2030-02-10T14:00:00", priority: "NORMAL", freight: 900, budget: 400 });
     ok(created); overlapTripId = entityId(created);
-    fails(await api(page, `/api/operations/transport/trips/${overlapTripId}/assign`, "POST", { vehicleId, driverId: workDriverId }), 409, "RESOURCE_CONFLICT");
+    fails(await api(page, `/api/operations/transport/trips/${overlapTripId}/assign`, "POST", { presetId: workPresetId }), 409, "RESOURCE_CONFLICT");
   });
 
   test("[23/30] estados: rechaza salto DRAFT a DELIVERED", async ({ page }) => {

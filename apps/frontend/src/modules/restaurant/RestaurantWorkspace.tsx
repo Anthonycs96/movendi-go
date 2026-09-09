@@ -1,14 +1,22 @@
+"use client";
+
+import dynamic from "next/dynamic";
+import { RouteLoading } from "@/shared/components/layout/RouteLoading";
+
 import type { RestaurantData } from "./types";
-import { RestaurantHistory } from "./components/RestaurantHistory";
-import { FloorWorkspace } from "./components/FloorWorkspace";
-import { KitchenWorkspace } from "./components/KitchenWorkspace";
-import { RestaurantDashboard } from "./components/RestaurantDashboard";
-import { RestaurantDirectory } from "./components/RestaurantDirectory";
-import { RestaurantReports } from "./components/RestaurantReports";
+
 import { ErrorState } from "@/shared/components/ui";
 import type { CoreTenantData } from "@movendi/contracts";
-import { InventoryWorkspace } from "@/modules/inventory/InventoryWorkspace";
+
 import { hasPermission } from "@/core/auth/permissions";
+
+const RestaurantHistory = dynamic(() => import("./components/RestaurantHistory").then((module) => module.RestaurantHistory), { loading: RouteLoading });
+const FloorWorkspace = dynamic(() => import("./components/FloorWorkspace").then((module) => module.FloorWorkspace), { loading: RouteLoading });
+const KitchenWorkspace = dynamic(() => import("./components/KitchenWorkspace").then((module) => module.KitchenWorkspace), { loading: RouteLoading });
+const RestaurantDashboard = dynamic(() => import("./components/RestaurantDashboard").then((module) => module.RestaurantDashboard), { loading: RouteLoading });
+const RestaurantDirectory = dynamic(() => import("./components/RestaurantDirectory").then((module) => module.RestaurantDirectory), { loading: RouteLoading });
+const RestaurantReports = dynamic(() => import("./components/RestaurantReports").then((module) => module.RestaurantReports), { loading: RouteLoading });
+const InventoryWorkspace = dynamic(() => import("@/modules/inventory/InventoryWorkspace").then((module) => module.InventoryWorkspace), { loading: RouteLoading });
 
 export function RestaurantWorkspace({
   section,

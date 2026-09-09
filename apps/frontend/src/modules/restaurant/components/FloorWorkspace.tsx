@@ -36,6 +36,7 @@ import {
 import QRCode from "qrcode";
 import type { IScannerControls } from "@zxing/browser";
 import { useRouter } from "next/navigation";
+import { useLiveRefresh } from "@/shared/lib/use-live-refresh";
 import type {
   RestaurantData,
   RestaurantOrderDto,
@@ -2200,7 +2201,6 @@ function TableOperationalStatus({ table, locale }: { table: RestaurantTableDto; 
 }
 
 export function FloorWorkspace({ data, businessName, locale, permissions }: { data: RestaurantData; businessName: string; locale: string; permissions: string[] }) {
-  const router = useRouter();
   const [drafts, setDrafts] = useState<Record<string, NewOrderDraft>>({});
   const [orderBusy, setOrderBusy] = useState(false);
   const saveDraft = useCallback((key: string, draft?: NewOrderDraft) => {
@@ -2230,11 +2230,7 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
     : defaultTableId;
   const focused =
     data.tables.find((table) => table.id === effectiveFocusedId) ?? null;
-  useEffect(() => {
-    if (showActivity) return;
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 10_000);
-    return () => window.clearInterval(timer);
-  }, [router, showActivity]);
+  useLiveRefresh(10_000, !showActivity && !orderBusy);
   useEffect(() => {
     if (!floorNotice) return;
     const timer = window.setTimeout(() => setFloorNotice(""), 4500);

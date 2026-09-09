@@ -51,10 +51,13 @@ test.describe.serial("Operaciones logísticas e historial de mantenimiento", () 
   test("muestra el avance de operaciones en la interfaz", async ({ page }) => {
     await login(page);
     await page.goto(`/t/${slug}/operations`);
+    await expect(page.getByRole("heading", { name: "Operaciones, viajes y trazabilidad" })).toBeVisible();
+    await page.getByRole("tab", { name: /^Operaciones Agrupación logística/ }).click();
     await expect(page.getByRole("heading", { name: "Operaciones logísticas" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Historial de ensambles y movimientos" })).toBeVisible();
     await expect(page.getByText("OP-2026-00001 · Plan de distribución costa sur").first()).toBeVisible();
     await expect(page.getByText(/pendientes.*activos.*entregados/i).first()).toBeVisible();
+    await page.getByRole("tab", { name: /^Historial Trazabilidad de ensambles/ }).click();
+    await expect(page.getByRole("heading", { name: "Historial de ensambles y movimientos" })).toBeVisible();
   });
 
   test("resume mantenimiento por placa y tipo", async ({ page }) => {
@@ -65,8 +68,9 @@ test.describe.serial("Operaciones logísticas e historial de mantenimiento", () 
     expect(data.maintenanceSummary.find((item) => item.plate === "D9K-226")).toMatchObject({ inspections: 1, completed: 1 });
     expect(data.maintenanceSummary.find((item) => item.plate === "A7P-315")).toMatchObject({ corrective: 1, open: 1 });
     await page.goto(`/t/${slug}/maintenance`);
-    await expect(page.getByRole("heading", { name: "Mantenimientos realizados" })).toBeVisible();
-    await expect(page.getByText("BXT-841", { exact: true })).toBeVisible();
+    const history = page.locator(".table-card").filter({ has: page.getByRole("heading", { name: "Mantenimientos por unidad" }) });
+    await expect(history).toBeVisible();
+    await expect(history.getByText("BXT-841", { exact: true })).toBeVisible();
   });
 
   test("ensambla tracto, carreta, piloto y segundo piloto sin duplicidades", async ({ page }) => {
@@ -98,7 +102,8 @@ test.describe.serial("Operaciones logísticas e historial de mantenimiento", () 
     const primaryTrip = await trip("Ensamble principal QA");
     const overlapTrip = await trip("Ensamble superpuesto QA");
 
-    const assigned = await page.request.post(`/api/operations/transport/trips/${primaryTrip.id}/assign`, { data: { vehicleId: vehicleA.id, trailerId: trailer.id, driverId: pilot.id, secondDriverId: secondPilot.id, reason: "Doble tripulación QA" } });
+    const preset = await create("resource-presets", { vehicleId: vehicleA.id, trailerIds: [trailer.id], driverIds: [pilot.id, secondPilot.id] });
+    const assigned = await page.request.post(`/api/operations/transport/trips/${primaryTrip.id}/assign`, { data: { presetId: preset.id, reason: "Doble tripulación QA" } });
     expect(assigned.status()).toBe(200);
     const refreshed = await page.request.get("/api/data/tenant?section=operations&q=Ensamble principal QA&pageSize=20");
     const data = (await refreshed.json() as { data: TransportData }).data;
@@ -110,13 +115,17 @@ test.describe.serial("Operaciones logísticas e historial de mantenimiento", () 
       secondDriver: { id: secondPilot.id },
     });
 
-    const duplicateDriver = await page.request.post(`/api/operations/transport/trips/${overlapTrip.id}/assign`, { data: { vehicleId: vehicleB.id, driverId: pilot.id, secondDriverId: pilot.id } });
+    const duplicateDriver = await page.request.post("/api/operations/transport/resource-presets", { data: { vehicleId: vehicleB.id, driverIds: [pilot.id, pilot.id] } });
     expect(duplicateDriver.status()).toBe(400);
-    const driverConflict = await page.request.post(`/api/operations/transport/trips/${overlapTrip.id}/assign`, { data: { vehicleId: vehicleB.id, driverId: secondPilot.id, secondDriverId: reliefPilot.id } });
-    expect(driverConflict.status()).toBe(409);
-    const vehicleConflict = await page.request.post(`/api/operations/transport/trips/${overlapTrip.id}/assign`, { data: { vehicleId: vehicleA.id, driverId: reliefPilot.id } });
-    expect(vehicleConflict.status()).toBe(409);
-    const trailerConflict = await page.request.post(`/api/operations/transport/trips/${overlapTrip.id}/assign`, { data: { vehicleId: vehicleB.id, trailerId: trailer.id, driverId: reliefPilot.id } });
-    expect(trailerConflict.status()).toBe(409);
+    for (const resources of [
+      { vehicleId: vehicleB.id, driverIds: [secondPilot.id, reliefPilot.id] },
+      { vehicleId: vehicleA.id, driverIds: [reliefPilot.id] },
+      { vehicleId: vehicleB.id, trailerIds: [trailer.id], driverIds: [reliefPilot.id] },
+    ]) {
+      const conflictingPreset = await create("resource-presets", resources);
+      const conflict = await page.request.post(`/api/operations/transport/trips/${overlapTrip.id}/assign`, { data: { presetId: conflictingPreset.id } });
+      expect(conflict.status()).toBe(409);
+      expect((await conflict.json()).error.code).toBe("RESOURCE_CONFLICT");
+    }
   });
 });

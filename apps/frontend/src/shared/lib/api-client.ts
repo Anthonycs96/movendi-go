@@ -45,8 +45,8 @@ export function getTenantWorkspace(section?: string, filters?: Record<string, st
   return nullableSessionRequest<TenantWorkspaceResponse>(`/api/data/tenant${suffix}`);
 }
 
-export function getPlatformWorkspace() {
-  return nullableSessionRequest<PlatformWorkspaceResponse>("/api/data/platform");
+export function getPlatformWorkspace(section?: string) {
+  return nullableSessionRequest<PlatformWorkspaceResponse>(`/api/data/platform${section ? `?section=${encodeURIComponent(section)}` : ""}`);
 }
 
 export interface PublicBillingPlan {

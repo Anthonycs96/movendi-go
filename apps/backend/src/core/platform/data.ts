@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/core/database/prisma";
+import type { PlatformSection } from "./access";
 import type { PlatformData, PlatformPlanView } from "./types";
 import { storageConfiguration } from "@/core/storage/provider";
 import { billingConfiguration } from "@/core/billing/configuration";
@@ -33,14 +34,20 @@ function parseObject(value: string) {
   }
 }
 
-export async function getPlatformData(currentTenantId: string): Promise<PlatformData> {
+export async function getPlatformData(currentTenantId: string, section?: PlatformSection): Promise<PlatformData> {
+  const needed = (...sections: PlatformSection[]) => !section || sections.includes(section);
+  const businessNeeded = needed("dashboard", "businesses", "subscriptions", "catalog");
+  const plansNeeded = needed("dashboard", "businesses", "subscriptions", "plans");
+  const systemNeeded = needed("settings");
+  const billingNeeded = needed("billing");
+  const billingMetricsNeeded = needed("billing", "settings");
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
   const staleBefore = new Date(Date.now() - Math.max(1, Number(process.env.JOB_STALE_MINUTES ?? 15)) * 60_000);
   const [tenantRecords, planRecords, userRecords, auditRecords, monthlySales, monthlyAppointments, monthlyOrders, monthlyTrips, monthlyTransportPayments, jobGroups, activeSessions, auditEvents, staleJobs, storedObjects, checkoutRecords, invoiceRecords, paymentRecords, billingEventRecords, emailRecords, invoiceGroups, paymentGroups, openCheckouts, failedBillingEvents, queuedEmails] = await Promise.all([
-    prisma.tenant.findMany({
+    businessNeeded ? prisma.tenant.findMany({
       include: {
         plan: { include: { _count: { select: { tenants: true } } } },
         _count: { select: { branches: true, memberships: true, customers: true, appointments: true, orders: true, sales: true } },
@@ -49,30 +56,30 @@ export async function getPlatformData(currentTenantId: string): Promise<Platform
         branches: { where: { active: true }, orderBy: { createdAt: "asc" }, take: 1, select: { name: true } },
       },
       orderBy: { createdAt: "desc" },
-    }),
-    prisma.platformPlan.findMany({ include: { _count: { select: { tenants: true } } }, orderBy: [{ active: "desc" }, { monthlyPriceCents: "asc" }] }),
-    prisma.user.findMany({ where: { platformRole: { not: null } }, include: { _count: { select: { memberships: true } } }, orderBy: { createdAt: "asc" } }),
-    prisma.auditLog.findMany({ take: 100, orderBy: { createdAt: "desc" }, include: { tenant: { select: { id: true, name: true, slug: true } }, user: { select: { id: true, name: true, email: true } }, branch: { select: { id: true, name: true } } } }),
-    prisma.sale.groupBy({ by: ["tenantId"], where: { createdAt: { gte: monthStart } }, _sum: { totalCents: true }, _count: { id: true } }),
-    prisma.appointment.groupBy({ by: ["tenantId"], where: { createdAt: { gte: monthStart } }, _count: { id: true } }),
-    prisma.restaurantOrder.groupBy({ by: ["tenantId"], where: { createdAt: { gte: monthStart } }, _count: { id: true } }),
-    prisma.transportTrip.groupBy({ by: ["tenantId"], where: { createdAt: { gte: monthStart } }, _count: { id: true } }),
-    prisma.transportPayment.groupBy({ by: ["tenantId"], where: { paidAt: { gte: monthStart }, direction: "IN", status: "POSTED" }, _sum: { amountCents: true }, _count: { id: true } }),
-    prisma.transportDataJob.groupBy({ by: ["status"], _count: { id: true } }),
-    prisma.session.count({ where: { expiresAt: { gt: new Date() } } }),
-    prisma.auditLog.count(),
-    prisma.transportDataJob.count({ where: { status: "PROCESSING", startedAt: { lte: staleBefore } } }),
-    prisma.storedObject.aggregate({ where: { status: "ACTIVE" }, _count: { id: true }, _sum: { sizeBytes: true } }),
-    prisma.billingCheckoutSession.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { plan: { select: { name: true } }, tenant: { select: { slug: true } } } }),
-    prisma.billingInvoice.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { tenant: { select: { name: true } }, subscription: { include: { plan: { select: { name: true } } } } } }),
-    prisma.billingPayment.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { tenant: { select: { name: true } } } }),
-    prisma.billingWebhookEvent.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { tenant: { select: { name: true } } } }),
-    prisma.emailOutbox.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { tenant: { select: { name: true } } } }),
-    prisma.billingInvoice.groupBy({ by: ["status"], _count: { id: true }, _sum: { amountPaidCents: true } }),
-    prisma.billingPayment.groupBy({ by: ["status"], _count: { id: true } }),
-    prisma.billingCheckoutSession.count({ where: { status: "OPEN", expiresAt: { gt: new Date() } } }),
-    prisma.billingWebhookEvent.count({ where: { status: "FAILED" } }),
-    prisma.emailOutbox.count({ where: { status: { in: ["QUEUED", "FAILED"] } } }),
+    }) : [],
+    plansNeeded ? prisma.platformPlan.findMany({ include: { _count: { select: { tenants: true } } }, orderBy: [{ active: "desc" }, { monthlyPriceCents: "asc" }] }) : [],
+    needed("users") ? prisma.user.findMany({ where: { platformRole: { not: null } }, include: { _count: { select: { memberships: true } } }, orderBy: { createdAt: "asc" } }) : [],
+    needed("audit") ? prisma.auditLog.findMany({ take: 100, orderBy: { createdAt: "desc" }, include: { tenant: { select: { id: true, name: true, slug: true } }, user: { select: { id: true, name: true, email: true } }, branch: { select: { id: true, name: true } } } }) : [],
+    businessNeeded ? prisma.sale.groupBy({ by: ["tenantId"], where: { createdAt: { gte: monthStart } }, _sum: { totalCents: true }, _count: { id: true } }) : [],
+    businessNeeded ? prisma.appointment.groupBy({ by: ["tenantId"], where: { createdAt: { gte: monthStart } }, _count: { id: true } }) : [],
+    businessNeeded ? prisma.restaurantOrder.groupBy({ by: ["tenantId"], where: { createdAt: { gte: monthStart } }, _count: { id: true } }) : [],
+    businessNeeded ? prisma.transportTrip.groupBy({ by: ["tenantId"], where: { createdAt: { gte: monthStart } }, _count: { id: true } }) : [],
+    businessNeeded ? prisma.transportPayment.groupBy({ by: ["tenantId"], where: { paidAt: { gte: monthStart }, direction: "IN", status: "POSTED" }, _sum: { amountCents: true }, _count: { id: true } }) : [],
+    systemNeeded ? prisma.transportDataJob.groupBy({ by: ["status"], _count: { id: true } }) : [],
+    systemNeeded ? prisma.session.count({ where: { expiresAt: { gt: new Date() } } }) : 0,
+    systemNeeded ? prisma.auditLog.count() : 0,
+    systemNeeded ? prisma.transportDataJob.count({ where: { status: "PROCESSING", startedAt: { lte: staleBefore } } }) : 0,
+    systemNeeded ? prisma.storedObject.aggregate({ where: { status: "ACTIVE" }, _count: { id: true }, _sum: { sizeBytes: true } }) : { _count: { id: 0 }, _sum: { sizeBytes: 0 } },
+    billingNeeded ? prisma.billingCheckoutSession.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { plan: { select: { name: true } }, tenant: { select: { slug: true } } } }) : [],
+    billingNeeded ? prisma.billingInvoice.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { tenant: { select: { name: true } }, subscription: { include: { plan: { select: { name: true } } } } } }) : [],
+    billingNeeded ? prisma.billingPayment.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { tenant: { select: { name: true } } } }) : [],
+    billingNeeded ? prisma.billingWebhookEvent.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { tenant: { select: { name: true } } } }) : [],
+    billingNeeded ? prisma.emailOutbox.findMany({ take: 30, orderBy: { createdAt: "desc" }, include: { tenant: { select: { name: true } } } }) : [],
+    billingMetricsNeeded ? prisma.billingInvoice.groupBy({ by: ["status"], _count: { id: true }, _sum: { amountPaidCents: true } }) : [],
+    billingMetricsNeeded ? prisma.billingPayment.groupBy({ by: ["status"], _count: { id: true } }) : [],
+    billingMetricsNeeded ? prisma.billingCheckoutSession.count({ where: { status: "OPEN", expiresAt: { gt: new Date() } } }) : 0,
+    billingMetricsNeeded ? prisma.billingWebhookEvent.count({ where: { status: "FAILED" } }) : 0,
+    billingMetricsNeeded ? prisma.emailOutbox.count({ where: { status: { in: ["QUEUED", "FAILED"] } } }) : 0,
   ]);
 
   const salesByTenant = new Map(monthlySales.map((row) => [row.tenantId, { count: row._count.id, cents: row._sum.totalCents ?? 0 }]));
@@ -171,6 +178,6 @@ export async function getPlatformData(currentTenantId: string): Promise<Platform
       { key: "TRANSPORT", name: "Transporte y logística", description: "Viajes, flota, conductores, descansos, trazabilidad, finanzas y mantenimiento.", businessCount: businesses.filter((item) => item.type === "TRANSPORT").length, modules: ["Operaciones", "Flota", "Conductores", "Finanzas", "Combustible", "Mantenimiento", "Neumáticos"], color: "#187f71" },
     ],
     system: { activeSessions, auditEvents, queuedJobs: jobsByStatus.get("QUEUED") ?? 0, processingJobs: jobsByStatus.get("PROCESSING") ?? 0, failedJobs: jobsByStatus.get("FAILED") ?? 0, staleJobs, storedObjects: storedObjects._count.id, storedBytes: storedObjects._sum.sizeBytes ?? 0, storageProvider: storageConfiguration().provider, generatedAt: new Date().toISOString() },
-    setupTemplates: setupTemplates.map((template) => ({ key: template.key, type: template.type, name: template.name, description: template.description, modules: [...template.modules], preparationAreaSuggestions: [...template.preparationAreas], restaurantConfiguration: "restaurantConfiguration" in template ? template.restaurantConfiguration : undefined, transportConfiguration: "transportConfiguration" in template ? template.transportConfiguration : undefined })),
+    setupTemplates: (needed("dashboard", "businesses") ? setupTemplates : []).map((template) => ({ key: template.key, type: template.type, name: template.name, description: template.description, modules: [...template.modules], preparationAreaSuggestions: [...template.preparationAreas], restaurantConfiguration: "restaurantConfiguration" in template ? template.restaurantConfiguration : undefined, transportConfiguration: "transportConfiguration" in template ? template.transportConfiguration : undefined })),
   };
 }

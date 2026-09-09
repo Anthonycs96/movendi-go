@@ -1114,6 +1114,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .dark .floor-status-filters button.active, .dark .floor-status-filters button.active b { color: #1b1608; }
 
 /* Compact table navigator stays in the same workspace as the order. */
+a:has(> .navigation-hint) { position: relative; }
+.navigation-hint.navigation-hint { display: none; }
+.navigation-hint.navigation-hint[data-pending] { display: block; position: absolute; right: 6px; top: 6px; width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: navigation-spin .7s linear infinite; pointer-events: none; }
+@keyframes navigation-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .navigation-hint.navigation-hint[data-pending] { animation: none; } }
 .dark .floor-order-layout--compact .category-tabs button.active { color: #1b1608; }
 .floor-order-layout--compact { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .floor-order-layout--compact .floor-order-layout__tables, .floor-order-layout--compact .floor-order-layout__work { display: block; min-width: 0; }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useLiveRefresh } from "@/shared/lib/use-live-refresh";
 import { ChefHat } from "lucide-react";
 import type { RestaurantData } from "../types";
 import {
@@ -32,7 +32,7 @@ export function KitchenWorkspace({
   businessName: string;
   canWrite: boolean;
 }) {
-  const router = useRouter();
+  useLiveRefresh(10_000);
   const [area, setArea] = useState("ALL");
   const areas = [...new Map(data.kitchen.flatMap((order) => order.items.map((item) => [item.preparationAreaKey, item.preparationAreaName] as const))).entries()];
   const tickets = data.kitchen.flatMap((order) => {
@@ -43,10 +43,6 @@ export function KitchenWorkspace({
       return { ...order, areaKey: key, areaName: items[0].preparationAreaName, items, kitchenTicket: order.kitchenTicket ? { ...order.kitchenTicket, status: state } : null };
     });
   });
-  useEffect(() => {
-    const timer = window.setInterval(() => router.refresh(), 10_000);
-    return () => window.clearInterval(timer);
-  }, [router]);
   return (
     <>
       <PageHeader

@@ -44,6 +44,7 @@ async function clearDatabase() {
   await prisma.transportOperation.deleteMany();
   await prisma.transportWorkLog.deleteMany();
   await prisma.transportDriverLeave.deleteMany();
+  await prisma.transportResourcePreset.deleteMany();
   await prisma.transportDriver.deleteMany();
   await prisma.transportTrailer.deleteMany();
   await prisma.transportVehicle.deleteMany();
