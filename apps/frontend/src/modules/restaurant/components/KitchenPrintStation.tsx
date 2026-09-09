@@ -6,7 +6,7 @@ import { Button, Card, StatusBadge } from "@/shared/components/ui";
 
 type PrintItem = { name: string; quantity: number; notes: string | null };
 type PrintJob = {
-  id: string; type: "INITIAL" | "ADDITION" | "CANCELLATION" | "TEST"; status: "PENDING" | "PROCESSING" | "PRINTED" | "FAILED"; claimable: boolean; automatic: boolean; copies: number; attempts: number; lastError: string | null; createdAt: string; printedAt: string | null;
+  id: string; printerId: string | null; type: "INITIAL" | "ADDITION" | "CANCELLATION" | "TEST"; status: "PENDING" | "PROCESSING" | "PRINTED" | "FAILED" | "SENT"; claimable: boolean; automatic: boolean; copies: number; attempts: number; lastError: string | null; createdAt: string; printedAt: string | null;
   order: { code: string; source: string; notes: string | null; tableName: string | null }; createdBy: string; payload: { printerName?: string; fields?: string[]; sections?: Array<{ areaName: string; items: PrintItem[] }>; items?: PrintItem[]; orderNotes?: string | null };
 };
 
@@ -36,34 +36,41 @@ export function KitchenPrintStation({ businessName, printers }: { businessName: 
   }, [printers]);
 
   const updateStatus = useCallback(async (job: PrintJob, status: "PRINTED" | "FAILED", error?: string) => {
-    const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, error, stationId: stationId.current }) });
+    const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, error, confirmed: status === "PRINTED", stationId: stationId.current }) });
     if (!response.ok) throw new Error("No se pudo confirmar el estado de la impresión.");
   }, []);
 
   const processJob = useCallback(async (job: PrintJob) => {
     if (processing.current) return;
+    if (printers.find((printer) => printer.id === job.printerId)?.connectionType === "LOCAL_AGENT") { setMessage("Esta impresora usa el agente local. Revisa su conexión en Configuración."); return; }
     processing.current = job.id;
+    if (simulation) { setCurrent(job); setMessage("Vista de prueba preparada. No se ha consumido ni confirmado la comanda."); return; }
     let claimed = false;
     try {
       const claimResponse = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/claim`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stationId: stationId.current }) });
       if (!claimResponse.ok) throw new Error("No se pudo reservar la comanda para esta estación.");
       const claim = await claimResponse.json() as { claimed: boolean };
-      if (!claim.claimed) return;
+      if (!claim.claimed) { processing.current = null; return; }
       claimed = true;
       setCurrent(job);
       await new Promise((resolve) => window.setTimeout(resolve, 180));
-      if (!simulation) for (let copy = 0; copy < Math.max(1, job.copies); copy += 1) window.print();
-      await updateStatus(job, "PRINTED");
-      setMessage(simulation ? `Simulación correcta: ${typeLabels[job.type]} ${job.order.code}.` : `${typeLabels[job.type]} ${job.order.code} enviada a la impresora.`);
+      for (let copy = 0; copy < Math.max(1, job.copies); copy += 1) window.print();
+      setMessage("Revisa el papel y confirma el resultado. Cerrar el diálogo no confirma la impresión.");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "No se pudo completar la impresión.";
       if (claimed) await updateStatus(job, "FAILED", detail).catch(() => undefined);
-      setMessage(detail);
-    } finally {
-      setCurrent(null);
-      processing.current = null;
+      setMessage(detail); setCurrent(null); processing.current = null;
     }
-  }, [simulation, updateStatus]);
+  }, [simulation, updateStatus, printers]);
+
+  async function confirmPrint(printed: boolean) {
+    if (!current) return;
+    try {
+      if (!simulation) await updateStatus(current, printed ? "PRINTED" : "FAILED", printed ? undefined : "El operador canceló o no recibió la impresión.");
+      setMessage(simulation ? "Vista de prueba cerrada; la comanda sigue pendiente." : printed ? "Impresión confirmada por el operador." : "Comanda pendiente de reimpresión.");
+      setCurrent(null); processing.current = null;
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo confirmar. Reintenta sin volver a imprimir."); }
+  }
 
   const loadJobs = useCallback(async () => {
     try {
@@ -71,12 +78,12 @@ export function KitchenPrintStation({ businessName, printers }: { businessName: 
       if (!response.ok) throw new Error("No se pudo consultar la cola de impresión.");
       const payload = await response.json() as { jobs: PrintJob[] };
       setJobs(payload.jobs);
-      const next = payload.jobs.filter((job) => job.claimable && job.automatic).sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))[0];
-      if (enabled && next) await processJob(next);
+      const next = payload.jobs.filter((job) => job.claimable && job.automatic && (!job.printerId || printers.some((printer) => printer.id === job.printerId && printer.connectionType === "BROWSER"))).sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))[0];
+      if (enabled && !simulation && next && printers.find((printer) => printer.id === selectedPrinter)?.connectionType !== "LOCAL_AGENT") await processJob(next);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "La estación perdió conexión.");
     }
-  }, [enabled, processJob, selectedPrinter]);
+  }, [enabled, processJob, selectedPrinter, simulation, printers]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void loadJobs(), 0);
@@ -92,13 +99,16 @@ export function KitchenPrintStation({ businessName, printers }: { businessName: 
 
   const pending = jobs.filter((job) => job.claimable).length;
   const failed = jobs.filter((job) => job.status === "FAILED");
-  const manual = jobs.filter((job) => job.claimable && !job.automatic);
+  const sent = jobs.filter((job) => job.status === "SENT");
+  const manual = jobs.filter((job) => job.claimable && (!job.automatic || !enabled || simulation));
   return <>
     <Card className="kitchen-print-station">
-      <div className="kitchen-print-station__identity"><span><Printer size={20} /></span><div><h2>Estación de impresión</h2><p>Imprime comandas nuevas, adicionales y anulaciones automáticamente.</p></div></div>
+      <div className="kitchen-print-station__identity"><span><Printer size={20} /></span><div><h2>Estación de impresión</h2><p>Envía comandas al navegador y confirma que salieron correctamente en papel.</p></div></div>
       <div className="kitchen-print-station__status"><StatusBadge tone={enabled ? "success" : "neutral"} dot>{enabled ? "Conectada" : "Desactivada"}</StatusBadge><small>{pending} pendientes · {failed.length} fallidas</small></div>
-      <div className="kitchen-print-station__controls">{printers.length ? <label><span>Impresora</span><select value={selectedPrinter} onChange={(event) => choosePrinter(event.target.value)}>{printers.map((printer) => <option value={printer.id} key={printer.id}>{printer.name}</option>)}</select></label> : null}<label><input type="checkbox" checked={enabled} onChange={(event) => toggleEnabled(event.target.checked)} /><span>Impresión automática</span></label><label><input type="checkbox" checked={simulation} onChange={(event) => toggleSimulation(event.target.checked)} /><span>Modo simulación</span></label><Button type="button" size="sm" variant="ghost" onClick={() => void loadJobs()}><RefreshCw size={14} />Actualizar</Button></div>
+      <div className="kitchen-print-station__controls">{printers.length ? <label><span>Impresora</span><select value={selectedPrinter} disabled={Boolean(current)} onChange={(event) => choosePrinter(event.target.value)}>{printers.map((printer) => <option value={printer.id} key={printer.id}>{printer.name}</option>)}</select></label> : null}<label><input type="checkbox" checked={enabled} onChange={(event) => toggleEnabled(event.target.checked)} /><span>Abrir siguientes comandas</span></label><label><input type="checkbox" disabled={Boolean(current)} checked={simulation} onChange={(event) => toggleSimulation(event.target.checked)} /><span>Modo simulación</span></label><Button type="button" size="sm" variant="ghost" onClick={() => void loadJobs()}><RefreshCw size={14} />Actualizar</Button></div>
+      {current ? <div className="kitchen-print-errors" role="group" aria-label="Confirmar impresión"><strong>{simulation ? "Prueba sin cambios" : `Confirma la impresión de ${current.order.code}`}</strong><p>{simulation ? "Puedes revisar el formato en el diálogo de impresión. La cola no cambia." : "Si cancelaste el diálogo, faltó papel o salió incompleta, elige No salió."}</p>{simulation ? <><Button type="button" onClick={() => window.print()}>Ver formato</Button><Button type="button" onClick={() => void confirmPrint(false)}>Cerrar prueba</Button></> : <><Button type="button" onClick={() => void confirmPrint(true)}>Salió correctamente</Button><Button type="button" variant="secondary" onClick={() => void confirmPrint(false)}>No salió / cancelé</Button></>}</div> : null}
       {message ? <p className="kitchen-print-message" role="status"><CheckCircle2 size={15} />{message}</p> : null}
+      {sent.length ? <div className="kitchen-print-errors"><strong>Enviadas al equipo · Verificar papel</strong>{sent.map((job) => <div key={job.id}><span>{job.order.code} · {job.payload.printerName}</span><Button type="button" onClick={async () => { const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/confirm-delivery`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ printed: true }) }); setMessage(response.ok ? "Salida en papel confirmada." : "No se pudo confirmar. Actualiza e intenta otra vez."); await loadJobs(); }}>Recibida en papel</Button><Button type="button" variant="secondary" onClick={async () => { const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/confirm-delivery`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ printed: false }) }); setMessage(response.ok ? "Fallo registrado; verifica antes de reimprimir." : "No se pudo registrar el fallo."); await loadJobs(); }}>No salió</Button></div>)}</div> : null}
       {failed.length ? <div className="kitchen-print-errors"><strong><TriangleAlert size={15} />Impresiones pendientes de atención</strong>{failed.slice(0, 3).map((job) => <div key={job.id}><span><b>{typeLabels[job.type]} · {job.order.code}</b><small>{job.lastError || "No confirmada"}</small></span><Button type="button" size="sm" variant="secondary" onClick={() => void retry(job)}>Reimprimir</Button></div>)}</div> : null}
       {manual.length ? <div className="kitchen-print-errors"><strong><Printer size={15} />Impresiones manuales</strong>{manual.slice(0, 3).map((job) => <div key={job.id}><span><b>{typeLabels[job.type]} · {job.order.code}</b><small>{job.payload.printerName ?? "Impresora seleccionada"}</small></span><Button type="button" size="sm" variant="secondary" onClick={() => void processJob(job)}>Imprimir ahora</Button></div>)}</div> : null}
     </Card>

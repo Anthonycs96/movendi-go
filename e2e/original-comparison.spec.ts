@@ -70,7 +70,6 @@ async function loginV2(context: BrowserContext, email: string, slug: string) {
   const page = await context.newPage();
   await page.goto(`${v2Base}/login`);
   await page.getByLabel(/Correo electrónico/i).fill(email);
-  await page.getByLabel(/^Negocio$/i).fill(slug);
   await page.getByLabel(/^Contraseña$/i).fill("Nexo2026!");
   await page.getByRole("button", { name: "Entrar al sistema" }).click();
   await page.waitForURL((url) => url.pathname.includes(`/t/${slug}/`), { timeout: 30_000 });

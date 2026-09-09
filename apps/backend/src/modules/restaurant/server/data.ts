@@ -31,7 +31,7 @@ export async function getRestaurantData(scope: TenantScope, reportPeriod?: Resta
   const preparationProductSelect = { productType: true, kitchenArea: true, areaAssignmentMode: true, preparationArea: { select: { id: true, name: true } }, category: { select: { preparationArea: { select: { id: true, name: true } } } } } as const;
   const orderInclude = {
     table: { select: { id: true, name: true } },
-    customer: { select: { id: true, name: true } },
+    customer: { select: { id: true, name: true, loyaltyPoints: canCash, active: canCash } },
     createdBy: { select: { id: true, name: true } },
     items: { select: { recipeSnapshot: true, preparationAreaKey: true, preparationAreaName: true, id: true, productId: true, parentProductId: true, name: true, quantity: true, totalCents: true, status: true, notes: true, product: { select: preparationProductSelect }, parentProduct: { select: preparationProductSelect } } },
     kitchenTicket: { select: { id: true, status: true, createdAt: true } },

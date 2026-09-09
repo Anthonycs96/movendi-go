@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     const customer = await prisma.customer.findFirst({ where: { id, tenantId: scope.tenantId }, select: { id: true, name: true, loyaltyPoints: true, notes: true, segment: true } });
     if (!customer) throw new AppError("NOT_FOUND", 404, "Cliente no encontrado.");
     const [sales, totals] = await Promise.all([
-      prisma.sale.findMany({ where: { ...base, customerId: id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 30, select: { id: true, code: true, createdAt: true, totalCents: true, status: true, loyaltyPointsEarned: true, order: { select: { items: { select: { name: true, quantity: true } } } } } }),
+      prisma.sale.findMany({ where: { ...base, customerId: id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 30, select: { id: true, code: true, createdAt: true, totalCents: true, status: true, loyaltyPointsEarned: true, loyaltyPointsRedeemed: true, loyaltyDiscountCents: true, order: { select: { items: { select: { name: true, quantity: true } } } } } }),
       prisma.sale.aggregate({ where: { ...base, customerId: id, status: "PAID" }, _sum: { totalCents: true }, _count: { id: true } }),
     ]);
     return Response.json({ customer, sales, visits: totals._count.id, spentCents: totals._sum.totalCents ?? 0 }, { headers: { "Cache-Control": "private, no-store" } });

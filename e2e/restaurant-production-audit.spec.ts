@@ -304,8 +304,8 @@ test("impresión: una estación reclama, falla, reintenta y confirma la comanda"
   await command(request, `restaurant/print-jobs/${job.id}/status`, { stationId, status: "FAILED", error: "Sin papel (prueba)" }, "PATCH");
   await command(request, `restaurant/print-jobs/${job.id}/retry`, {});
   await command(request, `restaurant/print-jobs/${job.id}/claim`, { stationId });
-  await command(request, `restaurant/print-jobs/${job.id}/status`, { stationId, status: "PRINTED" }, "PATCH");
-  expect((await request.patch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { data: { stationId, status: "PRINTED" } })).status()).toBe(409);
+  await command(request, `restaurant/print-jobs/${job.id}/status`, { stationId, status: "PRINTED", confirmed: true }, "PATCH");
+  expect((await request.patch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { data: { stationId, status: "PRINTED", confirmed: true } })).status()).toBe(409);
   const next = await order(request);
   const nextCode = (await data(request)).orders.find((item) => item.id === next.id)!.code;
   const nextJobs = await request.get(`/api/operations/restaurant/print-jobs/${printer.id}`);
@@ -314,10 +314,10 @@ test("impresión: una estación reclama, falla, reintenta y confirma la comanda"
   const db = new PrismaClient();
   try { await db.restaurantPrintJob.updateMany({ where: { id: expiring.id, tenantId }, data: { leaseExpiresAt: new Date(0) } }); }
   finally { await db.$disconnect(); }
-  expect((await request.patch(`/api/operations/restaurant/print-jobs/${expiring.id}/status`, { data: { stationId, status: "PRINTED" } })).status()).toBe(409);
+  expect((await request.patch(`/api/operations/restaurant/print-jobs/${expiring.id}/status`, { data: { stationId, status: "PRINTED", confirmed: true } })).status()).toBe(409);
   const reclaim = await request.post(`/api/operations/restaurant/print-jobs/${expiring.id}/claim`, { data: { stationId: "station-recovery" } });
   expect(await reclaim.json()).toMatchObject({ claimed: true });
-  await command(request, `restaurant/print-jobs/${expiring.id}/status`, { stationId: "station-recovery", status: "PRINTED" }, "PATCH");
+  await command(request, `restaurant/print-jobs/${expiring.id}/status`, { stationId: "station-recovery", status: "PRINTED", confirmed: true }, "PATCH");
 });
 
 test("repetir un conteo no duplica el documento ni revierte movimientos posteriores", async ({ request }) => {

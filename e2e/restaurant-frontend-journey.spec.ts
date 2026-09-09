@@ -19,7 +19,6 @@ async function login(page: Page, role = "admin") {
   await page.goto("/login");
   const platform = role === "superadmin";
   await page.getByLabel(/Correo electrónico/i).fill(platform ? "superadmin@multisaas.local" : `${role}@${slug}.local`);
-  if (!platform) await page.getByLabel(/^Negocio$/i).fill(slug);
   await page.getByLabel(/^Contraseña$/i).fill(platform ? "Nexo2026!" : rotated.has(role) ? finalPassword : temporaryPassword);
   await page.getByRole("button", { name: "Entrar al sistema" }).click();
   await expect(page).not.toHaveURL(/\/login$/);

@@ -34,6 +34,8 @@
     "db:bootstrap:prod": "npm run db:bootstrap:prod -w @movendi/backend",
     "db:bootstrap:runtime": "npm run db:bootstrap:runtime -w @movendi/backend",
     "db:check:migrations": "node scripts/check-prisma-migrations.mjs",
+    "db:restore:local": "node scripts/restore-sqlite.mjs",
+    "test:recovery": "node --test scripts/sqlite-recovery.test.mjs",
     "db:backup:local": "node scripts/backup-sqlite.mjs",
     "db:studio": "npm run db:studio -w @movendi/backend",
     "jobs:worker": "npm run jobs:worker -w @movendi/backend",
@@ -60,13 +62,15 @@
     "@types/node": "^22.10.2",
     "axe-core": "^4.13.0",
     "eslint": "^9.17.0",
-    "eslint-config-next": "16.3.1",
+    "eslint-config-next": "16.3.4",
+    "next": "16.3.4",
     "railway": "^3.11.0",
     "selfsigned": "^5.5.0",
     "tsx": "^4.23.12",
     "typescript": "^5.7.2"
   },
   "overrides": {
+    "sharp": "^0.35.4",
     "exceljs": {
       "uuid": "11.1.1"
     },

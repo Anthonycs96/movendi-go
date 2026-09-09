@@ -37,7 +37,7 @@ import {
 import QRCode from "qrcode";
 import type { IScannerControls } from "@zxing/browser";
 import { useRouter } from "next/navigation";
-import { useLiveRefresh } from "@/shared/lib/use-live-refresh";
+import { useRestaurantLive } from "./use-restaurant-live";
 import type {
   RestaurantData,
   RestaurantOrderDto,
@@ -2231,7 +2231,7 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
     : defaultTableId;
   const focused =
     data.tables.find((table) => table.id === effectiveFocusedId) ?? null;
-  useLiveRefresh(10_000, !showActivity && !orderBusy);
+  useRestaurantLive(!showActivity && !orderBusy);
   useEffect(() => {
     if (!floorNotice) return;
     const timer = window.setTimeout(() => setFloorNotice(""), 4500);

@@ -9,7 +9,7 @@ async function deviceFrom(request: Request) {
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
   if (token.length < 32) throw new AppError("INVALID_PRINT_AGENT", 401, "Token del agente de impresión inválido.");
   const tokenHash = createHash("sha256").update(token).digest("hex");
-  const device = await prisma.printDevice.findFirst({ where: { tokenHash, active: true }, select: { id: true, tenantId: true, branchId: true, name: true, paperWidthMm: true, automatic: true } });
+  const device = await prisma.printDevice.findFirst({ where: { tokenHash, active: true, connectionType: "LOCAL_AGENT" }, select: { id: true, tenantId: true, branchId: true, name: true, paperWidthMm: true, automatic: true } });
   if (!device) throw new AppError("INVALID_PRINT_AGENT", 401, "El agente de impresión no está autorizado.");
   return device;
 }
@@ -30,6 +30,7 @@ async function handle(request: Request, context: Context) {
     }
 
     if (request.method === "POST" && resource === "jobs" && id === "next") {
+      if (!device.automatic) return Response.json({ ok: true, job: null });
       const now = new Date();
       const job = await prisma.restaurantPrintJob.findFirst({
         where: { tenantId: device.tenantId, branchId: device.branchId, printerId: device.id, automatic: true, OR: [{ status: "PENDING" }, { status: "PROCESSING", leaseExpiresAt: { lte: now } }] },
@@ -45,18 +46,19 @@ async function handle(request: Request, context: Context) {
       if (claimed.count !== 1) return Response.json({ ok: true, job: null });
       let payload: unknown = { items: [] };
       try { payload = JSON.parse(job.payload); } catch { /* La comanda seguirá disponible con un contenido vacío seguro. */ }
-      return Response.json({ ok: true, job: { id: job.id, type: job.type, copies: job.copies, createdAt: job.createdAt.toISOString(), order: { code: job.order?.code ?? "PRUEBA", source: job.order?.source ?? "TEST", notes: job.order?.notes ?? null, tableName: job.order?.table?.name ?? null, customerName: job.order?.customer?.name ?? null }, createdBy: job.createdBy.name, payload } });
+      return Response.json({ ok: true, job: { id: job.id, deliveryAttempt: job.deliveryAttempt, type: job.type, copies: job.copies, createdAt: job.createdAt.toISOString(), order: { code: job.order?.code ?? "PRUEBA", source: job.order?.source ?? "TEST", notes: job.order?.notes ?? null, tableName: job.order?.table?.name ?? null, customerName: job.order?.customer?.name ?? null }, createdBy: job.createdBy.name, payload } });
     }
 
     if (request.method === "PATCH" && resource === "jobs" && id && action === "status") {
       const body = await bodyOf(request);
-      if (body.status !== "PRINTED" && body.status !== "FAILED") throw new AppError("VALIDATION_ERROR", 400, "Estado de impresión inválido.");
+      if (body.status !== "SENT" && body.status !== "PRINTED" && body.status !== "FAILED") throw new AppError("VALIDATION_ERROR", 400, "Estado de impresión inválido.");
       const error = typeof body.error === "string" ? body.error.trim().slice(0, 300) : null;
       const updated = await prisma.restaurantPrintJob.updateMany({
-        where: { id, printerId: device.id, status: "PROCESSING", stationId: `agent:${device.id}` },
+        where: { id, printerId: device.id, status: "PROCESSING", stationId: `agent:${device.id}`, leaseExpiresAt: { gt: new Date() } },
         data: { status: body.status, lastError: body.status === "FAILED" ? error || "El agente local informó un fallo." : null, printedAt: body.status === "PRINTED" ? new Date() : null, leaseExpiresAt: null },
       });
       if (updated.count !== 1) throw new AppError("PRINT_JOB_NOT_CLAIMED", 409, "La comanda no pertenece a este agente o su reserva venció.");
+      await prisma.auditLog.create({ data: { tenantId: device.tenantId, branchId: device.branchId, action: `PRINT_AGENT_${body.status}`, entityType: "RestaurantPrintJob", entityId: id } });
       return Response.json({ ok: true });
     }
 

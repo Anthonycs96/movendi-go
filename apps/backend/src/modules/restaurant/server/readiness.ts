@@ -23,6 +23,7 @@ export async function getRestaurantReadiness(scope: Pick<TenantScope, "tenantId"
     prisma.inventoryItem.count({ where: { tenantId: scope.tenantId, branchId: scope.branchId, active: true } }),
     prisma.restaurantIntegrationCredential.findUnique({ where: { tenantId_provider: { tenantId: scope.tenantId, provider: "NUBEFACT" } }, select: { status: true } }),
   ]);
+  const acceptances = await prisma.auditLog.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, action: "OPERATION_ACCEPTANCE", entityType: "RestaurantReadiness" }, orderBy: { createdAt: "desc" }, take: 30, select: { entityId: true, createdAt: true } });
   const roleKeys = new Set(roles.map((role) => role.key));
   const approvalRolesMissing = configuration.sales.approvalRoleKeys.filter((role) => !roleKeys.has(role));
   const dineInEnabled = configuration.orders.sources.some((source) => source.active && source.key === "DINE_IN");
@@ -37,8 +38,12 @@ export async function getRestaurantReadiness(scope: Pick<TenantScope, "tenantId"
     check("PRINTING", "PRINTING", "Rutas de impresión", printerAreas ? `${printerAreas} áreas configuradas para imprimir no tienen impresora activa.` : "Las áreas de impresión tienen un destino válido.", printerAreas ? "BLOCKED" : "READY", "Configurar impresión"),
     check("KITCHEN_THRESHOLDS", "RESTAURANT_KITCHEN", "Alertas de cocina", configuration.kitchen.criticalMinutes > configuration.kitchen.warningMinutes ? "El umbral crítico es mayor que el preventivo." : "La alerta crítica debe ocurrir después de la preventiva.", configuration.kitchen.criticalMinutes > configuration.kitchen.warningMinutes ? "READY" : "BLOCKED", "Corregir tiempos"),
     check("INVENTORY", "RESTAURANT_CONTROL", "Inventario y recetas", configuration.inventory.autoDeductRecipes && (!inventoryItems || !recipes) ? "El descuento automático está activo, pero faltan insumos o recetas." : `${inventoryItems} insumos y ${recipes} recetas configuradas.`, configuration.inventory.autoDeductRecipes && (!inventoryItems || !recipes) ? "WARNING" : "READY", "Revisar inventario"),
-    check("SUNAT", "RESTAURANT_INTEGRATIONS", "Facturación electrónica", !configuration.integrations.sunatEnabled ? "La emisión electrónica está deshabilitada." : sunatCredential?.status === "CONNECTED" ? "NubeFact está conectado y listo para emitir." : sunatCredential ? "Las credenciales existen, pero falta validar la conexión." : "SUNAT está habilitado, pero faltan las credenciales de NubeFact.", !configuration.integrations.sunatEnabled || sunatCredential?.status === "CONNECTED" ? "READY" : sunatCredential ? "WARNING" : "BLOCKED", "Configurar SUNAT"),
+    check("SUNAT", "RESTAURANT_INTEGRATIONS", "Facturación electrónica", !configuration.integrations.sunatEnabled ? "La emisión electrónica está deshabilitada." : sunatCredential?.status === "CONNECTED" ? "Conexión validada. Falta comprobar emisión, consulta y devolución con comprobantes del proveedor." : sunatCredential ? "Las credenciales existen, pero falta validar la conexión." : "SUNAT está habilitado, pero faltan las credenciales de NubeFact.", !configuration.integrations.sunatEnabled ? "READY" : sunatCredential ? "WARNING" : "BLOCKED", "Configurar SUNAT"),
   ];
+  for (const [key, label] of [["TEAM_TRAINING", "Capacitación del equipo"], ["FIRST_SHIFT", "Primer turno acompañado"]]) {
+    const acceptance = acceptances.find((entry) => entry.entityId === key);
+    checks.push(check(key, "OPERATIONS", label, acceptance ? `Confirmado por un responsable el ${acceptance.createdAt.toISOString().slice(0,10)}.` : "Pendiente de confirmar con el equipo del restaurante.", acceptance ? "READY" : "WARNING", "Registrar validación"));
+  }
   const blockers = checks.filter((item) => item.status === "BLOCKED");
   const warnings = checks.filter((item) => item.status === "WARNING");
   const score = Math.round(checks.reduce((total, item) => total + (item.status === "READY" ? 1 : item.status === "WARNING" ? 0.5 : 0), 0) / checks.length * 100);

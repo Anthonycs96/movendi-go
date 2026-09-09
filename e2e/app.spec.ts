@@ -6,7 +6,6 @@ async function login(page: Page, email: string, businessSlug: string, options: {
   const currentPassword = options.password ?? password;
   await page.goto("/login");
   await page.getByLabel(/Correo electrónico/i).fill(email);
-  await page.getByLabel(/^Negocio$/i).fill(businessSlug);
   await page.getByLabel(/^Contraseña$/i).fill(currentPassword);
   await page.getByRole("button", { name: "Entrar al sistema" }).click();
   if (options.changePasswordTo) {
@@ -31,14 +30,14 @@ async function logoutViaApi(page: Page) {
 }
 
 test.describe.serial("flujos críticos con base de datos real", () => {
-  test("detecta el acceso global del Super Admin sin pedir empresa", async ({ page }) => {
+  test("no revela el rol global antes de verificar la contraseña", async ({ page }) => {
     await page.goto("/login");
     await expect(page.getByText("MOVENDI GO", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Tu operación completa, en un solo lugar." })).toBeVisible();
     await expect(page.getByText("Accesos de demostración")).toHaveCount(0);
     await expect(page.getByLabel("Correo electrónico")).toHaveValue("");
     await page.getByLabel("Correo electrónico").fill("superadmin@multisaas.local");
-    await expect(page.getByLabel("Tipo de acceso")).toHaveValue("Super Admin · Control global");
+    await expect(page.getByLabel("Tipo de acceso")).toHaveCount(0);
     await expect(page.getByLabel(/^Negocio$/i)).toHaveCount(0);
   });
 
@@ -186,7 +185,6 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     await expect(page).toHaveURL(/\/login$/);
 
     await page.getByLabel(/Correo electrónico/i).fill("operador.e2e@nova.local");
-    await page.getByLabel(/^Negocio$/i).fill("nova-studio");
     await page.getByLabel(/^Contraseña$/i).fill(operatorPassword);
     await page.getByRole("button", { name: "Entrar al sistema" }).click();
     await expect(page.locator(".auth-error")).toContainText("Credenciales o negocio incorrectos");

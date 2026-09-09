@@ -16,7 +16,7 @@ import { calculatePromotion } from "./promotions";
 import { createRoutedPrintJobs } from "./printing";
 import { consumeRestaurantSaleInventory, withInventoryTransaction } from "@/modules/inventory/server/service";
 import { assertRestaurantConfigured, getRestaurantConfiguration, getRestaurantConfigurationHistory, hasStoredRestaurantConfiguration, rollbackRestaurantConfiguration, saveRestaurantConfigurationSection, type RestaurantConfigurationSection } from "./configuration";
-import { normalizeRestaurantArea } from "@movendi/contracts";
+import { loyaltyRedemptionLimit, normalizeRestaurantArea } from "@movendi/contracts";
 import { materializePreparationAreas, updateOwnedPreparationArea } from "./areas";
 import { getRestaurantReadiness } from "./readiness";
 import { electronicDocumentSchema, getSunatConnectionStatus, issueRestaurantElectronicDocument, saveSunatCredentials, sunatCredentialSchema, testSunatConnection } from "./sunat";
@@ -43,6 +43,7 @@ const kitchenStatusSchema = z.object({ itemIds: z.array(z.string().min(1)).min(1
 const orderStatusSchema = z.object({ status: configuredKey, reason: z.string().trim().max(300).optional() });
 const deliveryStatusSchema = z.object({ status: configuredKey });
 const checkoutSchema = z.object({
+  redeemPoints: z.coerce.number().int().min(0).max(10000000).default(0),
   receivedAmount: z.coerce.number().nonnegative().max(1_000_000).optional(),
   paymentMethod: configuredKey.optional(),
   payments: z.array(z.object({ method: configuredKey, amount: z.coerce.number().positive().max(1_000_000), reference: z.string().trim().max(100).optional() })).min(1).max(10).optional(),
@@ -59,7 +60,7 @@ const tableUpdateSchema = tableSchema.extend({ active: activeValue });
 const transferSchema = z.object({ tableId: z.string().min(1) });
 const addItemsSchema = z.object({ items: orderItemsSchema, idempotencyKey: z.string().trim().min(8).max(120).optional() });
 const printStationSchema = z.object({ stationId: z.string().trim().min(8).max(100) });
-const printJobStatusSchema = printStationSchema.extend({ status: z.enum(["PRINTED", "FAILED"]), error: z.string().trim().max(300).optional() });
+const printJobStatusSchema = printStationSchema.extend({ status: z.enum(["PRINTED", "FAILED"]), confirmed: z.boolean().optional(), error: z.string().trim().max(300).optional() });
 const PRINT_JOB_LEASE_MS = 10 * 60 * 1000;
 const preparationAreaSchema = z.object({ name: z.string().trim().min(2).max(80), type: z.enum(["KITCHEN", "BAR", "GRILL", "DESSERT", "BEVERAGE", "CUSTOM"]).optional(), dispatchMode: z.enum(["KDS", "PRINTER", "NONE"]).optional(), active: z.boolean().optional().default(true) });
 const printDeviceSchema = z.object({ name: z.string().trim().min(2).max(100), connectionType: z.enum(["BROWSER", "LOCAL_AGENT"]).default("LOCAL_AGENT"), paperWidthMm: z.coerce.number().int().refine((value) => value === 58 || value === 80, "El ancho debe ser 58 u 80 mm."), automatic: z.boolean().default(true), active: z.boolean().optional().default(true) });
@@ -165,6 +166,11 @@ function validateProductConfiguration(
 
 export async function handleRestaurantCommand(method: string, segments: string[], body: unknown, scope: TenantScope) {
   const [resource, id, action] = segments;
+  if (method === "POST" && resource === "configuration" && id === "acceptance") {
+    const input = parse(z.object({ check: z.enum(["TEAM_TRAINING", "FIRST_SHIFT"]), confirmed: z.literal(true), notes: z.string().trim().min(10).max(500) }), body);
+    await audit(scope, "OPERATION_ACCEPTANCE", "RestaurantReadiness", input.check, { notes: input.notes, confirmedByOperator: true });
+    return { ok: true, message: "Validación registrada con responsable y fecha." };
+  }
   if (method === "GET" && resource === "configuration" && id === "readiness") return getRestaurantReadiness(scope);
   if (method === "GET" && resource === "configuration" && id === "history") return { versions: await getRestaurantConfigurationHistory(scope) };
   if (method === "POST" && resource === "configuration" && id === "rollback" && action) return { ok: true, configuration: await rollbackRestaurantConfiguration(action, scope), message: "Versión restaurada correctamente." };
@@ -185,7 +191,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   if (method === "GET" && resource === "print-jobs") {
     const now = new Date();
     const include = { order: { select: { code: true, source: true, notes: true, table: { select: { name: true } } } }, createdBy: { select: { name: true } } } as const;
-    const [queue, failed, recentPrinted] = await Promise.all([
+    const [queue, failed, recentPrinted, sent] = await Promise.all([
       prisma.restaurantPrintJob.findMany({
         where: {
           tenantId: scope.tenantId,
@@ -206,9 +212,17 @@ export async function handleRestaurantCommand(method: string, segments: string[]
         where: { tenantId: scope.tenantId, branchId: scope.branchId, ...(id ? { printerId: id } : {}), status: "PRINTED" },
         orderBy: { createdAt: "desc" }, take: 20, include,
       }),
+      prisma.restaurantPrintJob.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, ...(id ? { printerId: id } : {}), status: "SENT" }, orderBy: { createdAt: "asc" }, take: 50, include }),
     ]);
-    const jobs = [...queue, ...failed, ...recentPrinted];
+    const jobs = [...queue, ...failed, ...recentPrinted, ...sent];
     return { jobs: jobs.map((job) => ({ id: job.id, printerId: job.printerId, preparationAreaId: job.preparationAreaId, type: job.type, status: job.status, claimable: job.status === "PENDING" || (job.status === "PROCESSING" && Boolean(job.leaseExpiresAt && job.leaseExpiresAt <= now)), automatic: job.automatic, copies: job.copies, attempts: job.attempts, lastError: job.lastError, stationId: job.stationId, leaseExpiresAt: job.leaseExpiresAt?.toISOString() ?? null, printedAt: job.printedAt?.toISOString() ?? null, createdAt: job.createdAt.toISOString(), order: { code: job.order?.code ?? "PRUEBA", source: job.order?.source ?? "TEST", notes: job.order?.notes ?? null, tableName: job.order?.table?.name ?? null }, createdBy: job.createdBy.name, payload: (() => { try { return JSON.parse(job.payload); } catch { return { items: [] }; } })() })) };
+  }
+  if (method === "POST" && resource === "print-jobs" && id && action === "confirm-delivery") {
+    const input = parse(z.object({ printed: z.boolean() }), body);
+    const updated = await prisma.restaurantPrintJob.updateMany({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "SENT" }, data: { status: input.printed ? "PRINTED" : "FAILED", printedAt: input.printed ? new Date() : null, lastError: input.printed ? null : "El operador no recibió la comanda enviada al equipo." } });
+    if (!updated.count) throw new AppError("PRINT_CHANGED", 409, "La comanda ya fue confirmada o cambió de estado.");
+    await audit(scope, input.printed ? "PRINT_CONFIRMED" : "PRINT_FAILED", "RestaurantPrintJob", id);
+    return { ok: true };
   }
   if (method === "POST" && resource === "print-jobs" && id && action === "claim") {
     const input = parse(printStationSchema, body);
@@ -227,6 +241,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   }
   if (method === "PATCH" && resource === "print-jobs" && id && action === "status") {
     const input = parse(printJobStatusSchema, body);
+    if (input.status === "PRINTED" && input.confirmed !== true) throw new AppError("PRINT_CONFIRMATION_REQUIRED", 400, "Confirma que la comanda salió correctamente en papel.");
     const updated = await prisma.restaurantPrintJob.updateMany({
       where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "PROCESSING", stationId: input.stationId, leaseExpiresAt: { gt: new Date() } },
       data: { status: input.status, lastError: input.status === "FAILED" ? input.error || "La impresora no confirmó el trabajo." : null, printedAt: input.status === "PRINTED" ? new Date() : null, leaseExpiresAt: null },
@@ -238,7 +253,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   if (method === "POST" && resource === "print-jobs" && id && action === "retry") {
     const updated = await prisma.restaurantPrintJob.updateMany({
       where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "FAILED" },
-      data: { status: "PENDING", lastError: null, printedAt: null, stationId: null, claimedAt: null, leaseExpiresAt: null },
+      data: { status: "PENDING", deliveryAttempt: { increment: 1 }, lastError: null, printedAt: null, stationId: null, claimedAt: null, leaseExpiresAt: null },
     });
     if (updated.count !== 1) throw new AppError("PRINT_JOB_NOT_RETRYABLE", 409, "La comanda ya está en cola, en proceso o impresa.");
     await audit(scope, "REPRINT_COMMAND", "RestaurantPrintJob", id);
@@ -694,30 +709,41 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, include: { sale: true, kitchenTicket: true } }), "El pedido");
     if (order.sale) throw new AppError("ALREADY_PAID", 409, "El pedido ya fue cobrado.");
     if (["COMPLETED", "CANCELLED"].includes(order.status)) throw new AppError("ORDER_CLOSED", 409, "El pedido está cerrado y no puede cobrarse.");
+    const customer = order.customerId ? await prisma.customer.findFirst({ where: { id: order.customerId, tenantId: scope.tenantId, active: true }, select: { loyaltyPoints: true } }) : null;
+    const club = configuration.customers;
+    if (input.redeemPoints && (!club.loyaltyEnabled || !club.redemptionEnabled || !customer)) throw new AppError("REDEMPTION_UNAVAILABLE", 409, "Activa el canje y vincula un cliente activo al pedido.");
+    const maximumPoints = loyaltyRedemptionLimit(order.totalCents, order.deliveryFeeCents, order.subtotalCents, order.discountCents, configuration.sales.maxDiscountPct, club.maxRedemptionPct, club.pointValueCents, customer?.loyaltyPoints ?? 0);
+    if (input.redeemPoints > maximumPoints) throw new AppError("REDEMPTION_LIMIT", 409, `Puedes canjear hasta ${maximumPoints} puntos en este pedido. Actualiza el saldo.`);
+    const loyaltyDiscountCents = input.redeemPoints * club.pointValueCents;
+    const payableCents = order.totalCents - loyaltyDiscountCents;
     const cash = await prisma.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, orderBy: { openedAt: "desc" } });
     if (!cash && configuration.sales.requireOpenCash) throw new AppError("CASH_CLOSED", 409, "Abre una caja antes de cobrar.");
     const payments = input.payments?.length
       ? input.payments.map((payment) => ({ method: payment.method, amountCents: Math.round(payment.amount * 100), reference: payment.reference || null }))
-      : [{ method: input.paymentMethod!, amountCents: order.totalCents, reference: null }];
+      : [{ method: input.paymentMethod!, amountCents: payableCents, reference: null }];
     if (payments.length > 1 && !configuration.sales.splitPaymentsEnabled) throw new AppError("SPLIT_PAYMENTS_DISABLED", 409, "Los pagos divididos no están habilitados para esta sede.");
     for (const payment of payments) assertRestaurantConfigured(configuration.sales.paymentMethods, payment.method, "El método de pago");
     const paidCents = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
-    if (paidCents !== order.totalCents) throw new AppError("PAYMENT_TOTAL_MISMATCH", 400, `Los pagos deben sumar exactamente S/ ${(order.totalCents / 100).toFixed(2)}.`);
+    if (paidCents !== payableCents) throw new AppError("PAYMENT_TOTAL_MISMATCH", 400, `Los pagos deben sumar exactamente S/ ${(payableCents / 100).toFixed(2)}.`);
     const cashPaidCents = payments.filter((payment) => payment.method === "CASH").reduce((sum, payment) => sum + payment.amountCents, 0);
     if (input.receivedAmount !== undefined && cashPaidCents === 0) throw new AppError("INVALID_TENDER", 400, "El efectivo recibido solo corresponde a pagos en efectivo.");
     if (input.receivedAmount !== undefined && Math.round(input.receivedAmount * 100) < cashPaidCents) throw new AppError("INSUFFICIENT_TENDER", 400, "El efectivo recibido es menor al efectivo a cobrar.");
     const sale = await withInventoryTransaction(async (tx) => {
       await claimOrder(tx, scope, order);
+      if (input.redeemPoints && order.customerId) {
+        const redeemed = await tx.customer.updateMany({ where: { id: order.customerId, tenantId: scope.tenantId, active: true, loyaltyPoints: { gte: input.redeemPoints } }, data: { loyaltyPoints: { decrement: input.redeemPoints } } });
+        if (!redeemed.count) throw new AppError("POINTS_CHANGED", 409, "El saldo de puntos cambió. Actualiza antes de cobrar.");
+      }
       if (cash) {
         const updated = await tx.cashSession.updateMany({ where: { id: cash.id, status: "OPEN" }, data: { expectedCents: { increment: cashPaidCents } } });
         if (updated.count !== 1) throw new AppError("CASH_CLOSED", 409, "La caja se cerró durante el cobro. Actualiza la operación.");
       }
-      const created = await tx.sale.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, customerId: order.customerId, cashReceivedCents: input.receivedAmount !== undefined ? Math.round(input.receivedAmount * 100) : null, changeCents: input.receivedAmount !== undefined ? Math.round(input.receivedAmount * 100) - cashPaidCents : null, loyaltyPointsEarned: configuration.customers.loyaltyEnabled && order.customerId ? Math.floor((order.totalCents / 100) * configuration.customers.pointsPerCurrencyUnit) : 0, orderId: order.id, cashSessionId: cash?.id ?? null, cashierId: scope.actorId, code: operationCode(configuration.general.salePrefix), paymentMethod: payments.length > 1 ? "SPLIT" : payments[0].method, subtotalCents: order.subtotalCents, discountCents: order.discountCents, promotionName: order.promotionName, totalCents: order.totalCents, payments: { create: payments.map((payment) => ({ tenantId: scope.tenantId, branchId: scope.branchId, method: payment.method, amountCents: payment.amountCents, reference: payment.reference })) } } });
+      const created = await tx.sale.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, customerId: order.customerId, cashReceivedCents: input.receivedAmount !== undefined ? Math.round(input.receivedAmount * 100) : null, changeCents: input.receivedAmount !== undefined ? Math.round(input.receivedAmount * 100) - cashPaidCents : null, loyaltyPointsRedeemed: input.redeemPoints, loyaltyDiscountCents, loyaltyPointsEarned: configuration.customers.loyaltyEnabled && order.customerId ? Math.floor((payableCents / 100) * configuration.customers.pointsPerCurrencyUnit) : 0, orderId: order.id, cashSessionId: cash?.id ?? null, cashierId: scope.actorId, code: operationCode(configuration.general.salePrefix), paymentMethod: payments.length > 1 ? "SPLIT" : payments[0].method, subtotalCents: order.subtotalCents, discountCents: order.discountCents + loyaltyDiscountCents, promotionName: order.promotionName, totalCents: payableCents, payments: { create: payments.map((payment) => ({ tenantId: scope.tenantId, branchId: scope.branchId, method: payment.method, amountCents: payment.amountCents, reference: payment.reference })) } } });
       await consumeRestaurantSaleInventory(tx, scope, order.id, created.id, configuration.inventory.preventNegativeStock && !configuration.menu.allowOutOfStockSales, configuration.inventory.autoDeductRecipes);
-      await tx.restaurantOrder.update({ where: { id: order.id }, data: { status: "COMPLETED", completedAt: new Date() } });
+      await tx.restaurantOrder.update({ where: { id: order.id }, data: { status: "COMPLETED", completedAt: new Date(), totalCents: payableCents, discountCents: order.discountCents + loyaltyDiscountCents } });
       if (configuration.customers.loyaltyEnabled && order.customerId) await tx.customer.update({ where: { id: order.customerId }, data: { loyaltyPoints: { increment: created.loyaltyPointsEarned } } });
       if (order.tableId && (!order.kitchenTicket || order.kitchenTicket.status === "SERVED")) await tx.diningTable.update({ where: { id: order.tableId }, data: { status: configuration.floor.cleaningRequired ? "CLEANING" : "AVAILABLE" } });
-      await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "CHECKOUT", entityType: "Sale", entityId: created.id, metadata: JSON.stringify({ orderId: order.id, cashSessionId: cash?.id, payments, cashReceivedCents: created.cashReceivedCents, changeCents: created.changeCents }) } });
+      await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "CHECKOUT", entityType: "Sale", entityId: created.id, metadata: JSON.stringify({ orderId: order.id, cashSessionId: cash?.id, payments, loyaltyPointsRedeemed: input.redeemPoints, loyaltyDiscountCents, cashReceivedCents: created.cashReceivedCents, changeCents: created.changeCents }) } });
       return created;
     });
     let electronicDocumentMessage = "";

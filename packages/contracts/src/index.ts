@@ -70,7 +70,7 @@ export interface PreparationAreaDto { id: string; name: string; normalizedKey: s
 export interface PrintDeviceDto { id: string; name: string; connectionType: string; paperWidthMm: number; automatic: boolean; active: boolean; tokenHint: string | null; lastSeenAt: string | null }
 export interface RestaurantPrintSettingsDto { mode: "SIMPLE" | "ADVANCED"; automatic: boolean; defaultPrinterId: string | null; fields: string[] }
 export interface RestaurantPromotionDto { id: string; name: string; code: string | null; kind: string; value: number; buyQuantity: number; freeQuantity: number; scope: string; categoryId: string | null; productId: string | null; minSubtotalCents: number; maxDiscountCents: number | null; automatic: boolean; weekdays: string; startTime: string | null; endTime: string | null; startsAt: string | null; endsAt: string | null; active: boolean }
-export interface RestaurantOrderDto { id: string; code: string; source: string; deliveryPhone: string | null; deliveryAddress: string | null; deliveryReference: string | null; deliveryFeeCents: number; deliveryStatus: string | null; status: string; notes: string | null; subtotalCents: number; discountCents: number; totalCents: number; promotionName: string | null; promotionCode: string | null; createdAt: string; table: { id: string; name: string } | null; customer: { id: string; name: string } | null; waiter: { id: string; name: string }; items: Array<{ preparationAreaKey: string; preparationAreaName: string; id: string; productId: string; parentProductId: string | null; productType: string; name: string; quantity: number; totalCents: number; status: string; notes: string | null }>; kitchenTicket: { id: string; status: string; createdAt: string } | null; paid: boolean }
+export interface RestaurantOrderDto { id: string; code: string; source: string; deliveryPhone: string | null; deliveryAddress: string | null; deliveryReference: string | null; deliveryFeeCents: number; deliveryStatus: string | null; status: string; notes: string | null; subtotalCents: number; discountCents: number; totalCents: number; promotionName: string | null; promotionCode: string | null; createdAt: string; table: { id: string; name: string } | null; customer: { id: string; name: string; loyaltyPoints?: number; active?: boolean } | null; waiter: { id: string; name: string }; items: Array<{ preparationAreaKey: string; preparationAreaName: string; id: string; productId: string; parentProductId: string | null; productType: string; name: string; quantity: number; totalCents: number; status: string; notes: string | null }>; kitchenTicket: { id: string; status: string; createdAt: string } | null; paid: boolean }
 export interface RestaurantTableDto { id: string; name: string; seats: number; status: string; active: boolean; qrToken: string | null; area: { id: string; name: string }; reservation: { name: string; phone: string | null; reservedAt: string | null; partySize: number | null; notes: string | null } | null; activeOrder: RestaurantOrderDto | null }
 export interface RestaurantCatalogOption { key: string; label: string; active: boolean }
 export interface RestaurantStatusOption extends RestaurantCatalogOption { terminal: boolean; allowedNext: string[] }
@@ -85,7 +85,7 @@ export interface RestaurantConfiguration {
   kitchen: { ticketStatuses: RestaurantStatusOption[]; warningMinutes: number; criticalMinutes: number; autoQueue: boolean; allowKitchenCancellation: boolean; requirePreparationArea: boolean };
   sales: { paymentMethods: RestaurantCatalogOption[]; requireOpenCash: boolean; splitPaymentsEnabled: boolean; maxDiscountPct: number; cashDifferenceToleranceCents: number; approvalRoleKeys: string[] };
   delivery: { enabled: boolean; statuses: RestaurantStatusOption[]; defaultFeeCents: number; requireCustomer: boolean; requirePhone: boolean; requireAddress: boolean };
-  customers: { documentTypes: RestaurantCatalogOption[]; requireDocument: boolean; loyaltyEnabled: boolean; pointsPerCurrencyUnit: number; segments: RestaurantCatalogOption[] };
+  customers: { documentTypes: RestaurantCatalogOption[]; requireDocument: boolean; loyaltyEnabled: boolean; pointsPerCurrencyUnit: number; redemptionEnabled: boolean; pointValueCents: number; maxRedemptionPct: number; segments: RestaurantCatalogOption[] };
   inventory: { units: RestaurantCatalogOption[]; preventNegativeStock: boolean; autoDeductRecipes: boolean; lowStockAlerts: boolean; wasteReasons: RestaurantCatalogOption[] };
   promotions: { kinds: RestaurantCatalogOption[]; scopes: RestaurantCatalogOption[]; maxPercent: number; requireManagerApproval: boolean };
   notifications: { rules: Array<{ event: string; label: string; roleKeys: string[]; channels: string[]; active: boolean }> };
@@ -363,4 +363,11 @@ export interface RestaurantStaffActivity {
   workers: Array<{ id: string; name: string; role: string; active: boolean; openOrders: number; lastActivity: { action: string; entityType: string; createdAt: string } | null }>;
   events: Array<{ id: string; action: string; entityType: string; createdAt: string; user: { id: string; name: string } | null }>;
   nextCursor: string | null;
+}
+
+/** All redemption arithmetic uses integer cents; leave at least one cent payable. */
+export function loyaltyRedemptionLimit(totalCents: number, deliveryFeeCents: number, subtotalCents: number, discountCents: number, maxDiscountPct: number, maxRedemptionPct: number, pointValueCents: number, balance: number) {
+  const merchandise = Math.max(0, totalCents - deliveryFeeCents);
+  const maximumCents = Math.max(0, Math.min(merchandise - 1, Math.floor(merchandise * maxRedemptionPct / 100), Math.floor(subtotalCents * maxDiscountPct / 100) - discountCents));
+  return Math.max(0, Math.min(Math.floor(balance), Math.floor(maximumCents / Math.max(1, pointValueCents))));
 }

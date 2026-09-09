@@ -3,13 +3,13 @@ import { z } from "zod";
 import { prisma } from "@/core/database/prisma";
 import { createSession } from "@/core/auth/session";
 import { AppError, errorResponse } from "@/core/auth/errors";
-import { assertLoginAllowed, clearLoginFailures, loginThrottleKey, recordLoginFailure } from "@/core/auth/login-throttle";
+import { assertLoginAllowed, clearLoginFailures, loginThrottleKey } from "@/core/auth/login-throttle";
 import { isPlatformRole } from "@/core/platform/access";
 import { hasPermission, parsePermissions } from "@/core/auth/permissions";
 
 const schema = z.object({
   email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(1),
+  password: z.string().min(1).max(256),
   businessSlug: z.string().trim().toLowerCase().min(1).optional(),
   rememberSession: z.boolean().optional().default(true),
 });
@@ -52,21 +52,37 @@ export async function POST(request: Request) {
     const parsed = schema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new AppError("VALIDATION_ERROR", 400, "Completa correo y contraseña.");
     const { email, password, businessSlug, rememberSession } = parsed.data;
-    const throttleKey = loginThrottleKey(request, email, businessSlug ?? "platform");
+    const throttleKey = loginThrottleKey(email);
     await assertLoginAllowed(throttleKey);
-    const membership = await prisma.membership.findFirst({
+    const candidates = await prisma.membership.findMany({
       where: {
         active: true,
         tenant: { ...(businessSlug ? { slug: businessSlug } : {}), status: "ACTIVE" },
-        user: { email, active: true, ...(!businessSlug ? { platformRole: { not: null } } : {}) },
+        user: { email, active: true },
       },
       orderBy: { tenant: { slug: "asc" } },
       include: { user: true, tenant: true, branch: true, role: true },
     });
-    const passwordMatches = await compare(password, membership?.user.passwordHash ?? DUMMY_PASSWORD_HASH);
-    if (!membership || !passwordMatches) {
-      await recordLoginFailure(throttleKey);
+    // An email may belong to separate tenant and platform identities. Verify
+    // each distinct stored hash before choosing an identity, never the first row.
+    const verifiedHashes = new Map<string, boolean>();
+    const verified = [];
+    for (const candidate of candidates) {
+      const hash = candidate.user.passwordHash;
+      if (!verifiedHashes.has(hash)) verifiedHashes.set(hash, await compare(password, hash));
+      if (verifiedHashes.get(hash)) verified.push(candidate);
+    }
+    if (!candidates.length) await compare(password, DUMMY_PASSWORD_HASH);
+    const membership = verified[0];
+    if (!membership) {
       throw new AppError("INVALID_CREDENTIALS", 401, "Credenciales o negocio incorrectos.");
+    }
+    if (!businessSlug && !isPlatformRole(membership.user.platformRole)) {
+      const memberships = [...new Map(verified.map((item) => [item.tenantId, item])).values()];
+      if (memberships.length > 1) {
+        await clearLoginFailures(throttleKey);
+        return Response.json({ ok: true, selectBusiness: true, businesses: memberships.map(({ tenant }) => ({ name: tenant.name, slug: tenant.slug, type: tenant.type })) });
+      }
     }
     if (membership.tenant.type === "RESTAURANT" && membership.branchId && !membership.branch?.active && !hasPermission(parsePermissions(membership.role.permissions), "settings:write")) throw new AppError("ASSIGNED_BRANCH_INACTIVE", 403, "Tu sucursal asignada está inactiva. Solicita al administrador que reactive la sede o te asigne otra.");
     const branch = membership.branch?.active ? membership.branch : await prisma.branch.findFirst({ where: { tenantId: membership.tenantId, active: true }, orderBy: { createdAt: "asc" } });

@@ -8,6 +8,7 @@ datasource db {
 }
 
 model Tenant {
+  menuImports RestaurantMenuImport[]
   quotaVersion Int @default(0)
   id                     String    @id @default(cuid())
   slug                   String    @unique
@@ -419,6 +420,7 @@ model EmailOutbox {
 }
 
 model Branch {
+  menuImports RestaurantMenuImport[]
   id        String   @id @default(cuid())
   tenantId  String
   name      String
@@ -467,6 +469,7 @@ model Branch {
 }
 
 model User {
+  menuImports RestaurantMenuImport[]
   id                 String   @id @default(cuid())
   name               String
   email              String
@@ -934,6 +937,7 @@ model RestaurantOrderRequest {
 }
 
 model RestaurantPrintJob {
+  deliveryAttempt Int @default(0)
   id                String    @id @default(cuid())
   tenantId          String
   branchId          String
@@ -1083,6 +1087,8 @@ model Sale {
   cashReceivedCents Int?
   changeCents Int?
   loyaltyPointsEarned Int @default(0)
+  loyaltyPointsRedeemed Int @default(0)
+  loyaltyDiscountCents Int @default(0)
   refund SaleRefund?
   id            String   @id @default(cuid())
   tenantId      String
@@ -1268,6 +1274,7 @@ model AuditLog {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, entityType, entityId])
+  @@index([tenantId, branchId, createdAt, id])
 }
 
 // Transport V2 keeps one authoritative record for each business concept.
@@ -2511,4 +2518,26 @@ model TransportTireEvent {
   vehicle    TransportVehicle? @relation(fields: [vehicleId], references: [id])
 
   @@index([tenantId, tireId, occurredAt])
+}
+
+model RestaurantMenuImport {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  actorId String
+  filename String
+  sourceHash String
+  pageCount Int
+  nextPage Int @default(0)
+  attempts Int @default(0)
+  status String @default("DRAFT")
+  rows String @default("[]")
+  lastError String?
+  leaseUntil DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id])
+  actor User @relation(fields: [actorId], references: [id])
+  @@index([tenantId, branchId, createdAt])
 }

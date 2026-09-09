@@ -1,4 +1,5 @@
 "use client";
+import { MenuImport } from "./MenuImport";
 import { ProductEditor } from "./ProductEditor";
 import { PromotionEditor as PromotionForm } from "./PromotionEditor";
 import { CheckoutPaymentFields, checkoutPayload } from "./CheckoutForm";
@@ -118,6 +119,7 @@ export function RestaurantDirectory({
                   <Input name="name" required placeholder="Ej. Postres" />
                 </Field>
               </OperationForm>
+              {hasPermission(permissions, "restaurant:menu:write") ? <MenuImport data={data} /> : null}
               <ProductEditor data={data} allowed={hasPermission(permissions, "restaurant:menu:write")} />
             </div>
           }
@@ -505,7 +507,7 @@ export function RestaurantDirectory({
                         submitLabel="Confirmar cobro"
                         transform={checkoutPayload}
                       >
-                        <CheckoutPaymentFields data={data} totalCents={row.totalCents} />
+                        <CheckoutPaymentFields data={data} order={row} totalCents={row.totalCents} />
                       </OperationForm>
                     ) : null}
                     {canEditOrders && !row.paid &&

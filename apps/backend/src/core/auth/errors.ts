@@ -1,3 +1,4 @@
+import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
@@ -17,6 +18,7 @@ export class AppError extends Error {
 export async function errorResponse(error: unknown): Promise<Response> {
   const requestId = (await headers()).get("x-request-id") ?? randomUUID();
   const responseHeaders = (extra?: Record<string, string>) => ({ "X-Request-Id": requestId, ...extra });
+  if (error instanceof ZodError) return Response.json({ error: { code: "VALIDATION_ERROR", message: "Revisa los campos obligatorios y sus valores.", details: error.flatten() } }, { status: 400, headers: responseHeaders() });
   if (error instanceof AppError) {
     const retryAfter = error.code === "LOGIN_RATE_LIMITED" && error.details && typeof error.details === "object" && "retryAfterSeconds" in error.details
       ? String(error.details.retryAfterSeconds)

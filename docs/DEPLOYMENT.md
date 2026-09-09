@@ -74,7 +74,6 @@ SESSION_COOKIE_NAME=movendi_go_session
 SESSION_TTL_HOURS=12
 LOGIN_RATE_MAX_ATTEMPTS=5
 LOGIN_RATE_WINDOW_MINUTES=15
-LOGIN_RATE_BLOCK_MINUTES=15
 SLOW_WORKSPACE_MS=500
 JOB_RUNNER_SECRET=una-clave-aleatoria-de-32-o-mas-caracteres
 OBJECT_STORAGE_PROVIDER=local-o-proveedor-externo-configurado
@@ -230,3 +229,7 @@ El webhook de Stripe usa el dominio público del frontend: `https://DOMINIO_FRON
 Cloud Run inyecta `PORT`; ambos contenedores escuchan en `0.0.0.0`. En cada versión: construir, ejecutar el job de migración y desplegar backend/frontend. El bootstrap se ejecuta una sola vez con un Cloud Run Job equivalente y variables `BOOTSTRAP_*`.
 
 Referencias oficiales: [despliegue de contenedores](https://docs.cloud.google.com/run/docs/deploying), [autenticación servicio a servicio](https://docs.cloud.google.com/run/docs/authenticating/service-to-service), [health checks](https://docs.cloud.google.com/run/docs/configuring/healthchecks) y [URLs firmadas V4 de Cloud Storage](https://docs.cloud.google.com/storage/docs/access-control/signing-urls-with-helpers).
+
+## Operación de restaurante
+
+Ver [guía de importación PDF, impresoras y recuperación](RESTAURANT-OPERATIONS-RUNBOOK.md). La lectura PDF se habilita con `MISTRAL_API_KEY` en el backend; no incluirla en variables públicas del frontend. Los scripts de recuperación SQLite se validaron con Node 22.23.2.

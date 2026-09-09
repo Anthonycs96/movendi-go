@@ -6,12 +6,6 @@ const slug = "andes-cargo";
 async function login(page: Page) {
   await page.goto("/login");
   await page.getByLabel(/Correo electrónico/i).fill("admin@andes.local");
-  const businessPicker = page.getByRole("button", { name: "Negocio" });
-  if (await businessPicker.getAttribute("aria-expanded") === "false") {
-    await businessPicker.click();
-    const option = page.getByRole("option").filter({ hasText: "Andes Cargo" });
-    if (await option.count()) await option.click();
-  }
   await page.getByLabel(/^Contraseña$/i).fill("Nexo2026!");
   await page.getByRole("button", { name: "Entrar al sistema" }).click();
   await expect(page).toHaveURL(new RegExp(`/t/${slug}/dashboard$`));

@@ -5,7 +5,6 @@ const password = "Nexo2026!";
 async function login(page: Page, email: string, businessSlug: string) {
   await page.goto("/login");
   await page.getByLabel(/Correo electrónico/i).fill(email);
-  await page.getByLabel(/^Negocio$/i).fill(businessSlug);
   await page.getByLabel(/^Contraseña$/i).fill(password);
   await page.getByRole("button", { name: "Entrar al sistema" }).click();
   await expect(page).toHaveURL(new RegExp(`/t/${businessSlug}/dashboard$`));
@@ -14,7 +13,6 @@ async function login(page: Page, email: string, businessSlug: string) {
 async function attemptLogin(page: Page, email: string, businessSlug: string, attemptedPassword: string) {
   await page.goto("/login");
   await page.getByLabel(/Correo electrónico/i).fill(email);
-  await page.getByLabel(/^Negocio$/i).fill(businessSlug);
   await page.getByLabel(/^Contraseña$/i).fill(attemptedPassword);
   await page.getByRole("button", { name: "Entrar al sistema" }).click();
 }

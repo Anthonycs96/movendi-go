@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useLiveRefresh } from "@/shared/lib/use-live-refresh";
+import { useEffect, useMemo, useState } from "react";
+import { useRestaurantLive } from "./use-restaurant-live";
 import { ChefHat } from "lucide-react";
 import type { RestaurantData } from "../types";
 import {
@@ -32,7 +32,11 @@ export function KitchenWorkspace({
   businessName: string;
   canWrite: boolean;
 }) {
-  useLiveRefresh(10_000);
+  const activePrinters = useMemo(() => data.printDevices.filter((printer) => printer.active), [data.printDevices]);
+  const { connected } = useRestaurantLive();
+  const [now, setNow] = useState(0);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  const [view, setView] = useState("ORDERS");
   const [area, setArea] = useState("ALL");
   const areas = [...new Map(data.kitchen.flatMap((order) => order.items.map((item) => [item.preparationAreaKey, item.preparationAreaName] as const))).entries()];
   const tickets = data.kitchen.flatMap((order) => {
@@ -43,6 +47,16 @@ export function KitchenWorkspace({
       return { ...order, areaKey: key, areaName: items[0].preparationAreaName, items, kitchenTicket: order.kitchenTicket ? { ...order.kitchenTicket, status: state } : null };
     });
   });
+  const production = [...tickets.reduce((groups, ticket) => {
+    for (const item of ticket.items.filter((line) => line.status !== "READY")) {
+      const key = `${ticket.areaKey}:${item.name}:${item.notes ?? ""}:${item.status}`;
+      const existing = groups.get(key) ?? { key, name: item.name, notes: item.notes, area: ticket.areaName, quantity: 0, orders: [] as string[], status: item.status };
+      existing.quantity += item.quantity;
+      existing.orders.push(`${ticket.code} (${item.quantity})`);
+      groups.set(key, existing);
+    }
+    return groups;
+  }, new Map<string, { key: string; name: string; notes: string | null; area: string; quantity: number; orders: string[]; status: string }>()).values()];
   return (
     <>
       <PageHeader
@@ -52,13 +66,14 @@ export function KitchenWorkspace({
         actions={
           <div className="live-chip live-chip--amber">
             <span />
-            {data.kitchen.length} activas
+            {connected ? `${data.kitchen.length} activas · Conectado` : "Sin conexión · Reintentando"}
           </div>
         }
       />
-      {canWrite ? <KitchenPrintStation businessName={businessName} printers={data.printDevices.filter((printer) => printer.active)} /> : null}
+      {canWrite ? <KitchenPrintStation businessName={businessName} printers={activePrinters} /> : null}
       <div className="kitchen-area-filter"><label htmlFor="kitchen-area">Área de preparación</label><Select id="kitchen-area" value={area} onChange={(event) => setArea(event.target.value)}><option value="ALL">Todas las áreas</option>{areas.map(([key, name]) => <option key={key} value={key}>{localizeCode(name, locale)}</option>)}</Select></div>
-      {tickets.length ? (
+      <div className="workspace-tabs" role="group" aria-label="Vista de cocina"><button type="button" aria-pressed={view === "ORDERS"} onClick={() => setView("ORDERS")}>Por pedido</button><button type="button" aria-pressed={view === "PRODUCTION"} onClick={() => setView("PRODUCTION")}>Por producción</button></div>
+      {view === "PRODUCTION" ? <section className="kitchen-grid" aria-label="Producción pendiente">{production.length ? production.map((group) => <Card className="kitchen-ticket kitchen-production-card" key={group.key}><header><div><small>{localizeCode(group.area, locale)} · {localizeCode(group.status, locale)}</small><h3>{group.quantity} × {group.name}</h3></div></header>{group.notes ? <p><strong>Observación: {group.notes}</strong></p> : null}<p>{group.orders.join(" · ")}</p><small>Avanza cada pedido desde la vista Por pedido para conservar su entrega individual.</small></Card>) : <EmptyState title="Sin producción pendiente" description="Los pedidos listos se consultan en la vista Por pedido." />}</section> : tickets.length ? (
         <section className="kitchen-grid">
           {tickets.map((order) => (
             <Card className="kitchen-ticket" key={`${order.id}:${order.areaKey}`}>
@@ -89,7 +104,7 @@ export function KitchenWorkspace({
               </header>
               <div className="ticket-time">
                 <ChefHat size={15} />
-                {formatTime(order.createdAt)}
+                {formatTime(order.createdAt)} · {now ? `${Math.max(0, Math.floor((now - Date.parse(order.createdAt)) / 60000))} min de espera` : "Calculando espera…"}
               </div>
               <ul>
                 {order.items.map((item) => (

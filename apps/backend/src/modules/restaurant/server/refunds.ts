@@ -44,9 +44,9 @@ export async function refundRestaurantSale(scope: TenantScope, saleId: string, b
       await tx.kitchenTicket.updateMany({ where: { orderId: sale.orderId }, data: { status: "CANCELLED" } });
       if (order.tableId) await tx.diningTable.update({ where: { id: order.tableId }, data: { status: configuration.floor.cleaningRequired ? "CLEANING" : "AVAILABLE" } });
     }
-    if (sale.customerId && sale.loyaltyPointsEarned > 0) {
+    if (sale.customerId && (sale.loyaltyPointsEarned > 0 || sale.loyaltyPointsRedeemed > 0)) {
       const customer = await tx.customer.findUniqueOrThrow({ where: { id: sale.customerId } });
-      await tx.customer.update({ where: { id: customer.id }, data: { loyaltyPoints: Math.max(0, customer.loyaltyPoints - sale.loyaltyPointsEarned) } });
+      await tx.customer.update({ where: { id: customer.id }, data: { loyaltyPoints: customer.loyaltyPoints - sale.loyaltyPointsEarned + sale.loyaltyPointsRedeemed } });
     }
     const refund = await tx.saleRefund.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, saleId: sale.id, actorId: scope.actorId, reason: input.reason, stockDisposition: input.stockDisposition, totalCents: sale.totalCents, cashCents, payments: JSON.stringify(payments), cashSessionId: cash?.id, creditStatus: sale.electronicDocument?.status === "ISSUED" ? "PENDING" : "NOT_REQUIRED" } });
     await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "REFUND", entityType: "Sale", entityId: sale.id, metadata: JSON.stringify({ refundId: refund.id, ...input, totalCents: sale.totalCents, cashCents, originalCashSessionId: sale.cashSessionId, refundCashSessionId: cash?.id }) } });

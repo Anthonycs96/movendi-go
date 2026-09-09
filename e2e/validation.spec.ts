@@ -5,7 +5,6 @@ const password = "Nexo2026!";
 async function login(page: Page, email: string, businessSlug: string) {
   await page.goto("/login");
   await page.getByLabel(/Correo electrónico/i).fill(email);
-  await page.getByLabel(/^Negocio$/i).fill(businessSlug);
   await page.getByLabel(/^Contraseña$/i).fill(password);
   await page.getByRole("button", { name: "Entrar al sistema" }).click();
   await page.waitForURL((url) => url.pathname === "/change-password" || url.pathname.endsWith("/dashboard"));

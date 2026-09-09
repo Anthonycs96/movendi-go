@@ -23,7 +23,6 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 768, height: 1024
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("response", (response) => { if (response.status() >= 500) errors.push(`${response.status()} ${response.url()}`); });
     await page.goto("/login");
-    await page.getByLabel("Negocio", { exact: true }).fill("brasa-norte");
     await page.getByLabel(/Correo electrónico/).fill("admin@brasa.local");
     await page.getByLabel("Contraseña", { exact: true }).fill("Nexo2026!");
     await page.getByRole("button", { name: "Entrar al sistema" }).click();

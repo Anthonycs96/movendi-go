@@ -34,3 +34,5 @@ supabase/.temp/
 .object-storage/
 apps/backend/.object-storage/
 .DS_Store
+
+.print-agent-state/
