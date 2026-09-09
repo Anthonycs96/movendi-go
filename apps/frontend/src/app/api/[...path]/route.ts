@@ -23,8 +23,9 @@ async function proxy(request: NextRequest, context: Context) {
   // into Next's URL reconstruction or its same-origin validation.
   for (const name of ["forwarded", "x-forwarded-host", "x-forwarded-proto", "x-forwarded-port"]) headers.delete(name);
   headers.set("accept-encoding", "identity");
-  // Origin is checked at this public boundary. Forward the backend's own origin.
-  headers.set("origin", target.origin);
+  // Browser origin was checked above. This server-to-server request has no
+  // browser origin; TLS termination may give the upstream a different scheme.
+  headers.delete("origin");
   headers.delete("sec-fetch-site");
 
   const upstream = await backendFetch(target, {
