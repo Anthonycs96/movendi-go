@@ -382,7 +382,7 @@ test("cliente desde formulario, delivery, estados y cobro", async ({ page }) => 
   await dialog.getByLabel("Celular").fill("900000001");
   await dialog.getByRole("button", { name: "Guardar", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await page.getByPlaceholder("Buscar por nombre o documento").fill("Cliente delivery QA");
+  await page.getByPlaceholder("Buscar por nombre, documento o celular").fill("Cliente delivery QA");
   await expect(page.getByRole("row").filter({ hasText: "Cliente delivery QA" })).toHaveCount(1);
   const customer = (await data(page.request)).customers.find((item) => item.name === "Cliente delivery QA")!;
   const created = await order(page.request, { source: "DELIVERY", customerId: customer.id, deliveryPhone: "900000001", deliveryAddress: "Dirección de prueba 123", deliveryFee: 5 });

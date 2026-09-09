@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     if (!parsed.success) throw new AppError("VALIDATION_ERROR", 400, "Revisa las fechas y los filtros del historial.");
     const { kind, page, q, from, to, cashId } = parsed.data;
     if (from && to && from > to) throw new AppError("INVALID_RANGE", 400, "La fecha inicial debe ser anterior a la final.");
-    const permission = kind === "orders" ? "restaurant:orders:read" : "restaurant:cash:write";
+    const permission = kind === "orders" ? "restaurant:orders:read" : ["cash", "movements"].includes(kind) ? "restaurant:reports:read" : "restaurant:cash:write";
     const session = await requireSession(permission);
     if (session.tenantType !== "RESTAURANT") throw new AppError("MODULE_ACCESS_DENIED", 403, "Este historial pertenece a Restaurante.");
     assertRestaurantModule(session, kind === "orders" ? "orders" : "checkout");
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     const paging = { take: 25, skip: (page - 1) * 25 };
     if (kind === "sales") {
       const where = { ...base, orderId: { not: null }, createdAt: dates, ...(q ? { code: { contains: q } } : {}) };
-      const [total, rows] = await prisma.$transaction([prisma.sale.count({ where }), prisma.sale.findMany({ where, ...paging, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, code: true, status: true, totalCents: true, createdAt: true, paymentMethod: true, refund: { select: { id: true, reason: true, creditStatus: true, creditError: true, creditResponse: true } }, electronicDocument: { select: { status: true, kind: true, series: true, number: true, lastError: true, pdfUrl: true, xmlUrl: true, cdrUrl: true } } } })]);
+      const [total, rows] = await prisma.$transaction([prisma.sale.count({ where }), prisma.sale.findMany({ where, ...paging, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, code: true, status: true, totalCents: true, createdAt: true, paymentMethod: true, cashReceivedCents: true, changeCents: true, refund: { select: { id: true, reason: true, creditStatus: true, creditError: true, creditResponse: true } }, electronicDocument: { select: { status: true, kind: true, series: true, number: true, lastError: true, pdfUrl: true, xmlUrl: true, cdrUrl: true } } } })]);
       return Response.json({ kind, page, total, pageSize: 25, rows: rows.map((row) => ({ ...row, refund: refundView(row.refund) })) });
     }
     if (kind === "orders") {
@@ -36,8 +36,9 @@ export async function GET(request: Request) {
     }
     if (kind === "cash") {
       const where = { ...base, openedAt: dates };
-      const [total, rows] = await prisma.$transaction([prisma.cashSession.count({ where }), prisma.cashSession.findMany({ where, ...paging, orderBy: [{ openedAt: "desc" }, { id: "desc" }], select: { id: true, status: true, openingCents: true, expectedCents: true, countedCents: true, openedAt: true, closedAt: true, openedBy: { select: { name: true } }, closedBy: { select: { name: true } } } })]);
-      return Response.json({ kind, page, total, pageSize: 25, rows });
+      const [total, rows] = await prisma.$transaction([prisma.cashSession.count({ where }), prisma.cashSession.findMany({ where, ...paging, orderBy: [{ openedAt: "desc" }, { id: "desc" }], select: { id: true, registerName: true, status: true, openingCents: true, expectedCents: true, countedCents: true, openedAt: true, closedAt: true, openedBy: { select: { name: true } }, closedBy: { select: { name: true } } } })]);
+      const totals = await prisma.sale.groupBy({ by: ["cashSessionId"], where: { ...base, cashSessionId: { in: rows.map((row) => row.id) }, orderId: { not: null } }, _sum: { totalCents: true } });
+      return Response.json({ kind, page, total, pageSize: 25, rows: rows.map((row) => ({ ...row, salesCents: totals.find((sum) => sum.cashSessionId === row.id)?._sum.totalCents ?? 0 })) }, { headers: { "Cache-Control": "private, no-store" } });
     }
     const where = { ...base, createdAt: dates, ...(cashId ? { cashSessionId: cashId } : {}), ...(q ? { reason: { contains: q } } : {}) };
     const [total, rows] = await prisma.$transaction([prisma.cashMovement.count({ where }), prisma.cashMovement.findMany({ where, ...paging, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, type: true, amountCents: true, reason: true, createdAt: true, createdBy: { select: { name: true } } } })]);

@@ -1051,6 +1051,10 @@ model KitchenTicket {
 }
 
 model CashSession {
+  registerName  String    @default("Caja principal")
+  openingNote   String?
+  closingNote   String?
+  activeSlot    String?
   id            String    @id @default(cuid())
   tenantId      String
   branchId      String
@@ -1072,9 +1076,12 @@ model CashSession {
 
   @@index([tenantId, branchId, status])
   @@index([tenantId, openedAt])
+  @@unique([tenantId, branchId, activeSlot])
 }
 
 model Sale {
+  cashReceivedCents Int?
+  changeCents Int?
   loyaltyPointsEarned Int @default(0)
   refund SaleRefund?
   id            String   @id @default(cuid())
@@ -1154,6 +1161,7 @@ model SalePayment {
 }
 
 model CashMovement {
+  notes         String?
   id            String   @id @default(cuid())
   tenantId      String
   branchId      String

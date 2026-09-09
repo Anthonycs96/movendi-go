@@ -198,7 +198,7 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     await page.goto("/t/brasa-norte/floor");
     const table3 = page.locator(".floor-table").filter({ hasText: "Mesa 3" });
     await table3.locator(".floor-table__select").click();
-    await page.getByLabel("Acciones de Mesa 3", { exact: true }).getByRole("button", { name: "Reservar", exact: true }).click();
+    await page.getByLabel("Acciones de Mesa 3", { exact: true }).getByRole("button", { name: "Reserva rápida", exact: true }).click();
     await expect(table3).toContainText("Reservada");
     await page.getByLabel("Acciones de Mesa 3", { exact: true }).getByRole("button", { name: "Liberar", exact: true }).click();
     await expect(table3).toContainText("Libre");
@@ -299,6 +299,7 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     await expect(orderRow).toContainText("Listo");
     await orderRow.getByRole("button", { name: "Cobrar" }).click();
     const checkoutDialog = page.getByRole("dialog", { name: /Cobrar PED-/ });
+    await checkoutDialog.getByLabel("Efectivo recibido (S/)").fill("100");
     await checkoutDialog.getByRole("button", { name: "Confirmar cobro" }).click();
     await expect(orderRow).toContainText("Pagado");
 
@@ -313,8 +314,12 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     await expect(page.locator(".floor-table").filter({ hasText: "Mesa 3" })).toContainText("Libre");
 
     await page.goto("/t/brasa-norte/checkout");
+    const cashSummary = await (await page.request.get("/api/data/restaurant-cash")).json();
     await page.getByRole("button", { name: "Cerrar caja" }).click();
-    await page.getByRole("dialog", { name: "Cerrar caja" }).getByRole("button", { name: "Confirmar cierre" }).click();
+    const closing = page.getByRole("dialog", { name: "Cerrar caja" });
+    await closing.getByLabel("Monto contado (S/)").fill(String(cashSummary.cash.expectedCents / 100));
+    await closing.getByRole("checkbox").check();
+    await closing.getByRole("button", { name: "Confirmar cierre" }).click();
     await expect(page.getByText(/Caja cerrada\. Diferencia: S\/ 0\.00/)).toBeVisible();
 
     await page.goto("/t/brasa-norte/reports");

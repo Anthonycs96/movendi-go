@@ -54,7 +54,7 @@ async function openCash(page: Page, amount: string) {
   await page.getByRole("button", { name: "Abrir caja", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Abrir caja" });
   await dialog.getByLabel("Monto inicial (S/)").fill(amount);
-  await dialog.getByRole("button", { name: "Guardar", exact: true }).click();
+  await dialog.getByRole("button", { name: "Abrir caja", exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page.getByText("Caja abierta", { exact: true })).toBeVisible();
 }
@@ -212,11 +212,14 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
       const dialog = cashier.getByRole("dialog", { name: /Cobrar PED-/ });
       await expect(dialog).toContainText("40.00");
       await dialog.getByLabel("Medio de pago").selectOption("CASH");
+      await dialog.getByLabel("Efectivo recibido (S/)").fill("40");
       await dialog.getByRole("button", { name: "Confirmar cobro" }).click();
       await expect(row).toContainText("Pagado");
       await navigate(cashier, "checkout");
-      await expect(cashier.locator(".stat-card").filter({ hasText: "Caja esperada" })).toContainText("140.00");
+      await expect(cashier.locator(".stat-card").filter({ hasText: "Efectivo esperado" })).toContainText("140.00");
       await cashier.getByRole("button", { name: "Cerrar caja", exact: true }).click();
+      await cashier.getByRole("dialog", { name: "Cerrar caja" }).getByLabel("Monto contado (S/)").fill("140");
+      await cashier.getByRole("dialog", { name: "Cerrar caja" }).getByRole("checkbox").check();
       await cashier.getByRole("dialog", { name: "Cerrar caja" }).getByRole("button", { name: "Confirmar cierre" }).click();
       await expect(cashier.getByRole("button", { name: "Abrir caja", exact: true })).toBeVisible();
       await expect(cashier.getByText(/Caja cerrada\. Diferencia: S\/ 0\.00/)).toBeVisible();
@@ -289,14 +292,18 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
     await withdrawal.getByLabel("Motivo").fill("Retiro autorizado desde interfaz");
     await withdrawal.getByRole("button", { name: "Guardar", exact: true }).click();
     await expect(withdrawal).not.toBeVisible();
-    await expect(page.locator(".stat-card").filter({ hasText: "Caja esperada" })).toContainText("90.00");
+    await expect(page.locator(".stat-card").filter({ hasText: "Efectivo esperado" })).toContainText("90.00");
     await page.getByRole("button", { name: "Cerrar caja", exact: true }).click();
-    await page.getByRole("dialog", { name: "Cerrar caja" }).getByRole("button", { name: "Confirmar cierre" }).click();
+    const closing = page.getByRole("dialog", { name: "Cerrar caja" });
+    await closing.getByLabel("Monto contado (S/)").fill("90");
+    await closing.getByRole("checkbox").check();
+    await closing.getByRole("button", { name: "Confirmar cierre" }).click();
     await expect(page.getByText(/Caja cerrada\. Diferencia: S\/ 0\.00/)).toBeVisible();
   });
   test("devolución total e historial de cierres desde la interfaz", async ({ page }, info) => {
     await login(page);
     await openCash(page, "100");
+    await page.getByRole("tab", { name: "Ventas", exact: true }).click();
     await page.getByRole("button", { name: "Devolver venta", exact: true }).first().click();
     const dialog = page.getByRole("dialog", { name: "Devolución total", exact: true });
     await dialog.getByLabel("Motivo", { exact: true }).fill("Devolución total solicitada por el cliente");
@@ -305,9 +312,10 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
     await dialog.getByRole("button", { name: "Registrar devolución total" }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page.getByText("Devuelta · S/ 40.00").first()).toBeVisible();
-    await expect(page.locator(".stat-card").filter({ hasText: "Caja esperada" })).toContainText("60.00");
+    await page.getByRole("tab", { name: "Caja actual", exact: true }).click();
+    await expect(page.locator(".stat-card").filter({ hasText: "Efectivo esperado" })).toContainText("60.00");
+    await page.getByRole("tab", { name: "Historial de cajas", exact: true }).click();
     const history = page.locator(".restaurant-history");
-    await history.getByLabel("Consultar", { exact: true }).selectOption("cash");
     await expect(history.getByRole("heading", { name: "Historial de cajas y cierres" })).toBeVisible();
     await expect(history.getByText("Contado: S/ 90.00")).toBeVisible();
     await capture(page, info, "11-devolucion-e-historial");

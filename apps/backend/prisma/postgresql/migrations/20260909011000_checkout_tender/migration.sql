@@ -1,0 +1,2 @@
+ALTER TABLE "Sale" ADD COLUMN "cashReceivedCents" INTEGER;
+ALTER TABLE "Sale" ADD COLUMN "changeCents" INTEGER;

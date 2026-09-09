@@ -43,12 +43,13 @@ const kitchenStatusSchema = z.object({ itemIds: z.array(z.string().min(1)).min(1
 const orderStatusSchema = z.object({ status: configuredKey, reason: z.string().trim().max(300).optional() });
 const deliveryStatusSchema = z.object({ status: configuredKey });
 const checkoutSchema = z.object({
+  receivedAmount: z.coerce.number().nonnegative().max(1_000_000).optional(),
   paymentMethod: configuredKey.optional(),
   payments: z.array(z.object({ method: configuredKey, amount: z.coerce.number().positive().max(1_000_000), reference: z.string().trim().max(100).optional() })).min(1).max(10).optional(),
 }).superRefine((value, context) => {
   if (!value.paymentMethod && !value.payments?.length) context.addIssue({ code: z.ZodIssueCode.custom, message: "Selecciona al menos un medio de pago." });
 });
-const cashOpenSchema = z.object({ openingAmount: z.coerce.number().nonnegative().max(1000000) });
+const cashOpenSchema = z.object({ openingAmount: z.coerce.number().nonnegative().max(1000000), registerName: z.string().trim().min(2).max(80).default("Caja principal"), notes: z.string().trim().max(500).optional(), idempotencyKey: z.string().trim().min(8).max(120).optional() });
 const activeValue = z.enum(["true", "false"]).transform((value) => value === "true");
 const customerUpdateSchema = customerSchema.extend({ active: activeValue });
 const categoryUpdateSchema = categorySchema.extend({ active: activeValue });
@@ -72,8 +73,8 @@ const reservationSchema = z.object({
   partySize: z.preprocess((value) => value === "" ? undefined : value, z.coerce.number().int().min(1).max(50).optional()),
   notes: z.string().trim().max(300).optional(),
 });
-const cashCloseSchema = z.object({ countedAmount: z.coerce.number().nonnegative().max(1000000) });
-const cashMovementSchema = z.object({ type: z.enum(["IN", "OUT"]), amount: z.coerce.number().positive().max(1_000_000), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().trim().min(8).max(120).optional() });
+const cashCloseSchema = z.object({ countedAmount: z.coerce.number().nonnegative().max(1000000), expectedCents: z.coerce.number().int().optional(), notes: z.string().trim().max(500).optional() });
+const cashMovementSchema = z.object({ type: z.enum(["IN", "OUT"]), amount: z.coerce.number().positive().max(1_000_000), reason: z.string().trim().min(3).max(200), notes: z.string().trim().max(500).optional(), idempotencyKey: z.string().trim().min(8).max(120).optional() });
 const promotionSchema = z.object({
   name: z.string().trim().min(2).max(120),
   code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{3,40}$/).optional().or(z.literal("")),
@@ -703,20 +704,22 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     const paidCents = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
     if (paidCents !== order.totalCents) throw new AppError("PAYMENT_TOTAL_MISMATCH", 400, `Los pagos deben sumar exactamente S/ ${(order.totalCents / 100).toFixed(2)}.`);
     const cashPaidCents = payments.filter((payment) => payment.method === "CASH").reduce((sum, payment) => sum + payment.amountCents, 0);
+    if (input.receivedAmount !== undefined && cashPaidCents === 0) throw new AppError("INVALID_TENDER", 400, "El efectivo recibido solo corresponde a pagos en efectivo.");
+    if (input.receivedAmount !== undefined && Math.round(input.receivedAmount * 100) < cashPaidCents) throw new AppError("INSUFFICIENT_TENDER", 400, "El efectivo recibido es menor al efectivo a cobrar.");
     const sale = await withInventoryTransaction(async (tx) => {
       await claimOrder(tx, scope, order);
       if (cash) {
         const updated = await tx.cashSession.updateMany({ where: { id: cash.id, status: "OPEN" }, data: { expectedCents: { increment: cashPaidCents } } });
         if (updated.count !== 1) throw new AppError("CASH_CLOSED", 409, "La caja se cerró durante el cobro. Actualiza la operación.");
       }
-      const created = await tx.sale.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, customerId: order.customerId, loyaltyPointsEarned: configuration.customers.loyaltyEnabled && order.customerId ? Math.floor((order.totalCents / 100) * configuration.customers.pointsPerCurrencyUnit) : 0, orderId: order.id, cashSessionId: cash?.id ?? null, cashierId: scope.actorId, code: operationCode(configuration.general.salePrefix), paymentMethod: payments.length > 1 ? "SPLIT" : payments[0].method, subtotalCents: order.subtotalCents, discountCents: order.discountCents, promotionName: order.promotionName, totalCents: order.totalCents, payments: { create: payments.map((payment) => ({ tenantId: scope.tenantId, branchId: scope.branchId, method: payment.method, amountCents: payment.amountCents, reference: payment.reference })) } } });
+      const created = await tx.sale.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, customerId: order.customerId, cashReceivedCents: input.receivedAmount !== undefined ? Math.round(input.receivedAmount * 100) : null, changeCents: input.receivedAmount !== undefined ? Math.round(input.receivedAmount * 100) - cashPaidCents : null, loyaltyPointsEarned: configuration.customers.loyaltyEnabled && order.customerId ? Math.floor((order.totalCents / 100) * configuration.customers.pointsPerCurrencyUnit) : 0, orderId: order.id, cashSessionId: cash?.id ?? null, cashierId: scope.actorId, code: operationCode(configuration.general.salePrefix), paymentMethod: payments.length > 1 ? "SPLIT" : payments[0].method, subtotalCents: order.subtotalCents, discountCents: order.discountCents, promotionName: order.promotionName, totalCents: order.totalCents, payments: { create: payments.map((payment) => ({ tenantId: scope.tenantId, branchId: scope.branchId, method: payment.method, amountCents: payment.amountCents, reference: payment.reference })) } } });
       await consumeRestaurantSaleInventory(tx, scope, order.id, created.id, configuration.inventory.preventNegativeStock && !configuration.menu.allowOutOfStockSales, configuration.inventory.autoDeductRecipes);
       await tx.restaurantOrder.update({ where: { id: order.id }, data: { status: "COMPLETED", completedAt: new Date() } });
       if (configuration.customers.loyaltyEnabled && order.customerId) await tx.customer.update({ where: { id: order.customerId }, data: { loyaltyPoints: { increment: created.loyaltyPointsEarned } } });
       if (order.tableId && (!order.kitchenTicket || order.kitchenTicket.status === "SERVED")) await tx.diningTable.update({ where: { id: order.tableId }, data: { status: configuration.floor.cleaningRequired ? "CLEANING" : "AVAILABLE" } });
+      await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "CHECKOUT", entityType: "Sale", entityId: created.id, metadata: JSON.stringify({ orderId: order.id, cashSessionId: cash?.id, payments, cashReceivedCents: created.cashReceivedCents, changeCents: created.changeCents }) } });
       return created;
     });
-    await audit(scope, "CHECKOUT", "Sale", sale.id, { orderId: order.id, payments });
     let electronicDocumentMessage = "";
     if (configuration.integrations.sunatEnabled && configuration.integrations.sunatAutoIssue) {
       try {
@@ -780,23 +783,38 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   }
   if (method === "POST" && resource === "cash" && !id) {
     const input = parse(cashOpenSchema, body);
-    const existing = await prisma.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" } });
-    if (existing) throw new AppError("CASH_ALREADY_OPEN", 409, "Ya existe una caja abierta.");
     const openingCents = Math.round(input.openingAmount * 100);
-    const entity = await prisma.cashSession.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, openedById: scope.actorId, openingCents, expectedCents: openingCents } });
-    await audit(scope, "OPEN", "CashSession", entity.id);
+    const requestId = input.idempotencyKey ? 'cash_' + createHash('sha256').update(scope.tenantId + ':' + scope.branchId + ':' + input.idempotencyKey).digest('hex') : undefined;
+    const entity = await withInventoryTransaction(async (tx) => {
+      if (requestId) {
+        const replay = await tx.cashSession.findUnique({ where: { id: requestId } });
+        if (replay) {
+          if (replay.openingCents !== openingCents || replay.registerName !== input.registerName || (replay.openingNote ?? '') !== (input.notes ?? '')) throw new AppError("IDEMPOTENCY_CONFLICT", 409, "Esta solicitud corresponde a otra apertura.");
+          return replay;
+        }
+      }
+      const existing = await tx.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" } });
+      if (existing) throw new AppError("CASH_ALREADY_OPEN", 409, "Ya existe una caja abierta en esta sede.");
+      const created = await tx.cashSession.create({ data: { id: requestId, tenantId: scope.tenantId, branchId: scope.branchId, openedById: scope.actorId, openingCents, expectedCents: openingCents, registerName: input.registerName, openingNote: input.notes || null, activeSlot: "OPEN" } });
+      await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "OPEN", entityType: "CashSession", entityId: created.id, metadata: JSON.stringify({ openingCents, registerName: input.registerName, notes: input.notes }) } });
+      return created;
+    });
     return { ok: true, id: entity.id, message: "Caja abierta correctamente." };
   }
   if (method === "POST" && resource === "cash" && id && action === "close") {
     const input = parse(cashCloseSchema, body);
     const cash = await required(prisma.cashSession.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, select: { id: true, expectedCents: true } }), "La caja");
+    if (input.expectedCents !== undefined && input.expectedCents !== cash.expectedCents) throw new AppError("CASH_CHANGED", 409, "La caja cambió. Actualiza el resumen antes de confirmar el cierre.");
     const countedCents = Math.round(input.countedAmount * 100);
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
     const differenceCents = countedCents - cash.expectedCents;
     if (Math.abs(differenceCents) > configuration.sales.cashDifferenceToleranceCents && !hasPermission(scope.permissions, "restaurant:cash:approve")) throw new AppError("CASH_DIFFERENCE_APPROVAL_REQUIRED", 403, `La diferencia supera la tolerancia de S/ ${(configuration.sales.cashDifferenceToleranceCents / 100).toFixed(2)} y requiere un responsable con permiso de aprobación.`);
-    const closed = await prisma.cashSession.updateMany({ where: { id: cash.id, status: "OPEN", expectedCents: cash.expectedCents }, data: { status: "CLOSED", countedCents, closedById: scope.actorId, closedAt: new Date() } });
-    if (closed.count !== 1) throw new AppError("CASH_CHANGED", 409, "La caja cambió mientras se cerraba. Actualiza los importes antes de cerrar.");
-    await audit(scope, "CLOSE", "CashSession", cash.id, { countedCents, differenceCents });
+    if (Math.abs(differenceCents) > configuration.sales.cashDifferenceToleranceCents && (input.notes?.length ?? 0) < 5) throw new AppError("CASH_DIFFERENCE_REASON_REQUIRED", 400, "Explica el motivo de la diferencia (al menos 5 caracteres).");
+    await withInventoryTransaction(async (tx) => {
+      const closed = await tx.cashSession.updateMany({ where: { id: cash.id, status: "OPEN", expectedCents: cash.expectedCents }, data: { status: "CLOSED", activeSlot: null, countedCents, closedById: scope.actorId, closedAt: new Date(), closingNote: input.notes || null } });
+      if (closed.count !== 1) throw new AppError("CASH_CHANGED", 409, "La caja cambió mientras se cerraba. Actualiza los importes antes de cerrar.");
+      await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "CLOSE", entityType: "CashSession", entityId: cash.id, metadata: JSON.stringify({ expectedCents: cash.expectedCents, countedCents, differenceCents, notes: input.notes }) } });
+    });
     return { ok: true, id: cash.id, message: `Caja cerrada. Diferencia: S/ ${(differenceCents / 100).toFixed(2)}.` };
   }
   if (method === "POST" && resource === "cash" && id && action === "movement") {
@@ -806,19 +824,27 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     if (movementId) {
       const existing = await prisma.cashMovement.findUnique({ where: { id: movementId } });
       if (existing) {
-        if (existing.type !== input.type || existing.amountCents !== Math.round(input.amount * 100) || existing.reason !== input.reason) throw new AppError("IDEMPOTENCY_CONFLICT", 409, "Esta solicitud ya se utilizó para otro movimiento de caja.");
+        if (existing.type !== input.type || existing.amountCents !== Math.round(input.amount * 100) || existing.reason !== input.reason || (existing.notes ?? "") !== (input.notes ?? "")) throw new AppError("IDEMPOTENCY_CONFLICT", 409, "Esta solicitud ya se utilizó para otro movimiento de caja.");
         return { ok: true, id: existing.id, message: "El movimiento ya quedó registrado." };
       }
     }
     const cash = await required(prisma.cashSession.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, select: { id: true } }), "La caja abierta");
     const amountCents = Math.round(input.amount * 100);
+    if (amountCents <= 0) throw new AppError("INVALID_AMOUNT", 400, "El movimiento debe ser de al menos S/ 0.01.");
     const movement = await withInventoryTransaction(async (tx) => {
-      const updated = await tx.cashSession.updateMany({ where: { id: cash.id, status: "OPEN" }, data: { expectedCents: { increment: input.type === "IN" ? amountCents : -amountCents } } });
-      if (updated.count !== 1) throw new AppError("CASH_CLOSED", 409, "La caja ya está cerrada.");
-      const created = await tx.cashMovement.create({ data: { id: movementId, tenantId: scope.tenantId, branchId: scope.branchId, cashSessionId: cash.id, createdById: scope.actorId, type: input.type, amountCents, reason: input.reason } });
+      if (movementId) {
+        const replay = await tx.cashMovement.findUnique({ where: { id: movementId } });
+        if (replay) {
+          if (replay.type !== input.type || replay.amountCents !== amountCents || replay.reason !== input.reason || (replay.notes ?? "") !== (input.notes ?? "")) throw new AppError("IDEMPOTENCY_CONFLICT", 409, "La solicitud corresponde a otro movimiento.");
+          return replay;
+        }
+      }
+      const updated = await tx.cashSession.updateMany({ where: { id: cash.id, status: "OPEN", ...(input.type === "OUT" ? { expectedCents: { gte: amountCents } } : {}) }, data: { expectedCents: { increment: input.type === "IN" ? amountCents : -amountCents } } });
+      if (updated.count !== 1) throw new AppError("CASH_UNAVAILABLE", 409, "La caja está cerrada o no tiene efectivo suficiente para el retiro.");
+      const created = await tx.cashMovement.create({ data: { id: movementId, tenantId: scope.tenantId, branchId: scope.branchId, cashSessionId: cash.id, createdById: scope.actorId, type: input.type, amountCents, reason: input.reason, notes: input.notes || null } });
+      await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: input.type === "IN" ? "CASH_IN" : "CASH_OUT", entityType: "CashMovement", entityId: created.id, metadata: JSON.stringify({ cashSessionId: cash.id, amountCents, reason: input.reason, notes: input.notes }) } });
       return created;
     });
-    await audit(scope, input.type === "IN" ? "CASH_IN" : "CASH_OUT", "CashMovement", movement.id, { amountCents, reason: input.reason });
     return { ok: true, id: movement.id, message: input.type === "IN" ? "Ingreso de caja registrado." : "Retiro de caja registrado." };
   }
   throw new AppError("NOT_FOUND", 404, "Operación de restaurante no encontrada.");

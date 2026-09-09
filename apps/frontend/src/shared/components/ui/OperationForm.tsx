@@ -1,4 +1,5 @@
 "use client";
+import { requestKey } from "@/shared/lib/request-key";
 
 import { FormEvent, ReactNode, useId, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Plus } from "lucide-react";
@@ -10,7 +11,8 @@ async function responsePayload(response: Response) {
   return response.json().catch(() => ({})) as Promise<{ message?: string; error?: { message?: string; details?: { fieldErrors?: Record<string, string[]> } } }>;
 }
 
-export function OperationForm({ title, description, endpoint, method = "POST", triggerLabel, triggerIcon, triggerVariant = "primary", triggerSize = "md", submitLabel = "Guardar", children, transform, onSuccess, allowed = true }: {
+export function OperationForm({ title, description, endpoint, method = "POST", triggerLabel, triggerIcon, triggerVariant = "primary", triggerSize = "md", submitLabel = "Guardar", children, transform, onSuccess, allowed = true, dialogClassName }: {
+  dialogClassName?: string;
   allowed?: boolean;
   onSuccess?: (message: string) => void;
   title: string;
@@ -51,9 +53,9 @@ export function OperationForm({ title, description, endpoint, method = "POST", t
     const formData = new FormData(form);
     try {
       let body = transform ? transform(formData) : Object.fromEntries(formData.entries());
-      if (/\/restaurant\/cash\/[^/]+\/movement$/.test(endpoint) && body && typeof body === "object") {
+      if (/\/restaurant\/cash(?:\/[^/]+\/movement)?$/.test(endpoint) && body && typeof body === "object") {
         const payload = JSON.stringify(body);
-        if (operationRequest.current?.payload !== payload) operationRequest.current = { payload, key: crypto.randomUUID() };
+        if (operationRequest.current?.payload !== payload) operationRequest.current = { payload, key: requestKey() };
         body = { ...body, idempotencyKey: operationRequest.current.key };
       }
       const response = await fetch(endpoint, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -93,6 +95,7 @@ export function OperationForm({ title, description, endpoint, method = "POST", t
     <Button type="button" variant={triggerVariant} size={triggerSize} onClick={() => { setOpen(true); setError(""); setFieldErrors([]); }}>{triggerIcon ?? <Plus size={16} />}{triggerLabel}</Button>
     <Dialog
       open={open}
+      className={dialogClassName}
       title={title}
       description={description}
       onClose={close}

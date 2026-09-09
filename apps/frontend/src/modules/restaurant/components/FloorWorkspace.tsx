@@ -1,4 +1,5 @@
 "use client";
+import { requestKey } from "@/shared/lib/request-key";
 import { hasPermission } from "@/core/auth/permissions";
 
 import Link from "next/link";
@@ -727,7 +728,7 @@ function ActiveOrderExpansionPanel({
         notes: notes[product.id]?.trim() || undefined,
       }));
       const serialized = JSON.stringify(items);
-      if (additionRequest.current?.payload !== serialized) additionRequest.current = { payload: serialized, key: crypto.randomUUID() };
+      if (additionRequest.current?.payload !== serialized) additionRequest.current = { payload: serialized, key: requestKey() };
       const response = await fetch(
         `/api/operations/restaurant/orders/${order.id}/items`,
         {
@@ -1341,7 +1342,7 @@ function NewOrderComposer({
           })),
         };
       const serialized = JSON.stringify(payload);
-      if (orderRequest.current?.payload !== serialized) orderRequest.current = { payload: serialized, key: crypto.randomUUID() };
+      if (orderRequest.current?.payload !== serialized) orderRequest.current = { payload: serialized, key: requestKey() };
       const response = await fetch("/api/operations/restaurant/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1765,7 +1766,7 @@ function TableQrButton({
   }
   return (
     <>
-      <Button type="button" size="sm" variant="ghost" onClick={show}>
+      <Button type="button" size="sm" variant="secondary" onClick={show}>
         <QrCode size={15} />
         QR
       </Button>
@@ -1976,15 +1977,15 @@ function TableActions({ table, canWrite, businessName }: { table: RestaurantTabl
                   <OperationButton
                     endpoint={`/api/operations/restaurant/tables/${table.id}/reserve`}
                     method="POST"
-                    variant="ghost"
+                    variant="secondary"
                   >
-                    Reservar
+                    Reserva rápida
                   </OperationButton>
                   <OperationForm
                     title={`Reservar ${table.name}`}
                     description="Registra los datos de la visita."
                     endpoint={`/api/operations/restaurant/tables/${table.id}/reserve`}
-                    triggerLabel="Con datos"
+                    triggerLabel="Reservar con datos"
                     submitLabel="Confirmar reserva"
                   >
                     <Field label="Nombre">

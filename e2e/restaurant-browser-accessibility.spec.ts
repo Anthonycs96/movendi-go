@@ -36,7 +36,7 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 768, height: 1024
       await page.getByRole("menuitemradio", { name: /Oscuro/ }).click();
       await expect(page.locator("html")).toHaveClass(/dark/);
     }
-    for (const route of ["dashboard", "floor", "staff", "kitchen", "orders", "checkout", "settings", "reports"]) {
+    for (const route of ["dashboard", "floor", "staff", "kitchen", "orders", "checkout", "menu", "promotions", "clients", "settings", "reports"]) {
       console.log(`${info.project.name} ${viewport.width} ${theme}/${route}`);
       await navigate(page, route === "staff" ? "floor" : route);
       if (route === "staff") {
@@ -46,8 +46,9 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 768, height: 1024
       await expect(page.locator("h1")).toBeVisible();
       if (["orders", "checkout"].includes(route)) await expect(page.getByRole("status", { name: "" }).filter({ hasText: "Cargando historial" })).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), `${route}: sin desbordamiento horizontal`).toBe(true);
-      if (route === "checkout" && viewport.width === 390) {
+      if (route === "clients" && viewport.width === 390) {
         const table = page.getByRole("region", { name: "Tabla desplazable", exact: true }).first();
+        expect(await table.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
         await table.focus(); await page.keyboard.press("ArrowRight");
         await expect.poll(() => table.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
       }

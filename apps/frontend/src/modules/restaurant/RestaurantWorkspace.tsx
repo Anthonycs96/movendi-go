@@ -10,6 +10,8 @@ import type { CoreTenantData } from "@movendi/contracts";
 
 import { hasPermission } from "@/core/auth/permissions";
 
+const CashWorkspace = dynamic(() => import("./components/CashWorkspace").then((module) => module.CashWorkspace), { loading: RouteLoading });
+const CustomerClub = dynamic(() => import("./components/CustomerClub").then((module) => module.CustomerClub), { loading: RouteLoading });
 const RestaurantHistory = dynamic(() => import("./components/RestaurantHistory").then((module) => module.RestaurantHistory), { loading: RouteLoading });
 const FloorWorkspace = dynamic(() => import("./components/FloorWorkspace").then((module) => module.FloorWorkspace), { loading: RouteLoading });
 const KitchenWorkspace = dynamic(() => import("./components/KitchenWorkspace").then((module) => module.KitchenWorkspace), { loading: RouteLoading });
@@ -31,6 +33,8 @@ export function RestaurantWorkspace({
   permissions: string[];
   platformAdmin?: boolean;
 }) {
+  if (section === "checkout") return <CashWorkspace data={data} permissions={permissions} />;
+  if (section === "clients") return <CustomerClub data={data} permissions={permissions} />;
   if (section === "dashboard")
     return (
       <RestaurantDashboard
@@ -75,7 +79,7 @@ export function RestaurantWorkspace({
       permissions={permissions}
       platformAdmin={platformAdmin}
     />
-    {["orders", "checkout"].includes(section) ? <RestaurantHistory initialKind={section === "orders" ? "orders" : "sales"} canRefund={data.canApproveRefund} canIssue={data.configuration.integrations.sunatEnabled && hasPermission(permissions, "restaurant:sunat:write")} /> : null}
+    {section === "orders" ? <RestaurantHistory initialKind="orders" canRefund={data.canApproveRefund} canIssue={data.configuration.integrations.sunatEnabled && hasPermission(permissions, "restaurant:sunat:write")} /> : null}
     </>
   );
 }

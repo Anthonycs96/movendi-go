@@ -29,11 +29,13 @@ export async function refundRestaurantSale(scope: TenantScope, saleId: string, b
     if (claimed.count !== 1) throw new AppError("SALE_CHANGED", 409, "La venta cambió. Consulta su estado antes de reintentar.");
     const payments = sale.payments.length ? sale.payments : [{ method: sale.paymentMethod, amountCents: sale.totalCents, reference: null }];
     const cashCents = payments.filter((payment) => payment.method === "CASH").reduce((sum, payment) => sum + payment.amountCents, 0);
-    const cash = cashCents ? await tx.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" } }) : null;
-    if (cashCents) {
-      if (!cash) throw new AppError("CASH_CLOSED", 409, "Abre una caja para devolver efectivo.");
+    const cash = await tx.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" } });
+    if (cashCents && !cash) throw new AppError("CASH_CLOSED", 409, "Abre una caja para devolver efectivo.");
+    if (cash) {
       const changed = await tx.cashSession.updateMany({ where: { id: cash.id, status: "OPEN", expectedCents: { gte: cashCents } }, data: { expectedCents: { decrement: cashCents } } });
       if (!changed.count) throw new AppError("REFUND_CASH_INSUFFICIENT", 409, "La caja debe estar abierta y tener efectivo suficiente para la devolución.");
+    }
+    if (cashCents && cash) {
       await tx.cashMovement.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, cashSessionId: cash.id, createdById: scope.actorId, type: "OUT", amountCents: cashCents, reason: `Devolución ${sale.code}: ${input.reason}` } });
     }
     if (input.stockDisposition === "RESTOCK" && sale.inventoryMovements.some((movement) => movement.type === "SALE_CONSUMPTION") && !sale.inventoryMovements.some((movement) => movement.type === "SALE_RETURN")) await reverseRestaurantSaleInventory(tx, scope, sale.id, input.reason);
