@@ -2526,6 +2526,8 @@ model RestaurantMenuImport {
   branchId String
   actorId String
   filename String
+  sourceManifest String @default("[]")
+  sourceVerified Boolean @default(false)
   sourceHash String
   pageCount Int
   nextPage Int @default(0)

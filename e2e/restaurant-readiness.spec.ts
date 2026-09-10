@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
+import { PDFDocument } from "pdf-lib";
 import { PrismaClient } from "@prisma/client";
 import { createHash } from "node:crypto";
 import { hash } from "bcryptjs";
@@ -133,7 +134,10 @@ test("menu review is transactional and idempotent through the frontend", async (
   await login(request); const current = await context(request);
   const area = current.data.preparationAreas.find((item: { active: boolean }) => item.active) ?? await db.preparationArea.create({ data: { tenantId: current.tenantId, branchId: current.branchId, name: "Importación cocina" } });
   const row = { key: "0-0", page: 1, name: "Plato importado revisado", category: "Importación revisada", description: "Texto revisado", price: 15, kind: "PRODUCT", warning: "", active: false, selected: true, cost: 0 };
-  const job = await db.restaurantMenuImport.create({ data: { tenantId: current.tenantId, branchId: current.branchId, actorId: current.actorId, filename: "fixture.pdf", sourceHash: "a".repeat(64), pageCount: 1, nextPage: 1, status: "REVIEW", rows: JSON.stringify([row]) } });
+  const pdf = await PDFDocument.create(); pdf.addPage(); const pdfBytes = Buffer.from(await pdf.save());
+  const job = await db.restaurantMenuImport.create({ data: { tenantId: current.tenantId, branchId: current.branchId, actorId: current.actorId, filename: "fixture.pdf", sourceHash: createHash("sha256").update(pdfBytes).digest("hex"), pageCount: 1, nextPage: 1, status: "REVIEW", rows: JSON.stringify([row]) } });
+  expect((await request.post(`/api/restaurant/menu-source?id=${job.id}&index=0&total=1`, { data: pdfBytes })).status()).toBe(200);
+  expect((await request.patch(`/api/restaurant/menu-source?id=${job.id}`)).status()).toBe(200);
   const payload = { id: job.id, confirmed: true, areaId: area.id, taxCategory: "GRAVADA", rows: [row] };
   expect((await request.patch("/api/restaurant/menu-import", { data: { ...payload, rows: [row, row] } })).status()).toBe(400);
   expect(await db.product.count({ where: { tenantId: current.tenantId, name: row.name } })).toBe(0);

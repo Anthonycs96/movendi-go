@@ -1,4 +1,5 @@
 "use client";
+import { MenuHistory } from "./MenuHistory";
 import { MenuImport } from "./MenuImport";
 import { ProductEditor } from "./ProductEditor";
 import { PromotionEditor as PromotionForm } from "./PromotionEditor";
@@ -91,6 +92,7 @@ export function RestaurantDirectory({
   platformAdmin?: boolean;
 }) {
   const [query, setQuery] = useState("");
+  const [menuView, setMenuView] = useState("products");
   const locale = core.tenant.locale;
   const money = (value: number) => formatCurrencyCents(value, core.tenant.currency, locale);
   const canCharge = hasPermission(permissions, "restaurant:cash:write");
@@ -124,6 +126,9 @@ export function RestaurantDirectory({
             </div>
           }
         />
+        {hasPermission(permissions, "restaurant:menu-history:read") ? <div className="menu-history-tabs" role="tablist" aria-label="Vistas de carta" onKeyDown={(event) => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = event.key === "Home" ? "products" : event.key === "End" ? "history" : menuView === "history" ? "products" : "history"; setMenuView(next); document.getElementById(`menu-${next}-tab`)?.focus(); } }}><button type="button" role="tab" id="menu-products-tab" tabIndex={menuView === "products" ? 0 : -1} aria-controls="menu-products-panel" aria-selected={menuView === "products"} onClick={() => setMenuView("products")}>Productos</button><button type="button" role="tab" id="menu-history-tab" tabIndex={menuView === "history" ? 0 : -1} aria-controls="menu-history-panel" aria-selected={menuView === "history"} onClick={() => setMenuView("history")}>Historial de carta</button></div> : null}
+        <div role="tabpanel" id="menu-history-panel" aria-labelledby="menu-history-tab" hidden={menuView !== "history" || !hasPermission(permissions, "restaurant:menu-history:read")}>{menuView === "history" && hasPermission(permissions, "restaurant:menu-history:read") ? <MenuHistory data={data} canWrite={hasPermission(permissions, "restaurant:menu:write")} /> : null}</div>
+        <div id="menu-products-panel" role={hasPermission(permissions, "restaurant:menu-history:read") ? "tabpanel" : undefined} aria-labelledby={hasPermission(permissions, "restaurant:menu-history:read") ? "menu-products-tab" : undefined} hidden={menuView === "history" && hasPermission(permissions, "restaurant:menu-history:read")}>
         <section className="management-grid menu-management">
           <Card className="table-card">
             <div className="management-heading">
@@ -237,7 +242,7 @@ export function RestaurantDirectory({
               ]}
             />
           </Card>
-        </section>
+        </section></div>
       </>
     );
   }

@@ -1237,3 +1237,21 @@ a:has(> .navigation-hint) { position: relative; }
 .kitchen-production-card { padding:16px; overflow-wrap:anywhere; }
 .kitchen-production-card p { margin:12px 0; font-size:13px; line-height:1.5; }
 .kitchen-production-card > small { color:var(--text-soft); font-size:12px; line-height:1.5; }
+
+/* Menu audit trail: compact on desktop, readable comparisons on phones. */
+.menu-history-tabs { display:flex; gap:8px; border-bottom:1px solid var(--border); margin-bottom:20px; }
+.menu-history-tabs button { padding:12px 18px; border:0; border-bottom:3px solid transparent; background:transparent; color:var(--text-soft); cursor:pointer; }
+.menu-history-tabs button[aria-selected="true"] { border-bottom-color:var(--primary); color:var(--primary); font-weight:600; }
+.menu-history { display:grid; gap:16px; min-width:0; }
+.menu-history-toolbar,.menu-history-heading,.menu-history-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+.menu-history-toolbar h2,.menu-history-heading h3 { margin:0 0 8px; }
+.menu-history-list { display:grid; gap:16px; }
+.menu-history-entry { padding:20px; border:1px solid var(--border); border-radius:14px; background:var(--surface); min-width:0; overflow-wrap:anywhere; }
+.menu-history-entry summary { cursor:pointer; padding:12px 0; font-weight:600; }
+.menu-history-product { padding:8px 0 16px; }
+.menu-history-diff { display:grid; }
+.menu-history-diff>div { display:grid; grid-template-columns:minmax(100px,1fr) minmax(0,2fr) minmax(0,2fr); gap:16px; padding:10px 0; border-bottom:1px solid var(--border); }
+.menu-history-diff span { display:grid; align-content:start; gap:4px; white-space:pre-wrap; }
+.menu-history-diff small { color:var(--text-soft); }
+.menu-history-actions { justify-content:flex-start; margin-top:12px; }
+@media(max-width:640px) { .menu-history-entry { padding:14px; } .menu-history-diff>div { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; } .menu-history-diff strong { grid-column:1/-1; } .menu-history-toolbar { align-items:stretch; flex-direction:column; } }

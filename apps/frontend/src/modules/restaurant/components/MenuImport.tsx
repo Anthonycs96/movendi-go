@@ -5,7 +5,7 @@ import { Button, Dialog, Field, Input, Select } from "@/shared/components/ui";
 import type { RestaurantData } from "../types";
 
 type Row = { key: string; page: number; name: string; category: string; description: string; price: number | null; kind: "PRODUCT" | "ADDON" | "COMBO"; warning: string; selected?: boolean; active?: boolean; cost?: number; targetId?: string; expectedPriceCents?: number };
-type Job = { id: string; filename: string; sourceHash: string; nextPage: number; pageCount: number; status: string; rows: Row[]; lastError?: string };
+type Job = { id: string; filename: string; sourceHash: string; nextPage: number; pageCount: number; status: string; rows: Row[]; lastError?: string; sourceVerified?: boolean };
 const endpoint = "/api/restaurant/menu-import";
 const normalize = (name: string) => name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 async function responseData(response: Response) { const body = await response.json(); if (!response.ok) throw new Error(body.error?.message ?? "No se pudo completar la importación."); return body; }
@@ -48,6 +48,16 @@ export function MenuImport({ data }: { data: RestaurantData }) {
       setSourceUrl(URL.createObjectURL(file));
       let current = await responseData(await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: file.name, sourceHash, pageCount }) })) as Job;
       setJob(current); setRows(prepareRows(current.rows));
+      if (!current.sourceVerified) {
+        const chunkSize = 4 * 1024 * 1024, total = Math.ceil(bytes.byteLength / chunkSize);
+        for (let index = 0; index < total; index++) {
+          if (stop.current) { setMessage("Carga pausada. Selecciona el mismo PDF para continuar."); return; }
+          setMessage(`Conservando PDF original: parte ${index + 1} de ${total}…`);
+          await responseData(await fetch(`/api/restaurant/menu-source?id=${encodeURIComponent(current.id)}&index=${index}&total=${total}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: bytes.slice(index * chunkSize, (index + 1) * chunkSize) }));
+        }
+        await responseData(await fetch(`/api/restaurant/menu-source?id=${encodeURIComponent(current.id)}`, { method: "PATCH" }));
+        current = { ...current, sourceVerified: true }; setJob(current);
+      }
       for (let page = current.nextPage; page < pageCount && !stop.current; page++) {
         setMessage(`Leyendo página ${page + 1} de ${pageCount}… Puedes pausar al terminar esta página.`);
         const one = await PDFDocument.create(); const [copy] = await one.copyPages(document, [page]); one.addPage(copy);
@@ -88,8 +98,8 @@ export function MenuImport({ data }: { data: RestaurantData }) {
     finally { setBusy(false); }
   }
   return <><Button type="button" variant="secondary" onClick={() => void show()}>Importar carta PDF</Button><Dialog open={open} title="Importar carta PDF" description="Lectura por páginas, revisión y confirmación antes de cambiar la carta." className="menu-import-dialog" onClose={() => { stop.current = true; setOpen(false); }}>
-    <p>El lector enviará las páginas a Mistral para extraer productos. Revisa los resultados: la IA puede confundir precios y variantes. Los combos necesitan configuración manual.</p>
-    {!enabled ? <p role="status">Lectura pendiente de activar por el administrador. Tus productos actuales siguen disponibles para edición manual.</p> : <Field label="Seleccionar PDF o continuar lectura"><Input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={(event) => { void read(event.target.files?.[0]); event.target.value = ""; }} /></Field>}
+    <p>Se conservará el PDF original de forma privada. El lector enviará las páginas a Mistral para extraer productos. Revisa los resultados: la IA puede confundir precios y variantes. Los combos necesitan configuración manual.</p>
+    {!enabled && !job ? <p role="status">Lectura pendiente de activar por el administrador. Tus productos actuales siguen disponibles para edición manual.</p> : <Field label="Seleccionar PDF o continuar lectura"><Input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={(event) => { void read(event.target.files?.[0]); event.target.value = ""; }} /></Field>}
     {jobs.filter((item) => item.status !== "APPLIED").length ? <Field label="Borradores guardados"><Select value={job?.id ?? ""} disabled={busy} onChange={(event) => { const item = jobs.find((candidate) => candidate.id === event.target.value); if (item) chooseJob(item); }}><option value="">Selecciona un borrador</option>{jobs.filter((item) => item.status !== "APPLIED").map((item) => <option value={item.id} key={item.id}>{item.filename} · {item.nextPage}/{item.pageCount} páginas</option>)}</Select></Field> : null}
     {message ? <p role="status">{message}</p> : null}{error ? <p role="alert" className="auth-error">{error}</p> : null}
     {job ? <progress aria-label="Páginas leídas" max={job.pageCount} value={job.nextPage} /> : null}

@@ -1,3 +1,4 @@
+import { menuChange, recordMenuHistory, type MenuChange } from "@/modules/restaurant/server/menu-history";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
 import { prisma } from "@/core/database/prisma";
@@ -24,7 +25,7 @@ async function scope() {
 export async function GET() {
   try {
     const current = await scope();
-    const jobs = await prisma.restaurantMenuImport.findMany({ where: { tenantId: current.tenantId, branchId: current.branchId }, orderBy: { createdAt: "desc" }, take: 10 });
+    const jobs = await prisma.restaurantMenuImport.findMany({ where: { tenantId: current.tenantId, branchId: current.branchId, status: { not: "APPLIED" } }, orderBy: { createdAt: "desc" }, take: 50 });
     return Response.json({ enabled: Boolean(process.env.MISTRAL_API_KEY), jobs: jobs.map((job) => ({ ...job, rows: JSON.parse(job.rows) })) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }
 }
@@ -32,12 +33,12 @@ export async function POST(request: Request) {
   try {
     const current = await scope();
     await assertTenantWriteEntitlement(current.tenantId);
-    if (!process.env.MISTRAL_API_KEY) throw new AppError("IMPORT_PROVIDER_NOT_CONFIGURED", 503, "La lectura PDF necesita que el administrador configure el proveedor de IA.");
     if (request.headers.get("content-type")?.includes("application/json")) {
       const input = startSchema.parse(await request.json());
       const job = await withInventoryTransaction(async (tx) => {
         const existing = await tx.restaurantMenuImport.findFirst({ where: { tenantId: current.tenantId, branchId: current.branchId, sourceHash: input.sourceHash, status: { not: "APPLIED" } }, orderBy: { createdAt: "desc" } });
         if (existing) return existing;
+        if (!process.env.MISTRAL_API_KEY) throw new AppError("IMPORT_PROVIDER_NOT_CONFIGURED", 503, "La lectura PDF necesita que el administrador configure el proveedor de IA.");
         const month = new Date(); month.setUTCDate(1); month.setUTCHours(0,0,0,0);
         const used = await tx.restaurantMenuImport.aggregate({ where: { tenantId: current.tenantId, createdAt: { gte: month } }, _sum: { pageCount: true } });
         const quota = Number(process.env.MENU_IMPORT_MONTHLY_PAGES ?? 50);
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
       });
       return Response.json({ ...job, rows: JSON.parse(job.rows) });
     }
+    if (!process.env.MISTRAL_API_KEY) throw new AppError("IMPORT_PROVIDER_NOT_CONFIGURED", 503, "La lectura PDF necesita que el administrador configure el proveedor de IA.");
     if (Number(request.headers.get("content-length") ?? 0) > 9 * 1024 * 1024) throw new AppError("FILE_TOO_LARGE", 413, "Cada página debe ocupar menos de 8 MB.");
     const form = await request.formData();
     const id = String(form.get("id") ?? ""), page = Number(form.get("page"));
@@ -86,10 +88,12 @@ export async function PATCH(request: Request) {
       if (!job) throw new AppError("NOT_FOUND", 404, "Importación no encontrada.");
       if (job.status === "APPLIED") return { ok: true, message: "La importación ya fue aplicada; no se duplicaron productos." };
       if (job.status !== "REVIEW" || job.nextPage !== job.pageCount) throw new AppError("IMPORT_NOT_READY", 409, "Termina la lectura antes de confirmar.");
+      if (!job.sourceVerified) throw new AppError("SOURCE_REQUIRED", 409, "Selecciona el PDF original para conservarlo antes de aplicar los cambios.");
       const area = await tx.preparationArea.findFirst({ where: { id: input.areaId, tenantId: current.tenantId, branchId: current.branchId, active: true } });
       if (!area) throw new AppError("INVALID_AREA", 400, "Selecciona un área activa de esta sede.");
       const categories = await tx.category.findMany({ where: { tenantId: current.tenantId, branchId: current.branchId } });
       const products = await tx.product.findMany({ where: { tenantId: current.tenantId, branchId: current.branchId } });
+      const changes: MenuChange[] = [];
       const names = new Set<string>(), targets = new Set<string>();
       for (const row of input.rows) {
         if (names.has(normalize(row.name)) || (row.targetId && targets.has(row.targetId))) throw new AppError("DUPLICATE_PRODUCT", 400, "La selección contiene productos repetidos. Conserva una fila por producto.");
@@ -100,7 +104,8 @@ export async function PATCH(request: Request) {
         if (existing) {
           if (row.expectedPriceCents !== existing.priceCents) throw new AppError("PRODUCT_CHANGED", 409, `El precio de ${existing.name} cambió. Actualiza la carta antes de importar.`);
           // Updating a price never resets recipes, taxes, category, stock or preparation routing.
-          await tx.product.update({ where: { id: existing.id }, data: { name: row.name, description: row.description, priceCents: Math.round(row.price * 100) } });
+          const updated = await tx.product.update({ where: { id: existing.id }, data: { name: row.name, description: row.description, priceCents: Math.round(row.price * 100) } });
+          changes.push(menuChange(existing, updated));
         } else {
           const kind = row.kind === "ADDON" ? "ADDON" : "FOOD";
           if (!config.menu.productTypes.some((type) => type.key === kind && type.active) || (kind === "ADDON" && !config.menu.addonsEnabled)) throw new AppError("PRODUCT_TYPE_DISABLED", 409, "El tipo de producto no está habilitado en la carta.");
@@ -109,11 +114,12 @@ export async function PATCH(request: Request) {
           let category = categories.find((item) => normalize(item.name) === normalize(row.category));
           if (category && !category.active) throw new AppError("CATEGORY_INACTIVE", 409, `La categoría ${category.name} está inactiva.`);
           if (!category) { category = await tx.category.create({ data: { tenantId: current.tenantId, branchId: current.branchId, name: row.category, preparationAreaId: area.id } }); categories.push(category); }
-          await tx.product.create({ data: { tenantId: current.tenantId, branchId: current.branchId, categoryId: category.id, preparationAreaId: area.id, kitchenArea: area.name, name: row.name, description: row.description, priceCents: Math.round(row.price * 100), costCents: Math.round(row.cost * 100), productType: kind, taxCategory: input.taxCategory, active: row.active } });
+          const created = await tx.product.create({ data: { tenantId: current.tenantId, branchId: current.branchId, categoryId: category.id, preparationAreaId: area.id, kitchenArea: area.name, name: row.name, description: row.description, priceCents: Math.round(row.price * 100), costCents: Math.round(row.cost * 100), productType: kind, taxCategory: input.taxCategory, active: row.active } });
+          changes.push(menuChange(null, created));
         }
       }
       await tx.restaurantMenuImport.update({ where: { id: job.id }, data: { status: "APPLIED", rows: JSON.stringify(input.rows) } });
-      await tx.auditLog.create({ data: { tenantId: current.tenantId, branchId: current.branchId, userId: current.actorId, action: "IMPORT_MENU", entityType: "RestaurantMenuImport", entityId: job.id, metadata: JSON.stringify({ rows: input.rows.length, sourceHash: job.sourceHash }) } });
+      await recordMenuHistory(tx, current, { version: 1, source: "PDF", importId: job.id, filename: job.filename, changes });
       return { ok: true, message: `${input.rows.length} productos importados. Los productos no seleccionados se conservaron.` };
     });
     return Response.json(result);

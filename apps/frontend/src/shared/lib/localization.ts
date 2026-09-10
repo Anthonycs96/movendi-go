@@ -9,6 +9,7 @@ const es: Record<string, string> = {
   DINE_IN: "Consumo en mesa", TAKEAWAY: "Para llevar", DELIVERY: "Delivery",
   KITCHEN: "Cocina", BAR: "Barra", COFFEE: "Café", DESSERTS: "Postres",
   ORDER: "Pedido", CATEGORY: "Categoría", PRODUCT: "Producto", PERCENT: "Porcentaje", FIXED: "Monto fijo", QUANTITY: "Por cantidad",
+  MENU_CHANGE: "Cambio de carta", MENU_REVERT: "Reversión de carta", IMPORT_MENU: "Importación de carta", RestaurantMenuHistory: "Historial de carta",
   CREATE: "Creación", UPDATE: "Actualización", STATUS_CHANGE: "Cambio de estado", CHECKOUT: "Cobro", ADD_ITEMS: "Productos agregados", CLEAN: "Limpieza", SEAT: "Recepción", OPEN_CASH: "Apertura de caja", CLOSE: "Cierre", RESET_PASSWORD: "Restablecimiento de contraseña", UPDATE_PROFILE: "Actualización de perfil", SCAN_QR: "Escaneo de QR", GENERATE_QR: "Generación de QR", RENEW_QR: "Renovación de QR",
   SUCCESS: "Completado", FAILED: "Fallido", PROCESSING: "Procesando", APPROVED: "Aprobado",
 };

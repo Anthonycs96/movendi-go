@@ -114,6 +114,8 @@ const industryPermissions: Record<string, PermissionOption[]> = {
     },
     { value: "restaurant:menu:read", label: "Ver carta", group: "Carta" },
     { value: "restaurant:menu:write", label: "Administrar carta", group: "Carta" },
+    { value: "restaurant:menu-history:read", label: "Ver historial de carta y descargar PDF", group: "Carta" },
+    { value: "restaurant:menu-history:revert", label: "Revertir cambios de carta (requiere administrar carta y ver historial)", group: "Carta" },
     { value: "restaurant:promotions:read", label: "Ver promociones", group: "Promociones" },
     { value: "restaurant:promotions:write", label: "Administrar promociones", group: "Promociones" },
     { value: "restaurant:promotions:approve", label: "Aprobar descuentos excepcionales", group: "Promociones" },

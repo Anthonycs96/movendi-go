@@ -13,7 +13,7 @@ function safeName(value: string) {
 
 function safeHeaderName(value: string) { return safeName(value).replace(/["\\\r\n]/g, "_"); }
 
-export async function storeObject(input: { tenantId: string; actorId: string; purpose: "TRANSPORT_EXPORT" | "TRANSPORT_DOCUMENT"; originalName: string; mimeType: string; data: Buffer; expiresAt?: Date | null; scanStatus: string }) {
+export async function storeObject(input: { tenantId: string; actorId: string; purpose: "TRANSPORT_EXPORT" | "TRANSPORT_DOCUMENT" | "RESTAURANT_MENU_SOURCE"; originalName: string; mimeType: string; data: Buffer; expiresAt?: Date | null; scanStatus: string }) {
   const provider = objectStorageProvider();
   const originalName = safeName(input.originalName);
   const purposeSegment = input.purpose === "TRANSPORT_EXPORT" ? "exports" : "documents";
@@ -34,6 +34,11 @@ function providerFor(record: Pick<StoredObject, "provider" | "bucket">) {
   const provider = objectStorageProvider();
   if (provider.name !== record.provider || provider.bucket !== record.bucket) throw new Error(`El objeto usa ${record.provider}/${record.bucket}, pero el servicio está configurado como ${provider.name}/${provider.bucket}.`);
   return provider;
+}
+
+export async function readStoredObject(record: StoredObject) {
+  if (record.status !== "ACTIVE" || (record.expiresAt && record.expiresAt <= new Date())) throw new AppError("FILE_NOT_AVAILABLE", 410, "El archivo ya no está disponible.");
+  return providerFor(record).read(record.key);
 }
 
 export async function storedObjectDownloadResponse(record: StoredObject) {

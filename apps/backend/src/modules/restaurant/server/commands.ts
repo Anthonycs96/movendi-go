@@ -7,6 +7,7 @@ import { AppError } from "@/core/auth/errors";
 import { hasPermission } from "@/core/auth/permissions";
 import type { TenantScope } from "@/core/auth/types";
 import { audit } from "@/core/audit/audit";
+import { menuChange, recordMenuHistory } from "./menu-history";
 import { refundRestaurantSale } from "./refunds";
 import { issueRestaurantCreditNote } from "./sunat";
 import { reserveOrderIngredients, cancelOrderIngredients, aggregatePreparationStatus, assertDiscountLimit } from "./preparation";
@@ -418,8 +419,11 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     ]);
     validateProductConfiguration(input, configuration, storedConfiguration, category);
     const routedArea = preparationArea ?? category.preparationArea;
-    const entity = await prisma.product.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, categoryId: category.id, name: input.name, description: input.description || null, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null } });
-    await audit(scope, "CREATE", "Product", entity.id);
+    const entity = await withInventoryTransaction(async (tx) => {
+      const created = await tx.product.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, categoryId: category.id, name: input.name, description: input.description || null, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null } });
+      await recordMenuHistory(tx, scope, { version: 1, source: "MANUAL", changes: [menuChange(null, created)] });
+      return created;
+    });
     return { ok: true, id: entity.id, message: "Producto creado correctamente." };
   }
   if (method === "PATCH" && resource === "products" && id) {
@@ -433,8 +437,11 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     ]);
     validateProductConfiguration(input, configuration, storedConfiguration, category);
     const routedArea = preparationArea ?? category.preparationArea;
-    await prisma.product.update({ where: { id: product.id }, data: { name: input.name, description: input.description || null, categoryId: category.id, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null, active: input.active } });
-    await audit(scope, "UPDATE", "Product", product.id, { active: input.active });
+    await withInventoryTransaction(async (tx) => {
+      const before = await tx.product.findFirstOrThrow({ where: { id: product.id, tenantId: scope.tenantId, branchId: scope.branchId } });
+      const after = await tx.product.update({ where: { id: product.id }, data: { name: input.name, description: input.description || null, categoryId: category.id, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null, active: input.active } });
+      await recordMenuHistory(tx, scope, { version: 1, source: "MANUAL", changes: [menuChange(before, after)] });
+    });
     return { ok: true, id: product.id, message: "Producto actualizado correctamente." };
   }
   if (method === "POST" && resource === "areas" && !id) {
