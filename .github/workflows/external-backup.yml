@@ -33,15 +33,25 @@ jobs:
           node-version: '22.23.2'
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Install PostgreSQL 17 client
+      - name: Use PostgreSQL 17 clients from the verified restore image
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client-17
+          mkdir -p "$RUNNER_TEMP/postgres-bin"
+          for command in pg_dump pg_restore psql; do
+            cat > "$RUNNER_TEMP/postgres-bin/$command" <<'CLIENT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker run --rm --network host --user "$(id -u):$(id -g)" \
+            --env PGHOST --env PGPORT --env PGDATABASE --env PGUSER \
+            --env PGPASSWORD --env PGSSLMODE --env PGCONNECT_TIMEOUT \
+            --volume /tmp:/tmp postgres:17 "$(basename "$0")" "$@"
+          CLIENT
+            chmod +x "$RUNNER_TEMP/postgres-bin/$command"
+          done
+          echo "PG_BIN_DIR=$RUNNER_TEMP/postgres-bin" >> "$GITHUB_ENV"
       - name: Back up database and files; verify remote copy and isolated restore
         env:
           DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
           RESTORE_DATABASE_URL: postgresql://postgres:ephemeral-restore-only@127.0.0.1:5432/restore_check
-          PG_BIN_DIR: /usr/lib/postgresql/17/bin
           BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
           BACKUP_APP_INTEGRATION_KEY: ${{ secrets.BACKUP_APP_INTEGRATION_KEY }}
           BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
