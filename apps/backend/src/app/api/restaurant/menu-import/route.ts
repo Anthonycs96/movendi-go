@@ -1,3 +1,4 @@
+import { getMistralKey, mistralStatus } from "@/core/platform/mistral";
 import { menuChange, recordMenuHistory, type MenuChange } from "@/modules/restaurant/server/menu-history";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
@@ -26,19 +27,20 @@ export async function GET() {
   try {
     const current = await scope();
     const jobs = await prisma.restaurantMenuImport.findMany({ where: { tenantId: current.tenantId, branchId: current.branchId, status: { not: "APPLIED" } }, orderBy: { createdAt: "desc" }, take: 50 });
-    return Response.json({ enabled: Boolean(process.env.MISTRAL_API_KEY), jobs: jobs.map((job) => ({ ...job, rows: JSON.parse(job.rows) })) }, { headers: { "Cache-Control": "private, no-store" } });
+    return Response.json({ enabled: (await mistralStatus()).configured, jobs: jobs.map((job) => ({ ...job, rows: JSON.parse(job.rows) })) }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }
 }
 export async function POST(request: Request) {
   try {
     const current = await scope();
     await assertTenantWriteEntitlement(current.tenantId);
+    const mistralKey = await getMistralKey();
     if (request.headers.get("content-type")?.includes("application/json")) {
       const input = startSchema.parse(await request.json());
       const job = await withInventoryTransaction(async (tx) => {
         const existing = await tx.restaurantMenuImport.findFirst({ where: { tenantId: current.tenantId, branchId: current.branchId, sourceHash: input.sourceHash, status: { not: "APPLIED" } }, orderBy: { createdAt: "desc" } });
         if (existing) return existing;
-        if (!process.env.MISTRAL_API_KEY) throw new AppError("IMPORT_PROVIDER_NOT_CONFIGURED", 503, "La lectura PDF necesita que el administrador configure el proveedor de IA.");
+        if (!mistralKey) throw new AppError("IMPORT_PROVIDER_NOT_CONFIGURED", 503, "La lectura PDF necesita que el administrador configure el proveedor de IA.");
         const month = new Date(); month.setUTCDate(1); month.setUTCHours(0,0,0,0);
         const used = await tx.restaurantMenuImport.aggregate({ where: { tenantId: current.tenantId, createdAt: { gte: month } }, _sum: { pageCount: true } });
         const quota = Number(process.env.MENU_IMPORT_MONTHLY_PAGES ?? 50);
@@ -47,7 +49,7 @@ export async function POST(request: Request) {
       });
       return Response.json({ ...job, rows: JSON.parse(job.rows) });
     }
-    if (!process.env.MISTRAL_API_KEY) throw new AppError("IMPORT_PROVIDER_NOT_CONFIGURED", 503, "La lectura PDF necesita que el administrador configure el proveedor de IA.");
+    if (!mistralKey) throw new AppError("IMPORT_PROVIDER_NOT_CONFIGURED", 503, "La lectura PDF necesita que el administrador configure el proveedor de IA.");
     if (Number(request.headers.get("content-length") ?? 0) > 9 * 1024 * 1024) throw new AppError("FILE_TOO_LARGE", 413, "Cada página debe ocupar menos de 8 MB.");
     const form = await request.formData();
     const id = String(form.get("id") ?? ""), page = Number(form.get("page"));
@@ -65,7 +67,7 @@ export async function POST(request: Request) {
     const claimed = await prisma.restaurantMenuImport.updateMany({ where: { id, nextPage: page, attempts: { lt: 3 }, OR: [{ leaseUntil: null }, { leaseUntil: { lte: new Date() } }] }, data: { status: "READING", leaseUntil, attempts: { increment: 1 }, lastError: null } });
     if (!claimed.count) throw new AppError("IMPORT_BUSY", 409, "Esta página ya se está leyendo. Espera antes de reintentar.");
     try {
-      const products = await extractMenuPage(bytes, process.env.MISTRAL_API_KEY);
+      const products = await extractMenuPage(bytes, mistralKey);
       const rows = [...JSON.parse(job.rows), ...products.map((row, index) => ({ ...row, page: page + 1, key: `${page}-${index}` }))];
       if (rows.length > 500) throw new Error("La carta supera el máximo de 500 productos por importación.");
       const updated = await prisma.restaurantMenuImport.updateMany({ where: { id, nextPage: page, leaseUntil }, data: { rows: JSON.stringify(rows), nextPage: page + 1, attempts: 0, leaseUntil: null, status: page + 1 === job.pageCount ? "REVIEW" : "DRAFT" } });

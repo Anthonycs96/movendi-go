@@ -590,10 +590,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 900px) { .kitchen-print-station { grid-template-columns: 1fr auto; }.kitchen-print-station__controls { grid-column: 1 / -1; justify-content: flex-start; } }
 @media (max-width: 560px) { .kitchen-print-station { grid-template-columns: 1fr; }.kitchen-print-station__status { justify-items: start; }.kitchen-print-station__controls { grid-column: auto; align-items: stretch; flex-direction: column; }.kitchen-print-station__controls label { min-height: 42px; }.kitchen-print-station__controls .button { width: 100%; } }
 @media print {
-  @page { size: 80mm auto; margin: 3mm; }
+  @page { size: auto; margin: 3mm; }
+  body:has(> .thermal-receipt) > :not(.thermal-receipt) { display: none !important; }
+  body:has(> .thermal-receipt) { min-height: 0 !important; height: auto !important; margin: 0 !important; padding: 0 !important; background: white !important; }
   body * { visibility: hidden !important; }
   .thermal-receipt, .thermal-receipt * { visibility: visible !important; }
-  .thermal-receipt { position: absolute; inset: 0 auto auto 0; width: 72mm; display: block; box-sizing: border-box; background: white; color: black; font: 11px/1.25 monospace; }
+  .thermal-receipt { position: static; width: 72mm; display: block; box-sizing: border-box; background: white; color: black; font: 11px/1.25 monospace; }
   .thermal-receipt header { display: grid; justify-items: center; gap: 5px; padding-bottom: 8px; border-bottom: 1px dashed black; text-align: center; }.thermal-receipt header strong { font-size: 15px; }.thermal-receipt header b { padding: 3px 7px; border: 2px solid black; font-size: 18px; }.thermal-receipt__meta { display: grid; gap: 2px; padding: 8px 0; border-bottom: 1px dashed black; }.thermal-receipt h2 { margin: 10px 0; border: 3px double black; padding: 8px; font-size: 18px; text-align: center; }.thermal-receipt ul { min-height: 0; margin: 0; padding: 6px 0; list-style: none; }.thermal-receipt li { display: grid; grid-template-columns: 38px 1fr; gap: 5px; padding: 6px 0; border-bottom: 1px dotted black; font-size: 13px; }.thermal-receipt li > span { display: grid; }.thermal-receipt li small { margin-top: 2px; font-size: 10px; font-weight: 700; }.thermal-receipt__notes { padding: 7px; border: 2px solid black; font-weight: 700; }.thermal-receipt footer { padding-top: 9px; border-top: 1px dashed black; text-align: center; }
 }
 
@@ -1255,3 +1257,18 @@ a:has(> .navigation-hint) { position: relative; }
 .menu-history-diff small { color:var(--text-soft); }
 .menu-history-actions { justify-content:flex-start; margin-top:12px; }
 @media(max-width:640px) { .menu-history-entry { padding:14px; } .menu-history-diff>div { grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; } .menu-history-diff strong { grid-column:1/-1; } .menu-history-toolbar { align-items:stretch; flex-direction:column; } }
+
+.operational-center { margin:20px 0; padding:20px; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
+.operational-center section { border-top:1px solid var(--border); margin-top:20px; padding-top:16px; }
+.operational-dialog { width:min(1000px,calc(100vw - 24px)); max-width:1000px; }
+.operational-form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:16px 0; }
+.operational-actions { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
+.operational-checks { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:14px 0; }
+.operational-checks button { border:1px solid var(--border); border-radius:10px; background:var(--surface-soft); color:var(--text); padding:12px; text-align:left; cursor:pointer; }
+.operational-checks button[aria-pressed="true"] { border-color:var(--primary); }
+.operational-checks small { display:block; color:var(--text-soft); margin-top:6px; }
+.operational-ticket { margin-top:12px; border:1px solid var(--border); padding:14px; border-radius:10px; overflow-wrap:anywhere; }
+.operational-ticket summary { cursor:pointer; font-weight:600; }
+.operational-notes { white-space:pre-wrap; }
+.operational-center textarea,.operational-dialog textarea { width:100%; box-sizing:border-box; }
+@media(max-width:640px) { .operational-form-grid,.operational-checks { grid-template-columns:1fr; } .operational-center { padding:14px; } }

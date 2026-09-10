@@ -9,6 +9,8 @@ const databaseUrl = process.env[mode === "backup" ? "DATABASE_URL" : "RESTORE_DA
 if (!databaseUrl) throw new Error("Falta la URL de la base de datos en el entorno.");
 const url = new URL(databaseUrl);
 if (!["postgres:", "postgresql:"].includes(url.protocol)) throw new Error("Se requiere PostgreSQL.");
+const schema = url.searchParams.get("schema");
+if (schema && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(schema)) throw new Error("Nombre de esquema inválido.");
 const env = { ...process.env, PGHOST: url.hostname, PGPORT: url.port || "5432", PGDATABASE: decodeURIComponent(url.pathname.slice(1)), PGUSER: decodeURIComponent(url.username), PGPASSWORD: decodeURIComponent(url.password), PGSSLMODE: url.searchParams.get("sslmode") ?? process.env.PGSSLMODE ?? "prefer", PGCONNECT_TIMEOUT: "15" };
 function run(name, args) {
   const command = process.env.PG_BIN_DIR ? join(process.env.PG_BIN_DIR, `${name}${process.platform === "win32" ? ".exe" : ""}`) : name;
@@ -21,7 +23,7 @@ if (mode === "backup") {
   await mkdir(dirname(file), { recursive: true });
   // Reserve the filename: never overwrite a previous backup.
   await writeFile(file, "", { flag: "wx", mode: 0o600 });
-  run("pg_dump", ["--format=custom", "--no-owner", "--no-acl", "--file", file]);
+  run("pg_dump", ["--format=custom", "--no-owner", "--no-acl", ...(schema ? ["--schema", schema] : []), "--file", file]);
   const contents = run("pg_restore", ["--list", file]);
   if (!contents.includes("TABLE")) throw new Error("El respaldo no contiene tablas.");
   const bytes = await readFile(file);

@@ -1,4 +1,5 @@
 "use client";
+import { RestaurantLaunch } from "./RestaurantLaunch";
 import { MenuHistory } from "./MenuHistory";
 import { MenuImport } from "./MenuImport";
 import { ProductEditor } from "./ProductEditor";
@@ -627,6 +628,7 @@ export function RestaurantDirectory({
           </Card>
         }
       />
+      <RestaurantLaunch canWrite={hasPermission(permissions, "restaurant:configuration:write")} />
       <RestaurantConfigurationCenter initialConfiguration={data.configuration} />
       <PrintConfiguration data={data} />
       <section className="management-grid restaurant-management">

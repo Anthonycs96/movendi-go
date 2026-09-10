@@ -1,0 +1,62 @@
+name: Daily encrypted external backup
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production-external-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production
+    services:
+      restore:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ephemeral-restore-only
+          POSTGRES_DB: restore_check
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.2'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+      - name: Back up database and files; verify remote copy and isolated restore
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          RESTORE_DATABASE_URL: postgresql://postgres:ephemeral-restore-only@127.0.0.1:5432/restore_check
+          PG_BIN_DIR: /usr/lib/postgresql/17/bin
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_APP_INTEGRATION_KEY: ${{ secrets.BACKUP_APP_INTEGRATION_KEY }}
+          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          BACKUP_S3_REGION: ${{ secrets.BACKUP_S3_REGION }}
+          BACKUP_S3_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
+          BACKUP_S3_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
+          BACKUP_S3_FORCE_PATH_STYLE: 'false'
+          S3_BUCKET: ${{ secrets.ARCHIVE_S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.ARCHIVE_S3_ENDPOINT }}
+          S3_REGION: ${{ secrets.ARCHIVE_S3_REGION }}
+          S3_ACCESS_KEY_ID: ${{ secrets.ARCHIVE_S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.ARCHIVE_S3_SECRET_ACCESS_KEY }}
+          S3_FORCE_PATH_STYLE: 'false'
+          BACKUP_REPORT_URL: https://backend-production-e144.up.railway.app/api/internal/backup-status
+          BACKUP_REPORT_TOKEN: ${{ secrets.BACKUP_REPORT_TOKEN }}
+          BACKUP_RETENTION_DAYS: '30'
+        run: node scripts/external-backup.mjs

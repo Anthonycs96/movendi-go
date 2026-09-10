@@ -1,4 +1,5 @@
 "use client";
+import { PlatformOperations } from "./PlatformOperations";
 
 import { navigateWithFreshSession } from "@/shared/lib/session-navigation";
 
@@ -170,5 +171,5 @@ export function PlatformConsole({ section, data, role }: { section: PlatformSect
   const superAdmin = role === "SUPER_ADMIN";
   const canManageBusinesses = superAdmin || role === "SUPPORT";
   const canManageBilling = superAdmin || role === "FINANCE";
-  return <div className="platform-page">{section === "dashboard" ? <Dashboard data={data} canCreate={superAdmin} canManageBusinesses={canManageBusinesses} /> : section === "businesses" ? <Businesses data={data} canCreate={superAdmin} canManage={canManageBusinesses} /> : section === "plans" ? <Plans data={data} canManage={canManageBilling} /> : section === "subscriptions" ? <Subscriptions data={data} canManage={canManageBilling} /> : section === "billing" ? <Billing data={data} /> : section === "users" ? <UsersSection data={data} /> : section === "audit" ? <Audit data={data} /> : section === "catalog" ? <Catalog data={data} /> : <SettingsSection data={data} />}</div>;
+  return <div className="platform-page">{section === "dashboard" ? <Dashboard data={data} canCreate={superAdmin} canManageBusinesses={canManageBusinesses} /> : section === "businesses" ? <Businesses data={data} canCreate={superAdmin} canManage={canManageBusinesses} /> : section === "plans" ? <Plans data={data} canManage={canManageBilling} /> : section === "subscriptions" ? <Subscriptions data={data} canManage={canManageBilling} /> : section === "billing" ? <Billing data={data} /> : section === "users" ? <UsersSection data={data} /> : section === "audit" ? <Audit data={data} /> : section === "catalog" ? <Catalog data={data} /> : <SettingsSection data={data} />}{section === "settings" && (role === "SUPER_ADMIN" || role === "SUPPORT") ? <PlatformOperations /> : null}</div>;
 }

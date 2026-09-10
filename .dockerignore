@@ -12,3 +12,7 @@ playwright-report
 outputs
 *.log
 *.tsbuildinfo
+backups
+.codex_tmp
+.object-storage
+.print-agent-state

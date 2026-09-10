@@ -1,0 +1,13 @@
+"use client";
+import { useState } from "react";
+import { Button, Field, Input, Select } from "@/shared/components/ui";
+export type SupportTicket = { id: string; subject: string; details: string; priority: string; status: string; assignedTo: string; resolution: string; version: number; createdAt: string; business?: string };
+export function OperationalTicket({ ticket, endpoint, canWrite, saved }: { ticket: SupportTicket; endpoint: string; canWrite: boolean; saved: () => void }) {
+  const [status, setStatus] = useState(ticket.status), [assignedTo, setAssignedTo] = useState(ticket.assignedTo), [resolution, setResolution] = useState(ticket.resolution), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  async function submit() {
+    setBusy(true); setError("");
+    try { const response = await fetch(endpoint, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: ticket.id, version: ticket.version, status, assignedTo, resolution }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error?.message ?? "No se pudo guardar."); saved(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo guardar."); } finally { setBusy(false); }
+  }
+  return <details className="operational-ticket"><summary>{ticket.business ? `${ticket.business} · ` : ""}{ticket.subject} · {({ OPEN: "Abierta", IN_PROGRESS: "En atención", CLOSED: "Cerrada" } as Record<string, string>)[ticket.status]} · {({ NORMAL: "Normal", HIGH: "Alta", CRITICAL: "Crítica" } as Record<string, string>)[ticket.priority]}</summary><p>{new Date(ticket.createdAt).toLocaleString("es-PE")} · Referencia {ticket.id.slice(-8)}</p><p className="operational-notes">{ticket.details}</p><div className="operational-form-grid"><Field label="Estado de incidencia"><Select disabled={!canWrite || busy} value={status} onChange={(event) => setStatus(event.target.value)}><option value="OPEN">Abierta</option><option value="IN_PROGRESS">En atención</option><option value="CLOSED">Cerrada</option></Select></Field><Field label="Responsable asignado"><Input disabled={!canWrite || busy} value={assignedTo} maxLength={120} onChange={(event) => setAssignedTo(event.target.value)} /></Field></div><Field label="Respuesta o solución"><textarea disabled={!canWrite || busy} className="input" value={resolution} maxLength={3000} rows={3} onChange={(event) => setResolution(event.target.value)} /></Field>{error ? <p role="alert">{error}</p> : null}{canWrite ? <Button disabled={busy || (status === "CLOSED" && resolution.trim().length < 10)} onClick={() => void submit()}>Guardar incidencia</Button> : null}</details>;
+}

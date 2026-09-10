@@ -2543,3 +2543,63 @@ model RestaurantMenuImport {
   actor User @relation(fields: [actorId], references: [id])
   @@index([tenantId, branchId, createdAt])
 }
+
+model PlatformIntegration {
+  provider String @id
+  encryptedToken String
+  iv String
+  authTag String
+  tokenHint String
+  updatedById String
+  lastTestedAt DateTime?
+  updatedAt DateTime @updatedAt
+}
+
+model ExternalBackupRun {
+  id String @id
+  status String
+  startedAt DateTime
+  completedAt DateTime?
+  prefix String
+  files Int @default(0)
+  bytes Float @default(0)
+  restoreVerified Boolean @default(false)
+  error String?
+  @@index([startedAt])
+}
+
+model RestaurantLaunchPlan {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  owner String @default("")
+  supportContact String @default("")
+  supportHours String @default("")
+  escalation String @default("")
+  participants String @default("")
+  devices String @default("")
+  status String @default("DRAFT")
+  checks String @default("{}")
+  startedAt DateTime?
+  completedAt DateTime?
+  updatedAt DateTime @updatedAt
+  @@unique([tenantId, branchId])
+}
+
+model RestaurantSupportTicket {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  createdById String
+  subject String
+  details String
+  priority String @default("NORMAL")
+  status String @default("OPEN")
+  assignedTo String @default("")
+  resolution String @default("")
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([tenantId, branchId, createdAt])
+  @@index([status, priority, createdAt])
+}

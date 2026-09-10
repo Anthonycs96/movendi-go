@@ -4,6 +4,7 @@ import type { RestaurantReadiness, RestaurantReadinessCheck } from "@movendi/con
 import { prisma } from "@/core/database/prisma";
 import type { TenantScope } from "@/core/auth/types";
 import { getRestaurantConfiguration } from "./configuration";
+import { mistralStatus } from "@/core/platform/mistral";
 
 const check = (key: string, section: string, label: string, detail: string, status: RestaurantReadinessCheck["status"], action: string): RestaurantReadinessCheck => ({ key, section, label, detail, status, action });
 
@@ -24,6 +25,12 @@ export async function getRestaurantReadiness(scope: Pick<TenantScope, "tenantId"
     prisma.restaurantIntegrationCredential.findUnique({ where: { tenantId_provider: { tenantId: scope.tenantId, provider: "NUBEFACT" } }, select: { status: true } }),
   ]);
   const acceptances = await prisma.auditLog.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, action: "OPERATION_ACCEPTANCE", entityType: "RestaurantReadiness" }, orderBy: { createdAt: "desc" }, take: 30, select: { entityId: true, createdAt: true } });
+  const [mistral, backup, pilot] = await Promise.all([
+    mistralStatus(),
+    prisma.externalBackupRun.findFirst({ orderBy: { startedAt: "desc" } }),
+    prisma.restaurantLaunchPlan.findUnique({ where: { tenantId_branchId: { tenantId: scope.tenantId, branchId: scope.branchId } } }),
+  ]);
+  const backupReady = backup?.status === "COMPLETED" && backup.restoreVerified && backup.completedAt && Date.now() - backup.completedAt.getTime() < 36 * 3600000;
   const roleKeys = new Set(roles.map((role) => role.key));
   const approvalRolesMissing = configuration.sales.approvalRoleKeys.filter((role) => !roleKeys.has(role));
   const dineInEnabled = configuration.orders.sources.some((source) => source.active && source.key === "DINE_IN");
@@ -40,6 +47,12 @@ export async function getRestaurantReadiness(scope: Pick<TenantScope, "tenantId"
     check("INVENTORY", "RESTAURANT_CONTROL", "Inventario y recetas", configuration.inventory.autoDeductRecipes && (!inventoryItems || !recipes) ? "El descuento automático está activo, pero faltan insumos o recetas." : `${inventoryItems} insumos y ${recipes} recetas configuradas.`, configuration.inventory.autoDeductRecipes && (!inventoryItems || !recipes) ? "WARNING" : "READY", "Revisar inventario"),
     check("SUNAT", "RESTAURANT_INTEGRATIONS", "Facturación electrónica", !configuration.integrations.sunatEnabled ? "La emisión electrónica está deshabilitada." : sunatCredential?.status === "CONNECTED" ? "Conexión validada. Falta comprobar emisión, consulta y devolución con comprobantes del proveedor." : sunatCredential ? "Las credenciales existen, pero falta validar la conexión." : "SUNAT está habilitado, pero faltan las credenciales de NubeFact.", !configuration.integrations.sunatEnabled ? "READY" : sunatCredential ? "WARNING" : "BLOCKED", "Configurar SUNAT"),
   ];
+  checks.push(
+    check("MISTRAL", "OPERATIONS", "Lectura inteligente de cartas", mistral.configured ? "Clave configurada. La lectura real se acredita en el piloto." : "Falta configurar una clave Mistral desde el panel de plataforma.", mistral.configured ? "READY" : "WARNING", "Revisar integraciones"),
+    check("EXTERNAL_BACKUP", "OPERATIONS", "Copia externa recuperable", backupReady ? "Copia reciente descargada y restaurada en una base aislada." : "Falta una copia reciente con restauración comprobada; revisar el panel de plataforma.", backupReady ? "READY" : "WARNING", "Revisar copias"),
+    check("SUPPORT", "OPERATIONS", "Soporte acordado", pilot?.supportContact ? `Canal: ${pilot.supportContact}. Horario: ${pilot.supportHours}.` : "Registra canal, horario y escalamiento en Piloto y soporte.", pilot?.supportContact ? "READY" : "WARNING", "Acordar soporte"),
+    check("PILOT", "OPERATIONS", "Piloto con evidencias", pilot?.status === "COMPLETED" ? "Cerrado por el responsable con evidencias registradas." : "Completa las pruebas reales en Piloto y soporte.", pilot?.status === "COMPLETED" ? "READY" : "WARNING", "Abrir piloto"),
+  );
   for (const [key, label] of [["TEAM_TRAINING", "Capacitación del equipo"], ["FIRST_SHIFT", "Primer turno acompañado"]]) {
     const acceptance = acceptances.find((entry) => entry.entityId === key);
     checks.push(check(key, "OPERATIONS", label, acceptance ? `Confirmado por un responsable el ${acceptance.createdAt.toISOString().slice(0,10)}.` : "Pendiente de confirmar con el equipo del restaurante.", acceptance ? "READY" : "WARNING", "Registrar validación"));

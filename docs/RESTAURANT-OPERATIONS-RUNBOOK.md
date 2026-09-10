@@ -41,3 +41,7 @@ En Configuración seleccionar ambiente BETA y sus credenciales NubeFact. La prue
 Antes de abrir al público: carta y rutas, usuarios por rol, pedido salón/para llevar/delivery, notas a cocina, impresión, cobro simple/dividido, canje, devolución y cierre. Repetir con dos dispositivos y una interrupción de conexión. Registrar la capacitación y el primer turno acompañado en Configuración, indicando participantes, fecha e incidencias. El registro es una declaración del responsable; no equivale a capacitación automática.
 
 Acordar un canal de soporte, horario, responsable de escalamiento y procedimiento de contingencia. No prometer atención 24/7, funcionamiento sin conexión ni capacidad de hora punta sin personal y pruebas que lo respalden.
+
+## Seguimiento y copias programadas
+
+El módulo **Configuración → Piloto y soporte** permite registrar el plan, las pruebas y las incidencias. La consola global permite configurar Mistral, revisar respaldos y atender soporte. El workflow de copias externas añade programación, retención, cifrado y restauración técnica diaria al script PostgreSQL anterior. Consultar [Puesta en marcha y recuperación](OPERATIONAL-LAUNCH.md) para configuración, custodia de claves y procedimiento de recuperación.

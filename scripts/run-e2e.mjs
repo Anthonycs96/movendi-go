@@ -82,7 +82,7 @@ async function startServers() {
   if (process.env.API_INTERNAL_URL && process.env.API_INTERNAL_URL !== "http://127.0.0.1:3001") throw new Error("Elimina API_INTERNAL_URL del entorno de pruebas; el backend E2E debe ser local.");
   await Promise.all([assertFreePort(3001), assertFreePort(3100)]);
   const children = [
-    { name: "backend", port: "3001", env: { JOB_RUNNER_SECRET: "phase-3-e2e-worker-secret-0001", JOB_RETRY_BASE_SECONDS: "1" } },
+    { name: "backend", port: "3001", env: { JOB_RUNNER_SECRET: "phase-3-e2e-worker-secret-0001", JOB_RETRY_BASE_SECONDS: "1", BACKUP_REPORT_TOKEN: "launch-e2e-backup-token" } },
     { name: "frontend", port: "3100", env: {} },
   ].map(({ name, port, env }) => spawn(process.execPath, [resolve("scripts", "start-service.mjs"), name, port], {
     env: { ...process.env, ...env, PORT: port, HOSTNAME: "127.0.0.1" }, stdio: "inherit",
