@@ -75,7 +75,7 @@ export interface PublicCheckoutView {
 }
 
 export interface PublicBusinessSite {
-  slug: string; name: string; shortName: string; type: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT"; locale: string; currency: string;
+  slug: string; name: string; shortName: string; type: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT" | "MINIMARKET"; locale: string; currency: string;
   headline: string; description: string; primaryColor: string; email: string | null; phone: string | null; address: string | null; whatsapp: string | null; instagram: string | null;
   branches: Array<{ id: string; name: string; address: string | null; phone: string | null }>;
   services: Array<{ id: string; name: string; category: string | null; durationMinutes: number; priceCents: number }>;

@@ -1,6 +1,7 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
 import type { TenantScope } from "@/core/auth/types";
+import { AppError } from "@/core/auth/errors";
 
 export type PrintLine = { productId: string; parentProductId?: string | null; name: string; quantity: number; notes: string | null };
 
@@ -20,9 +21,11 @@ type Target = {
 };
 
 export async function createRoutedPrintJobs(transaction: Prisma.TransactionClient, scope: TenantScope, event: PrintEvent) {
+  const order = await transaction.restaurantOrder.findFirst({ where: { id: event.orderId, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true } });
+  if (!order) throw new AppError("NOT_FOUND", 404, "El pedido de impresión no pertenece a esta sede.");
   if (event.type === "CANCELLATION") {
     const previous = await transaction.restaurantPrintJob.findMany({
-      where: { orderId: event.orderId, type: { in: ["INITIAL", "ADDITION"] } },
+      where: { tenantId: scope.tenantId, branchId: scope.branchId, orderId: event.orderId, type: { in: ["INITIAL", "ADDITION"] } },
       select: { printerId: true, preparationAreaId: true, printer: { select: { name: true, automatic: true } }, preparationArea: { select: { name: true } }, copies: true },
       distinct: ["printerId"],
     });
@@ -45,8 +48,8 @@ export async function createRoutedPrintJobs(transaction: Prisma.TransactionClien
   }
 
   const [settings, products] = await Promise.all([
-    transaction.restaurantPrintSettings.findUnique({
-      where: { branchId: scope.branchId },
+    transaction.restaurantPrintSettings.findFirst({
+      where: { tenantId: scope.tenantId, branchId: scope.branchId },
       include: { defaultPrinter: { select: { id: true, name: true, active: true, automatic: true } } },
     }),
     transaction.product.findMany({

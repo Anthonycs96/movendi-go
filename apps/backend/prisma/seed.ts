@@ -11,6 +11,8 @@ function atLocalDay(offsetDays: number, hour: number, minute = 0) {
 }
 
 async function clearDatabase() {
+  await prisma.fiscalJob.deleteMany();
+  await prisma.fiscalConfiguration.deleteMany();
   await prisma.restaurantMenuImport.deleteMany();
   await prisma.restaurantPrintJob.deleteMany();
   await prisma.saleRefund.deleteMany();
@@ -32,6 +34,9 @@ async function clearDatabase() {
   await prisma.inventoryCount.deleteMany();
   await prisma.productRecipeIngredient.deleteMany();
   await prisma.productRecipe.deleteMany();
+  await prisma.retailPresentation.deleteMany();
+  await prisma.retailLot.deleteMany();
+  await prisma.retailProduct.deleteMany();
   await prisma.inventoryItem.deleteMany();
   await prisma.transportMaintenanceOrder.deleteMany();
   await prisma.transportFuelLog.deleteMany();
@@ -59,6 +64,9 @@ async function clearDatabase() {
   await prisma.salePayment.deleteMany();
   await prisma.cashMovement.deleteMany();
   await prisma.sale.deleteMany();
+  await prisma.retailSaleLine.deleteMany();
+  await prisma.retailSale.deleteMany();
+  await prisma.retailOperation.deleteMany();
   await prisma.cashSession.deleteMany();
   await prisma.kitchenTicket.deleteMany();
   await prisma.orderItem.deleteMany();

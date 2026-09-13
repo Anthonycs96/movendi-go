@@ -10,7 +10,7 @@ export default async function TenantLayout({ children, params }: { children: Rea
   const { session, branches } = context;
   if (session.mustChangePassword) redirect("/change-password");
   if (session.tenantSlug !== tenantSlug) notFound();
-  const industry = session.tenantType === "BARBERSHOP" ? "barbershop" : session.tenantType === "RESTAURANT" ? "restaurant" : "transport";
+  const industry = session.tenantType === "BARBERSHOP" ? "barbershop" : session.tenantType === "RESTAURANT" ? "restaurant" : session.tenantType === "MINIMARKET" ? "minimarket" : "transport";
   const manifest = getManifest(industry);
   return <AppShell session={session} branches={branches} manifest={manifest}>{children}</AppShell>;
 }

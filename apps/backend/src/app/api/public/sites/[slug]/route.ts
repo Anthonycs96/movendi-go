@@ -26,7 +26,7 @@ export async function GET(_request: Request, context: Context) {
       description: tenant.publicSiteDescription || "Conoce nuestros servicios y comunícate con nosotros.",
       primaryColor: tenant.publicSitePrimaryColor, email: tenant.email, phone: tenant.phone, address: tenant.address,
       whatsapp: tenant.publicSiteWhatsapp, instagram: tenant.publicSiteInstagram, branches: tenant.branches,
-      services, products, promotions,
+      services, products: tenant.type === "MINIMARKET" && branchId ? (await prisma.retailPresentation.findMany({ where: { tenantId: tenant.id, branchId, active: true, product: { item: { active: true } } }, include: { product: { include: { item: true } } }, take: 100, orderBy: { name: "asc" } })).map((p) => ({ id: p.id, name: `${p.product.item.name} · ${p.name}`, description: `${p.factor} ${p.product.item.unit}`, priceCents: p.priceCents, category: { name: p.product.category } })) : products, promotions,
     } });
   } catch (error) {
     return errorResponse(error);

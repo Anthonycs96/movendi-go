@@ -17,7 +17,7 @@ export interface PlatformBusinessView {
   slug: string;
   name: string;
   shortName: string;
-  type: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT";
+  type: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT" | "MINIMARKET";
   status: string;
   country: string;
   currency: string;
@@ -53,7 +53,7 @@ export interface PlatformSetupView {
 
 export interface PlatformSetupTemplate {
   key: string;
-  type: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT";
+  type: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT" | "MINIMARKET";
   name: string;
   description: string;
   modules: string[];

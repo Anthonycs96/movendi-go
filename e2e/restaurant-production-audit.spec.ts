@@ -27,7 +27,7 @@ async function login(api: APIRequestContext, email = `admin@${slug}.local`, busi
 async function command(api: APIRequestContext, path: string, data: unknown, method = "POST") {
   const response = await api.fetch(`/api/operations/${path}`, { method, data });
   expect(response.status(), `${path}: ${await response.text()}`).toBe(200);
-  return await response.json() as { id: string; ok: boolean };
+  return await response.json() as { id: string; ok: boolean; attempt: number };
 }
 
 async function data(api: APIRequestContext, section?: string) {
@@ -116,9 +116,15 @@ test("jornada: pedido, cocina/barra, entrega, cobro mixto, inventario, compra y 
   const inventory = await request.get("/api/data/tenant?section=inventory");
   const stock = (await inventory.json()).data.inventoryModule;
   expect(stock.items.find((item: { id: string }) => item.id === itemId).stock).toBe(998);
-  await command(request, "inventory/purchases", { supplierName: "Proveedor auditado", idempotencyKey: `purchase-${slug}`, lines: [{ itemId, quantity: 2, unitCost: 8 }] });
+  const purchase = await command(request, "inventory/purchases", { supplierName: "Proveedor auditado", idempotencyKey: `purchase-${slug}`, lines: [{ itemId, quantity: 2, unitCost: 8 }] });
   const repeated = await command(request, "inventory/purchases", { supplierName: "Proveedor auditado", idempotencyKey: `purchase-${slug}`, lines: [{ itemId, quantity: 2, unitCost: 8 }] });
-  expect(repeated.id).toBeTruthy();
+  expect(repeated.id).toBe(purchase.id);
+  const conflict = await request.post("/api/operations/inventory/purchases", { data: { supplierName: "Proveedor auditado", idempotencyKey: `purchase-${slug}`, lines: [{ itemId, quantity: 3, unitCost: 8 }] } });
+  expect(conflict.status()).toBe(409);
+  expect((await conflict.json()).error.code).toBe("IDEMPOTENCY_CONFLICT");
+  const afterPurchase = await request.get("/api/data/tenant?section=inventory");
+  expect(afterPurchase.status()).toBe(200);
+  expect((await afterPurchase.json()).data.inventoryModule.items.find((item: { id: string }) => item.id === itemId).stock).toBe(1000);
   const reports = await data(request, "reports");
   expect(reports.reports).toBeTruthy();
 });
@@ -297,27 +303,28 @@ test("impresión: una estación reclama, falla, reintenta y confirma la comanda"
   expect(job.payload.items[0].name).toBe("Plato auditado");
   const claims = await Promise.all(["station-one", "station-two"].map(async (stationId) => {
     const response = await request.post(`/api/operations/restaurant/print-jobs/${job.id}/claim`, { data: { stationId } });
-    return { stationId, ...(await response.json()) } as { stationId: string; claimed: boolean };
+    return { stationId, ...(await response.json()) } as { stationId: string; claimed: boolean; attempt: number };
   }));
   expect(claims.filter((claim) => claim.claimed)).toHaveLength(1);
-  const stationId = claims.find((claim) => claim.claimed)!.stationId;
-  await command(request, `restaurant/print-jobs/${job.id}/status`, { stationId, status: "FAILED", error: "Sin papel (prueba)" }, "PATCH");
-  await command(request, `restaurant/print-jobs/${job.id}/retry`, {});
-  await command(request, `restaurant/print-jobs/${job.id}/claim`, { stationId });
-  await command(request, `restaurant/print-jobs/${job.id}/status`, { stationId, status: "PRINTED", confirmed: true }, "PATCH");
-  expect((await request.patch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { data: { stationId, status: "PRINTED", confirmed: true } })).status()).toBe(409);
+  const { stationId, attempt } = claims.find((claim) => claim.claimed)!;
+  await command(request, `restaurant/print-jobs/${job.id}/status`, { stationId, attempt, status: "FAILED", error: "Sin papel (prueba)" }, "PATCH");
+  await command(request, `restaurant/print-jobs/${job.id}/retry`, { attempt });
+  const secondClaim = await command(request, `restaurant/print-jobs/${job.id}/claim`, { stationId });
+  await command(request, `restaurant/print-jobs/${job.id}/status`, { stationId, attempt: secondClaim.attempt, status: "PRINTED", confirmed: true }, "PATCH");
+  expect((await request.patch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { data: { stationId, attempt: secondClaim.attempt, status: "PRINTED", confirmed: true } })).status()).toBe(409);
   const next = await order(request);
   const nextCode = (await data(request)).orders.find((item) => item.id === next.id)!.code;
   const nextJobs = await request.get(`/api/operations/restaurant/print-jobs/${printer.id}`);
   const expiring = (await nextJobs.json()).jobs.find((item: { order: { code: string } }) => item.order.code === nextCode);
-  await command(request, `restaurant/print-jobs/${expiring.id}/claim`, { stationId });
+  const expiredClaim = await command(request, `restaurant/print-jobs/${expiring.id}/claim`, { stationId });
   const db = new PrismaClient();
   try { await db.restaurantPrintJob.updateMany({ where: { id: expiring.id, tenantId }, data: { leaseExpiresAt: new Date(0) } }); }
   finally { await db.$disconnect(); }
-  expect((await request.patch(`/api/operations/restaurant/print-jobs/${expiring.id}/status`, { data: { stationId, status: "PRINTED", confirmed: true } })).status()).toBe(409);
+  expect((await request.patch(`/api/operations/restaurant/print-jobs/${expiring.id}/status`, { data: { stationId, attempt: expiredClaim.attempt, status: "PRINTED", confirmed: true } })).status()).toBe(409);
   const reclaim = await request.post(`/api/operations/restaurant/print-jobs/${expiring.id}/claim`, { data: { stationId: "station-recovery" } });
-  expect(await reclaim.json()).toMatchObject({ claimed: true });
-  await command(request, `restaurant/print-jobs/${expiring.id}/status`, { stationId: "station-recovery", status: "PRINTED", confirmed: true }, "PATCH");
+  expect(await reclaim.json()).toMatchObject({ claimed: false });
+  await command(request, `restaurant/print-jobs/${expiring.id}/confirm-delivery`, { attempt: expiredClaim.attempt, printed: true });
+  expect((await request.get(`/api/operations/restaurant/print-jobs/${printer.id}`).then((r) => r.json())).jobs.find((item: { id: string }) => item.id === expiring.id).status).toBe("PRINTED");
 });
 
 test("repetir un conteo no duplica el documento ni revierte movimientos posteriores", async ({ request }) => {
@@ -517,6 +524,110 @@ test("ambiente fiscal y credenciales deben coincidir antes de cualquier envío",
   await command(request, "restaurant/configuration/integrations", initial.configuration.integrations, "PATCH");
 });
 
+test("emisión automática guarda boleta en cola y la muestra en historial sin enviar al proveedor", async ({ page }) => {
+  await login(page.request);
+  const initial = await data(page.request);
+  const db = new PrismaClient();
+  try {
+    await command(page.request, "restaurant/sunat/credentials", { environment: "BETA", apiUrl: "https://api.nubefact.com/api/v1/qa-no-external-call", token: "qa-token-no-network-call-2026" });
+    await command(page.request, "restaurant/configuration/integrations", { ...initial.configuration.integrations, sunatEnabled: true, sunatAutoIssue: true, sunatEnvironment: "BETA" }, "PATCH");
+    const created = await order(page.request);
+    const sale = await command(page.request, `restaurant/orders/${created.id}/checkout`, { paymentMethod: "CARD" });
+    const job = await db.fiscalJob.findFirstOrThrow({ where: { saleId: sale.id, tenantId } });
+    expect(job.status).toBe("PENDING"); expect(job.attempts).toBe(0); expect(job.kind).toBe("BOLETA");
+    const history = await page.request.get("/api/data/restaurant-history?kind=sales&page=1");
+    const row = (await history.json()).rows.find((item: { id: string }) => item.id === sale.id);
+    expect(row.electronicDocument.status).toBe("PENDING");
+    await page.goto(`/t/${slug}/checkout`);
+    await page.getByRole("tab", { name: "Ventas", exact: true }).click();
+    await page.getByLabel("Código", { exact: true }).fill(row.code);
+    await page.getByRole("button", { name: "Buscar historial", exact: true }).click();
+    const fiscalRow = page.getByRole("row").filter({ hasText: row.code });
+    await expect(fiscalRow).toContainText(`BOLETA ${job.series}-${job.number}`);
+    await expect(fiscalRow).toContainText("En cola");
+    await expect(fiscalRow.getByRole("button", { name: "Consultar / reintentar", exact: true })).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath("restaurant-fiscal-queue.png"), fullPage: true });
+    const refund = await page.request.post(`/api/operations/restaurant/sales/${sale.id}/refund`, { data: { reason: "No aceptar mientras está pendiente", stockDisposition: "RESTOCK", paymentConfirmed: true } });
+    expect(refund.status()).toBe(409); expect((await refund.json()).error.code).toBe("FISCAL_STATUS_PENDING");
+    expect(await db.saleRefund.count({ where: { saleId: sale.id } })).toBe(0);
+    expect(await db.fiscalJob.count({ where: { saleId: sale.id } })).toBe(1);
+  } finally {
+    await command(page.request, "restaurant/configuration/integrations", initial.configuration.integrations, "PATCH");
+    await db.$disconnect();
+  }
+});
+
+test("impresión incierta: la pantalla exige revisar el papel y no imprime otra vez", async ({ page }) => {
+  await login(page.request);
+  const printer = await command(page.request, "restaurant/print-devices", { name: "Impresora revisión QA", connectionType: "BROWSER", paperWidthMm: 80, automatic: false });
+  const created = await command(page.request, `restaurant/print-devices/${printer.id}/test`, {});
+  await command(page.request, `restaurant/print-jobs/${created.id}/claim`, { stationId: "expired-browser-test" });
+  const db = new PrismaClient();
+  try {
+    await db.restaurantPrintJob.updateMany({ where: { id: created.id, tenantId }, data: { leaseExpiresAt: new Date(0) } });
+    await page.addInitScript(() => { window.localStorage.setItem("movendi-kitchen-print-enabled", "false"); window.print = () => { throw new Error("La prueba no debe imprimir físicamente"); }; });
+    await page.goto(`/t/${slug}/kitchen`);
+    const station = page.locator(".kitchen-print-station");
+    await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem("movendi-kitchen-print-station-id"))).toBeTruthy();
+    await station.getByRole("combobox").selectOption(printer.id);
+    await expect(station.getByRole("combobox")).toHaveValue(printer.id);
+    await expect(station).toContainText("Enviadas o sin confirmar · Verificar papel");
+    await expect(station.getByRole("button", { name: "Recibida en papel", exact: true })).toBeVisible();
+    await expect(station.getByRole("button", { name: "Imprimir ahora", exact: true })).toHaveCount(0);
+    await expect(station.getByRole("button", { name: "Reimprimir", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: test.info().outputPath("printing-review.png"), fullPage: true });
+    await mkdir("output/printing", { recursive: true });
+    await copyFile(test.info().outputPath("printing-review.png"), "output/printing/printing-review.png");
+    await station.getByRole("button", { name: "Recibida en papel", exact: true }).click();
+    await expect(station).toContainText("Salida en papel confirmada.");
+    const saved = await db.restaurantPrintJob.findUniqueOrThrow({ where: { id: created.id } });
+    expect(saved.status).toBe("PRINTED"); expect(saved.attempts).toBe(1); expect(saved.deliveryAttempt).toBe(0);
+  } finally { await db.$disconnect(); }
+});
+
+test("simulación: muestra el formato de impresión y conserva la comanda pendiente", async ({ page }) => {
+  await login(page.request);
+  const printer = await command(page.request, "restaurant/print-devices", { name: "Impresora simulada QA", connectionType: "BROWSER", paperWidthMm: 80, automatic: false });
+  const created = await command(page.request, `restaurant/print-devices/${printer.id}/test`, {});
+  const db = new PrismaClient();
+  try {
+    const before = await db.restaurantPrintJob.findUniqueOrThrow({ where: { id: created.id } });
+    const mutations: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/restaurant/print-jobs/") && request.method() !== "GET") mutations.push(request.url());
+    });
+    await page.addInitScript(() => {
+      window.localStorage.setItem("movendi-kitchen-print-enabled", "false");
+      window.localStorage.setItem("movendi-kitchen-print-simulation", "true");
+      window.print = () => { document.documentElement.dataset.printInvoked = "true"; };
+    });
+    await page.goto(`/t/${slug}/kitchen`);
+    const station = page.locator(".kitchen-print-station");
+    await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem("movendi-kitchen-print-station-id"))).toBeTruthy();
+    await station.getByRole("combobox").selectOption(printer.id);
+    await expect(station.getByRole("combobox")).toHaveValue(printer.id);
+    await expect(station.getByRole("checkbox", { name: "Modo simulación" })).toBeChecked();
+    await station.getByRole("button", { name: "Imprimir ahora", exact: true }).click();
+    await expect(station).toContainText("Prueba sin cambios");
+    await station.getByRole("button", { name: "Ver formato / guardar PDF" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-print-invoked", "true");
+    await page.emulateMedia({ media: "print" });
+    const receipt = page.locator(".thermal-receipt");
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText("Impresora simulada QA");
+    await mkdir("output/printerless-validation", { recursive: true });
+    await receipt.screenshot({ path: "output/printerless-validation/receipt-preview.png" });
+    await page.emulateMedia({ media: "screen" });
+    await station.getByRole("button", { name: "Cerrar prueba" }).click();
+    await expect(station).toContainText("la comanda sigue pendiente");
+    await expect(receipt).toHaveCount(0);
+    expect(mutations).toEqual([]);
+    const after = await db.restaurantPrintJob.findUniqueOrThrow({ where: { id: created.id } });
+    expect(after).toEqual(before);
+    expect(after.status).toBe("PENDING");
+  } finally { await db.$disconnect(); }
+});
+
 test("el pago anticipado conserva las comandas pendientes hasta su entrega", async ({ request }) => {
   const created = await order(request);
   await command(request, `restaurant/orders/${created.id}/checkout`, { paymentMethod: "CARD" });
@@ -643,4 +754,14 @@ test("conciliación directa de ventas, pagos, caja, recetas y claves foráneas",
     await copyFile(ledgerPath, "outputs/restaurant-completion-ledger.json");
     await testInfo.attach("restaurant-ledger.json", { contentType: "application/json", path: ledgerPath });
   } finally { await db.$disconnect(); }
+});
+
+test("worker fiscal: rechaza acceso sin credencial o con credencial incorrecta", async ({ request }) => {
+  const denied = await request.post("http://127.0.0.1:3001/api/internal/jobs/fiscal");
+  expect(denied.status()).toBe(401);
+  expect((await denied.json()).error.code).toBe("UNAUTHORIZED");
+  const wrong = await request.post("http://127.0.0.1:3001/api/internal/jobs/fiscal", { headers: { "X-Job-Runner-Secret": "wrong" } });
+  expect(wrong.status()).toBe(401);
+  // Keep this check read-only with respect to fiscal delivery: the suite may
+  // contain queued documents, so authorized empty-batch behavior is covered in integration tests.
 });

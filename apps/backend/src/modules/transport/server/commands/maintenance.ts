@@ -1,3 +1,4 @@
+import { withSerializableTransaction } from "@/core/database/transactions";
 import "server-only";
 import { audit } from "@/core/audit/audit";
 import { AppError } from "@/core/auth/errors";
@@ -5,7 +6,7 @@ import { prisma } from "@/core/database/prisma";
 import { owned, parse } from "../command-helpers";
 import { inventoryMovementSchema, inventorySchema, maintenancePlanSchema, maintenanceScheduleSchema, maintenanceSchema, maintenanceStatusSchema, maintenanceTaskSchema, vehicleComponentSchema, vehicleMaintenancePlanSchema } from "../command-schemas";
 import type { TransportCommandHandler } from "../command-types";
-import { applyInventoryMovement, withInventoryTransaction } from "@/modules/inventory/server/service";
+import { applyInventoryMovement } from "@/modules/inventory/server/service";
 import { assertTenantConfigured, getTransportConfiguration } from "../configuration";
 import { addDays, maintenanceCycleKey, planMatchesVehicle, rebuildVehicleMaintenanceSchedules } from "../maintenance-planning";
 import { reserveTransportCode } from "../sequence";
@@ -154,7 +155,7 @@ export const handleMaintenanceCommand: TransportCommandHandler = async (method, 
     const item = await owned(prisma.inventoryItem.findFirst({ where: { id, tenantId: scope.tenantId, OR: [{ branchId: scope.branchId }, { branchId: null }], active: true } }), "El repuesto");
     const maintenanceOrder = input.maintenanceOrderId ? await owned(prisma.transportMaintenanceOrder.findFirst({ where: { id: input.maintenanceOrderId, tenantId: scope.tenantId, status: { in: ["OPEN", "IN_PROGRESS"] } }, select: { id: true, code: true } }), "La orden") : null;
     const direction = input.type === "OUT" ? "OUT" : "IN";
-    const entity = await withInventoryTransaction((tx) => applyInventoryMovement(tx, scope, { itemId: item.id, type: input.type === "ADJUSTMENT" ? (direction === "IN" ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT") : input.type === "IN" ? "RESTOCK" : "CONSUMPTION", direction, quantity: input.quantity, originType: "TRANSPORT_MAINTENANCE", originId: maintenanceOrder?.id ?? null, reference: input.reference || maintenanceOrder?.code || null, notes: input.notes || null }));
+    const entity = await withSerializableTransaction((tx) => applyInventoryMovement(tx, scope, { itemId: item.id, type: input.type === "ADJUSTMENT" ? (direction === "IN" ? "ADJUSTMENT_IN" : "ADJUSTMENT_OUT") : input.type === "IN" ? "RESTOCK" : "CONSUMPTION", direction, quantity: input.quantity, originType: "TRANSPORT_MAINTENANCE", originId: maintenanceOrder?.id ?? null, reference: input.reference || maintenanceOrder?.code || null, notes: input.notes || null }));
     await audit(scope, "MOVE", "TransportInventoryItem", item.id, { type: input.type, quantity: input.quantity });
     return { ok: true, id: entity.id, message: "Movimiento de inventario aplicado." };
   }

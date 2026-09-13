@@ -127,7 +127,7 @@ export function AppShell({ session, branches, manifest, children }: { session: A
 
   const sidebar = <>
     <div className="sidebar__brand">
-      <Link href={`/t/${session.tenantSlug}/dashboard`} className="brand-mark" aria-label={`${APP_NAME}: ir al resumen`}><Image src={APP_LOGO} alt={APP_NAME} width={40} height={40} priority /></Link>
+      <Link href={`/t/${session.tenantSlug}/${manifest.navigation.find((item) => can(session.permissions, item.permission) && session.enabledModules.includes(item.path))?.path ?? manifest.defaultPath}`} className="brand-mark" aria-label={`${APP_NAME}: ir al resumen`}><Image src={APP_LOGO} alt={APP_NAME} width={40} height={40} priority /></Link>
       <div className="sidebar__brand-copy"><strong>{session.tenantShortName}</strong><span>{manifest.name}</span></div>
       <button className="sidebar__collapse desktop-only" type="button" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "Expandir navegación" : "Contraer navegación"} title={collapsed ? "Expandir navegación" : "Contraer navegación"} aria-expanded={!collapsed}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
       <button className="sidebar__collapse mobile-only" onClick={() => setMobileOpen(false)} aria-label="Cerrar menú"><X size={17} /></button>

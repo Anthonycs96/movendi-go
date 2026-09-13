@@ -8,6 +8,11 @@ datasource db {
 }
 
 model Tenant {
+  fiscalConfigurations FiscalConfiguration[]
+  fiscalJobs FiscalJob[]
+  retailProducts RetailProduct[]
+  retailSales RetailSale[]
+  retailOperations RetailOperation[]
   menuImports RestaurantMenuImport[]
   quotaVersion Int @default(0)
   id                     String    @id @default(cuid())
@@ -420,6 +425,11 @@ model EmailOutbox {
 }
 
 model Branch {
+  fiscalConfiguration FiscalConfiguration?
+  fiscalJobs FiscalJob[]
+  retailProducts RetailProduct[]
+  retailSales RetailSale[]
+  retailOperations RetailOperation[]
   menuImports RestaurantMenuImport[]
   id        String   @id @default(cuid())
   tenantId  String
@@ -1055,6 +1065,7 @@ model KitchenTicket {
 }
 
 model CashSession {
+  balanceBasis String    @default("CASH_ONLY")
   registerName  String    @default("Caja principal")
   openingNote   String?
   closingNote   String?
@@ -1084,6 +1095,10 @@ model CashSession {
 }
 
 model Sale {
+  fiscalJobs FiscalJob[]
+  retailSaleId String? @unique
+  retailSale RetailSale? @relation(fields: [retailSaleId], references: [id])
+  commercialSnapshot String?
   cashReceivedCents Int?
   changeCents Int?
   loyaltyPointsEarned Int @default(0)
@@ -2240,6 +2255,7 @@ model TransportMaintenanceSchedule {
 }
 
 model InventoryItem {
+  retailProduct RetailProduct?
   id            String   @id @default(cuid())
   tenantId      String
   branchId      String?
@@ -2602,4 +2618,134 @@ model RestaurantSupportTicket {
   updatedAt DateTime @updatedAt
   @@index([tenantId, branchId, createdAt])
   @@index([status, priority, createdAt])
+}
+
+// Retail quantities use the same six-decimal normalization as Inventory.
+model RetailProduct {
+  taxCategory String @default("UNCLASSIFIED")
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  itemId String @unique
+  category String @default("General")
+  trackExpiry Boolean @default(false)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id])
+  item InventoryItem @relation(fields: [itemId], references: [id])
+  presentations RetailPresentation[]
+  lots RetailLot[]
+  @@index([tenantId, branchId])
+}
+model RetailPresentation {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  productId String
+  name String
+  barcode String?
+  factor Float @default(1)
+  priceCents Int
+  weighted Boolean @default(false)
+  active Boolean @default(true)
+  product RetailProduct @relation(fields: [productId], references: [id])
+  @@unique([tenantId, branchId, barcode])
+  @@unique([productId, name])
+}
+model RetailLot {
+  id String @id @default(cuid())
+  productId String
+  code String
+  expiresOn String
+  stock Float @default(0)
+  product RetailProduct @relation(fields: [productId], references: [id])
+  @@unique([productId, code])
+  @@index([productId, expiresOn])
+}
+model RetailSale {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  version Int @default(0)
+  refundedPayments String @default("[]")
+  createdAt DateTime @default(now())
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id])
+  sale Sale?
+  lines RetailSaleLine[]
+  @@index([tenantId, branchId, createdAt])
+}
+model RetailSaleLine {
+  id String @id @default(cuid())
+  retailSaleId String
+  itemId String
+  presentationId String
+  name String
+  quantity Float
+  factor Float
+  unitPriceCents Int
+  totalCents Int
+  unitCostCents Int
+  allocations String @default("[]")
+  returnedQuantity Float @default(0)
+  refundedCents Int @default(0)
+  retailSale RetailSale @relation(fields: [retailSaleId], references: [id])
+  @@index([retailSaleId])
+}
+// Durable request result for checkout, purchases, counts and partial refunds.
+model RetailOperation {
+  id String @id
+  tenantId String
+  branchId String
+  kind String
+  payloadHash String
+  result String
+  createdAt DateTime @default(now())
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id])
+  @@index([tenantId, branchId, kind, createdAt])
+}
+
+model FiscalConfiguration {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String @unique
+  enabled Boolean @default(false)
+  environment String @default("BETA")
+  taxRatePct Float @default(18)
+  invoiceSeries String @default("F001")
+  receiptSeries String @default("B001")
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  @@index([tenantId])
+}
+// Transactional outbox for fiscal delivery. Payload and provider route are immutable.
+model FiscalJob {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  actorId String
+  saleId String
+  originKey String @unique
+  kind String
+  series String
+  number Int
+  environment String
+  apiUrl String
+  payload String
+  status String @default("PENDING")
+  attempts Int @default(0)
+  leaseToken String?
+  leaseExpiresAt DateTime?
+  nextAttemptAt DateTime @default(now())
+  lastError String?
+  response String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id])
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, kind, series, number])
+  @@index([status, nextAttemptAt])
+  @@index([tenantId, branchId, saleId])
 }

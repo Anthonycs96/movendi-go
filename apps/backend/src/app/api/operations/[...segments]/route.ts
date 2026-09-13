@@ -1,3 +1,5 @@
+import { handleMinimarketCommand } from "@/modules/minimarket/server/commands";
+import { assertMinimarketAccess, minimarketPermission, minimarketSection } from "@/modules/minimarket/server/access";
 import { prisma } from "@/core/database/prisma";
 import { AppError, errorResponse } from "@/core/auth/errors";
 import { requireSession, requireTenantScope } from "@/core/auth/session";
@@ -7,12 +9,13 @@ import { handleTransportCommand } from "@/modules/transport/server/commands";
 import { handleCoreCommand } from "@/core/tenancy/commands";
 import { handlePlatformCommand } from "@/core/platform/commands";
 import { assertTenantWriteEntitlement } from "@/core/platform/entitlements";
-import { handleInventoryCommand } from "@/modules/inventory/server/commands";
+import { handleInventoryOperation } from "@/core/composition/inventory";
 import { assertRestaurantModule, restaurantOperationModule } from "@/modules/restaurant/server/access";
 
 type Context = { params: Promise<{ segments: string[] }> };
 
 function requiredPermission(moduleName: string, resource: string, method: string, action?: string) {
+  if (moduleName === "minimarket") return minimarketPermission(resource, method, action);
   if (moduleName === "barbershop") {
     if (resource === "customers") return method === "GET" ? "customers:read" : "customers:write";
     if (resource === "staff" || resource === "schedules") return method === "GET" ? "barbershop:team:read" : "barbershop:team:write";
@@ -91,16 +94,19 @@ async function handle(request: Request, context: Context) {
 
     if (moduleName === "inventory") {
       const permission = ["GET", "HEAD"].includes(request.method) ? "inventory:read" : "inventory:write";
-      assertRestaurantModule(await requireSession(permission), "inventory");
+      const inventorySession = await requireSession(permission);
+      assertRestaurantModule(inventorySession, "inventory");
+      if (inventorySession.tenantType === "MINIMARKET") throw new AppError("RETAIL_INVENTORY_REQUIRED", 409, "Usa Inventario de Minimarket para conservar la trazabilidad de lotes.");
       const scope = await requireTenantScope(permission);
       if (!["GET", "HEAD"].includes(request.method)) await assertTenantWriteEntitlement(scope.tenantId);
-      return Response.json(await handleInventoryCommand(request.method, segments.slice(1), await bodyOf(request), scope));
+      return Response.json(await handleInventoryOperation(request.method, segments.slice(1), await bodyOf(request), scope, inventorySession.tenantType));
     }
 
     const session = await requireSession(requiredPermission(moduleName, resource, request.method, segments[3]));
-    const expectedType = moduleName === "barbershop" ? "BARBERSHOP" : moduleName === "restaurant" ? "RESTAURANT" : moduleName === "transport" ? "TRANSPORT" : null;
+    const expectedType = moduleName === "barbershop" ? "BARBERSHOP" : moduleName === "restaurant" ? "RESTAURANT" : moduleName === "transport" ? "TRANSPORT" : moduleName === "minimarket" ? "MINIMARKET" : null;
     if (!expectedType) throw new AppError("NOT_FOUND", 404, "Módulo no encontrado.");
     if (session.tenantType !== expectedType) throw new AppError("MODULE_ACCESS_DENIED", 403, "Este módulo no está habilitado para tu empresa.");
+    if (moduleName === "minimarket") assertMinimarketAccess(session, minimarketSection(resource, request.method), minimarketPermission(resource, request.method, segments[3]));
     if (moduleName === "restaurant") assertRestaurantModule(session, restaurantOperationModule(resource, segments[3]));
     if (!["GET", "HEAD"].includes(request.method)) await assertTenantWriteEntitlement(session.tenantId, moduleName !== "restaurant" && consumesMonthlyOperation(moduleName, resource, request.method, id));
     const scope = await requireTenantScope(requiredPermission(moduleName, resource, request.method, segments[3]));
@@ -109,7 +115,7 @@ async function handle(request: Request, context: Context) {
       ? await handleBarbershopCommand(request.method, segments.slice(1), body, scope)
       : moduleName === "restaurant"
         ? await handleRestaurantCommand(request.method, segments.slice(1), body, scope)
-        : await handleTransportCommand(request.method, segments.slice(1), body, scope);
+        : moduleName === "minimarket" ? await handleMinimarketCommand(request.method, segments.slice(1), body, scope) : await handleTransportCommand(request.method, segments.slice(1), body, scope);
     return Response.json(result);
   } catch (error) {
     return errorResponse(error);

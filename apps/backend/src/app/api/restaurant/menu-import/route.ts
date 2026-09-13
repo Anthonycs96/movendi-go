@@ -1,3 +1,4 @@
+import { withSerializableTransaction } from "@/core/database/transactions";
 import { getMistralKey, mistralStatus } from "@/core/platform/mistral";
 import { menuChange, recordMenuHistory, type MenuChange } from "@/modules/restaurant/server/menu-history";
 import { PDFDocument } from "pdf-lib";
@@ -7,7 +8,7 @@ import { requireSession } from "@/core/auth/session";
 import { AppError, errorResponse } from "@/core/auth/errors";
 import { assertTenantWriteEntitlement } from "@/core/platform/entitlements";
 import { assertRestaurantModule } from "@/modules/restaurant/server/access";
-import { withInventoryTransaction } from "@/modules/inventory/server/service";
+
 import { extractedMenuRow, extractMenuPage } from "@/modules/restaurant/server/menu-extraction";
 import { getRestaurantConfiguration } from "@/modules/restaurant/server/configuration";
 
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
     const mistralKey = await getMistralKey();
     if (request.headers.get("content-type")?.includes("application/json")) {
       const input = startSchema.parse(await request.json());
-      const job = await withInventoryTransaction(async (tx) => {
+      const job = await withSerializableTransaction(async (tx) => {
         const existing = await tx.restaurantMenuImport.findFirst({ where: { tenantId: current.tenantId, branchId: current.branchId, sourceHash: input.sourceHash, status: { not: "APPLIED" } }, orderBy: { createdAt: "desc" } });
         if (existing) return existing;
         if (!mistralKey) throw new AppError("IMPORT_PROVIDER_NOT_CONFIGURED", 503, "La lectura PDF necesita que el administrador configure el proveedor de IA.");
@@ -85,7 +86,7 @@ export async function PATCH(request: Request) {
     const current = await scope(); await assertTenantWriteEntitlement(current.tenantId);
     const input = commitSchema.parse(await request.json());
     const config = await getRestaurantConfiguration(current.tenantId, current.branchId);
-    const result = await withInventoryTransaction(async (tx) => {
+    const result = await withSerializableTransaction(async (tx) => {
       const job = await tx.restaurantMenuImport.findFirst({ where: { id: input.id, tenantId: current.tenantId, branchId: current.branchId } });
       if (!job) throw new AppError("NOT_FOUND", 404, "Importación no encontrada.");
       if (job.status === "APPLIED") return { ok: true, message: "La importación ya fue aplicada; no se duplicaron productos." };
@@ -134,7 +135,7 @@ export async function PUT(request: Request) {
     const body = await request.json();
     if (body.action === "skip") {
       const input = z.object({ id: z.string(), page: z.number().int().min(0).max(49), confirmed: z.literal(true) }).parse(body);
-      await withInventoryTransaction(async (tx) => {
+      await withSerializableTransaction(async (tx) => {
         const job = await tx.restaurantMenuImport.findFirst({ where: { id: input.id, tenantId: current.tenantId, branchId: current.branchId, nextPage: input.page, status: { notIn: ["APPLIED", "REVIEW"] }, OR: [{ leaseUntil: null }, { leaseUntil: { lte: new Date() } }] } });
         if (!job || job.nextPage >= job.pageCount) throw new AppError("IMPORT_BUSY", 409, "Espera a que termine la página antes de omitirla.");
         await tx.restaurantMenuImport.update({ where: { id: job.id }, data: { nextPage: job.nextPage + 1, attempts: 0, leaseUntil: null, status: job.nextPage + 1 === job.pageCount ? "REVIEW" : "DRAFT" } });

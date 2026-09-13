@@ -23,7 +23,9 @@
     "db:bootstrap:runtime": "npm run db:schema:prod && tsx prisma/bootstrap.ts",
     "db:studio": "prisma studio",
     "jobs:worker": "tsx --conditions=react-server --tsconfig tsconfig.json src/modules/transport/server/jobs-worker.ts",
-    "jobs:once": "tsx --conditions=react-server --tsconfig tsconfig.json src/modules/transport/server/jobs-worker.ts --once"
+    "jobs:once": "tsx --conditions=react-server --tsconfig tsconfig.json src/modules/transport/server/jobs-worker.ts --once",
+    "jobs:fiscal:once": "tsx --conditions=react-server --tsconfig tsconfig.json src/modules/invoicing/server/worker.ts --once",
+    "jobs:fiscal:worker": "tsx --conditions=react-server --tsconfig tsconfig.json src/modules/invoicing/server/worker.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -16,7 +16,7 @@ export async function getBarbershopData(scope: TenantScope, section?: string | n
     needed("services", "appointments") ? prisma.service.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId }, orderBy: [{ active: "desc" }, { name: "asc" }], select: { id: true, name: true, category: true, durationMinutes: true, priceCents: true, active: true } }) : [],
     needed("dashboard", "appointments", "checkout") ? prisma.appointment.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId }, orderBy: { startsAt: "desc" }, take: 100, include: { customer: { select: { id: true, name: true, phone: true } }, staff: { select: { id: true, name: true } }, service: { select: { id: true, name: true } }, sale: { select: { id: true } } } }) : [],
     needed("dashboard", "checkout") ? prisma.sale.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, appointmentId: { not: null } }, orderBy: { createdAt: "desc" }, take: 50, include: { customer: { select: { name: true } } } }) : [],
-    needed("appointments", "checkout") ? prisma.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, orderBy: { openedAt: "desc" }, select: { id: true, status: true, openingCents: true, expectedCents: true, openedAt: true } }) : null,
+    needed("appointments", "checkout") ? prisma.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, orderBy: { openedAt: "desc" }, select: { id: true, balanceBasis: true, status: true, openingCents: true, expectedCents: true, openedAt: true } }) : null,
   ]);
 
   const todayAppointments = appointments.filter((item) => item.startsAt >= start && item.startsAt < end);

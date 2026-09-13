@@ -76,13 +76,13 @@ test("printing requires confirmation and rejects expired agent leases", async ({
   const printer = await command(request, "restaurant/print-devices", { name: "Readiness browser", connectionType: "BROWSER", paperWidthMm: 80 });
   const job = await db.restaurantPrintJob.create({ data: { tenantId: current.tenantId, branchId: current.branchId, createdById: current.actorId, printerId: printer.id, type: "TEST", payload: '{"items":[]}' } });
   await command(request, `restaurant/print-jobs/${job.id}/claim`, { stationId: "readiness-station" });
-  expect((await request.patch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { data: { stationId: "readiness-station", status: "PRINTED" } })).status()).toBe(400);
-  await command(request, `restaurant/print-jobs/${job.id}/status`, { stationId: "readiness-station", status: "FAILED", error: "Operador canceló" }, "PATCH");
+  expect((await request.patch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { data: { stationId: "readiness-station", attempt: 1, status: "PRINTED" } })).status()).toBe(400);
+  await command(request, `restaurant/print-jobs/${job.id}/status`, { stationId: "readiness-station", attempt: 1, status: "FAILED", error: "Operador canceló" }, "PATCH");
   expect((await db.restaurantPrintJob.findUniqueOrThrow({ where: { id: job.id } })).printedAt).toBeNull();
   const token = "readiness-local-agent-token-1234567890";
   const device = await db.printDevice.create({ data: { tenantId: current.tenantId, branchId: current.branchId, name: "Readiness agent", connectionType: "LOCAL_AGENT", tokenHash: createHash("sha256").update(token).digest("hex") } });
   const expired = await db.restaurantPrintJob.create({ data: { tenantId: current.tenantId, branchId: current.branchId, createdById: current.actorId, printerId: device.id, type: "TEST", payload: "{}", status: "PROCESSING", stationId: `agent:${device.id}`, leaseExpiresAt: new Date(0) } });
-  expect((await request.patch(`/api/print-agent/jobs/${expired.id}/status`, { headers: { Authorization: `Bearer ${token}` }, data: { status: "SENT" } })).status()).toBe(409);
+  expect((await request.patch(`/api/print-agent/jobs/${expired.id}/status`, { headers: { Authorization: `Bearer ${token}` }, data: { status: "SENT", attempt: 1 } })).status()).toBe(409);
 });
 
 test("concurrent redemptions cannot spend the same points; refund restores balance", async ({ request }) => {

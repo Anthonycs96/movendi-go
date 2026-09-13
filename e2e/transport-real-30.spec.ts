@@ -3,6 +3,7 @@ import type { TransportData } from "@movendi/contracts";
 
 const password = "Nexo2026!";
 const slug = "andes-cargo";
+const changedPasswords = new Map<string, string>();
 
 type ApiResult = { status: number; json: { ok?: boolean; id?: string; error?: { code: string }; data?: TransportData; [key: string]: unknown } };
 let customerId = "";
@@ -28,19 +29,18 @@ async function login(page: Page, email = "admin@andes.local", businessSlug = slu
   await expect(passwordInput).toHaveAttribute("type", "password");
   await page.getByLabel(/Correo electrónico/i).fill(email);
   const platformAccess = email === "superadmin@multisaas.local";
-  if (platformAccess) {
-    await expect(page.getByLabel("Tipo de acceso")).toHaveValue(/Super Admin/i);
-  } else {
-    const businessPicker = page.getByRole("button", { name: "Negocio" });
-    await expect(businessPicker).toBeVisible();
-    if (await businessPicker.getAttribute("aria-expanded") === "false") {
-      await businessPicker.click();
-      const option = page.getByRole("option").filter({ hasText: businessSlug === slug ? "Andes Cargo" : businessSlug });
-      if (await option.count()) await option.click();
-    }
-  }
-  await passwordInput.fill(password);
+  const effectivePassword = changedPasswords.get(email) ?? password;
+  await passwordInput.fill(effectivePassword);
   await page.getByRole("button", { name: "Entrar al sistema" }).click();
+  // Seeded users belong to one business; selection is unnecessary after login.
+  await expect(page).toHaveURL(/\/(?:change-password(?:\?|$)|platform\/dashboard$|t\/[^/]+\/dashboard$)/);
+  if (new URL(page.url()).pathname === "/change-password") {
+    const newPassword = `${password}-transport`;
+    const changed = await page.request.post("/api/auth/change-password", { data: { currentPassword: effectivePassword, newPassword } });
+    expect(changed.status(), await changed.text()).toBe(200);
+    changedPasswords.set(email, newPassword);
+    await page.goto(platformAccess ? "/platform/dashboard" : `/t/${businessSlug}/dashboard`);
+  }
   await expect(page).toHaveURL(platformAccess ? /\/platform\/dashboard$/ : new RegExp(`/t/${businessSlug}/dashboard$`));
 }
 

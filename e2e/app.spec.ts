@@ -140,6 +140,7 @@ test.describe.serial("flujos críticos con base de datos real", () => {
     await expect(appointmentRow).toContainText("Pendiente");
     await appointmentRow.getByRole("button", { name: "Confirmar" }).click();
     await appointmentRow.getByRole("button", { name: "Cobrar" }).click();
+    await page.getByRole("dialog", { name: "Cobrar cita" }).getByRole("button", { name: "Registrar cobro" }).click();
     await expect(appointmentRow).toContainText("Completada");
 
     await page.goto("/t/nova-studio/checkout");

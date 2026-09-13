@@ -1,3 +1,4 @@
+import { withSerializableTransaction } from "@/core/database/transactions";
 import { z } from "zod";
 import { prisma } from "@/core/database/prisma";
 import { requireSession } from "@/core/auth/session";
@@ -5,7 +6,7 @@ import { hasPermission } from "@/core/auth/permissions";
 import { AppError, errorResponse } from "@/core/auth/errors";
 import { assertTenantWriteEntitlement } from "@/core/platform/entitlements";
 import { assertRestaurantModule } from "@/modules/restaurant/server/access";
-import { withInventoryTransaction } from "@/modules/inventory/server/service";
+
 import { parseMenuHistory, revertMenuHistory } from "@/modules/restaurant/server/menu-history";
 
 export async function GET(request: Request) {
@@ -44,6 +45,6 @@ export async function POST(request: Request) {
     assertRestaurantModule(session, "menu");
     await assertTenantWriteEntitlement(session.tenantId);
     const input = z.object({ id: z.string().min(1), reason: z.string().trim().min(5).max(500), confirmed: z.literal(true) }).parse(await request.json());
-    return Response.json(await withInventoryTransaction((tx) => revertMenuHistory(tx, { tenantId: session.tenantId, branchId: session.branchId, actorId: session.userId }, input.id, input.reason)));
+    return Response.json(await withSerializableTransaction((tx) => revertMenuHistory(tx, { tenantId: session.tenantId, branchId: session.branchId, actorId: session.userId }, input.id, input.reason)));
   } catch (error) { return errorResponse(error); }
 }

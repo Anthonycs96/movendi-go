@@ -17,10 +17,3 @@ export function allocateCents(totalCents: number, weights: readonly number[]): n
   }
   return shares.map((share) => share.cents);
 }
-
-export function allocateInvoiceAmounts(totalCents: number, weights: readonly number[], taxRatePct: number) {
-  if (!Number.isFinite(taxRatePct) || taxRatePct < 0 || taxRatePct > 100) throw new RangeError("Invalid tax rate");
-  const lineTotals = allocateCents(totalCents, weights);
-  const taxableCents = Math.round(totalCents / (1 + taxRatePct / 100));
-  return { taxableCents, taxCents: totalCents - taxableCents, lineTotals, lineTaxables: allocateCents(taxableCents, lineTotals) };
-}

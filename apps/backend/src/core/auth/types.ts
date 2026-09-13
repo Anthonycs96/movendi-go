@@ -6,7 +6,7 @@ export interface AuthSession {
   tenantSlug: string;
   tenantName: string;
   tenantShortName: string;
-  tenantType: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT";
+  tenantType: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT" | "MINIMARKET";
   tenantLocale: string;
   tenantCurrency: string;
   tenantTimezone: string;

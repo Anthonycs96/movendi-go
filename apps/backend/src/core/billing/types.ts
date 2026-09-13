@@ -6,7 +6,7 @@ export interface CheckoutRequestData {
   businessName: string;
   businessShortName: string;
   businessSlug: string;
-  businessType: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT";
+  businessType: "BARBERSHOP" | "RESTAURANT" | "TRANSPORT" | "MINIMARKET";
   adminName: string;
   adminPasswordHash: string;
   branchName: string;

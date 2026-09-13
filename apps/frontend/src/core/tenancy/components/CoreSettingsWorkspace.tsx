@@ -48,6 +48,7 @@ const commonPermissions: PermissionOption[] = [
 ];
 
 const industryPermissions: Record<string, PermissionOption[]> = {
+  MINIMARKET: [["minimarket:catalog:read", "Ver catálogo"], ["minimarket:catalog:write", "Administrar catálogo"], ["minimarket:sales:read", "Ver ventas"], ["minimarket:sales:write", "Cobrar ventas"], ["minimarket:refunds:write", "Devolver ventas"], ["minimarket:cash:write", "Operar caja"], ["minimarket:cash:approve", "Aprobar diferencias de caja"], ["minimarket:reports:read", "Ver resultados"]].map(([value, label]) => ({ value, label, group: "Minimarket" })),
   BARBERSHOP: [
     {
       value: "barbershop:appointments:read",

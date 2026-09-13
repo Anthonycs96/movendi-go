@@ -36,29 +36,30 @@ async function send(bytes) {
     socket.once("close", (hadError) => { if (!hadError) done(); });
   });
 }
-await call("heartbeat");
+const connection = await call("heartbeat");
+if (connection.protocolVersion !== 2) throw new Error("Actualiza el servidor antes de iniciar este agente de impresión (protocolo 2).");
 console.log("Agente conectado. Los envíos quedan pendientes de verificar en Cocina.");
 for (;;) {
   try {
-    const { job } = await call("jobs/next");
+    const { job } = await call("jobs/next", { protocolVersion: 2 });
     if (job) {
-      if (!/^[a-zA-Z0-9-]+$/.test(job.id) || !Number.isInteger(job.deliveryAttempt) || job.deliveryAttempt < 0) throw new Error("Identificador de comanda inválido.");
+      if (!/^[a-zA-Z0-9-]+$/.test(job.id) || !Number.isInteger(job.deliveryAttempt) || job.deliveryAttempt < 0 || !Number.isSafeInteger(job.attempt) || job.attempt < 1) throw new Error("Identificador de comanda inválido.");
       const journal = resolve(stateDir, `${job.id}-${job.deliveryAttempt}.json`);
       const prior = await readFile(journal, "utf8").then(JSON.parse, () => null);
       if (prior?.state === "SENT") {
-        await call(`jobs/${job.id}/status`, { status: "SENT" }, "PATCH");
+        await call(`jobs/${job.id}/status`, { status: "SENT", attempt: job.attempt }, "PATCH");
       } else if (prior) {
-        await call(`jobs/${job.id}/status`, { status: "FAILED", error: "Envío previo incierto. Verifica el papel antes de habilitar una reimpresión en el agente." }, "PATCH");
+        await call(`jobs/${job.id}/status`, { status: "UNKNOWN", attempt: job.attempt, error: "Envío previo incierto. Verifica el papel antes de habilitar una reimpresión en el agente." }, "PATCH");
       } else {
         await writeFile(journal, JSON.stringify({ state: "SENDING", at: new Date().toISOString() }), { flag: "wx", flush: true });
         try {
           for (let copy = 0; copy < Math.max(1, Math.min(5, job.copies)); copy++) await send(receipt(job));
           await writeFile(journal, JSON.stringify({ state: "SENT", at: new Date().toISOString() }), { flush: true });
-          await call(`jobs/${job.id}/status`, { status: "SENT" }, "PATCH");
+          await call(`jobs/${job.id}/status`, { status: "SENT", attempt: job.attempt }, "PATCH");
           console.log(`Comanda ${job.id} enviada al equipo; confirma su salida en Cocina.`);
         } catch (error) {
           const saved = await readFile(journal, "utf8").then(JSON.parse);
-          if (saved.state !== "SENT") await call(`jobs/${job.id}/status`, { status: "FAILED", error: "Envío incierto: revisa conexión y papel antes de reimprimir." }, "PATCH");
+          if (saved.state !== "SENT") await call(`jobs/${job.id}/status`, { status: "UNKNOWN", attempt: job.attempt, error: "Envío incierto: revisa conexión y papel antes de reimprimir." }, "PATCH");
           throw error;
         }
       }

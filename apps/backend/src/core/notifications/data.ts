@@ -61,7 +61,18 @@ export async function getOperationalNotifications(session: AuthSession): Promise
     if (kitchen) items.push({ id: "restaurant-kitchen", tone: "warning", title: `${kitchen} comanda${kitchen === 1 ? "" : "s"} demorada${kitchen === 1 ? "" : "s"}`, message: `Superaron el umbral preventivo de ${configuration.kitchen.warningMinutes} minutos.`, href: path("kitchen") });
     if (orders) items.push({ id: "restaurant-orders", tone: "info", title: `${orders} pedido${orders === 1 ? "" : "s"} activo${orders === 1 ? "" : "s"}`, message: "Atenciones aún no cerradas.", href: path("orders") });
     if (lowStock) items.push({ id: "restaurant-stock", tone: "warning", title: `${lowStock} insumo${lowStock === 1 ? "" : "s"} con stock bajo`, message: "El inventario alcanzó o bajó su nivel mínimo.", href: path("inventory") });
-  } else if (allowed("barbershop:appointments:read")) {
+  } else if (session.tenantType === "MINIMARKET") {
+    if (allowed("inventory:read") && session.enabledModules.includes("inventory")) {
+      const scope = { tenantId: session.tenantId, branchId: session.branchId };
+      const [stock, lots] = await Promise.all([
+        prisma.inventoryItem.findMany({ where: { ...scope, active: true, retailProduct: { isNot: null } }, select: { stock: true, minimumStock: true } }),
+        prisma.retailLot.count({ where: { product: scope, stock: { gt: 0 }, expiresOn: { lte: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10) } } }),
+      ]);
+      const low = stock.filter((item) => item.stock <= item.minimumStock).length;
+      if (low) items.push({ id: "retail-stock", tone: "warning", title: `${low} productos con stock bajo`, message: "Revisa las existencias y registra la reposición.", href: path("inventory") });
+      if (lots) items.push({ id: "retail-expiry", tone: "warning", title: `${lots} lotes vencidos o próximos a vencer`, message: "Consulta el detalle de vencimientos antes de reponer o retirar mercadería.", href: path("inventory") });
+    }
+  } else if (session.tenantType === "BARBERSHOP" && allowed("barbershop:appointments:read")) {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const end = new Date(start.getTime() + 86_400_000);
     const [pending, overdue] = await Promise.all([

@@ -1,3 +1,4 @@
+import { withSerializableTransaction } from "@/core/database/transactions";
 import { createHash } from "node:crypto";
 import { PDFDocument } from "pdf-lib";
 import { z } from "zod";
@@ -7,7 +8,7 @@ import { AppError, errorResponse } from "@/core/auth/errors";
 import { assertTenantWriteEntitlement } from "@/core/platform/entitlements";
 import { storeObject, readStoredObject, deleteStoredObject } from "@/core/storage/service";
 import { assertRestaurantModule } from "@/modules/restaurant/server/access";
-import { withInventoryTransaction } from "@/modules/inventory/server/service";
+
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
     const stored = await storeObject({ tenantId: session.tenantId, actorId: session.userId, purpose: "RESTAURANT_MENU_SOURCE", originalName: `${job.id}-${index}.part`, mimeType: "application/octet-stream", data: bytes, scanStatus: "NOT_SCANNED" });
     let linked = false;
     try {
-      linked = await withInventoryTransaction(async (tx) => {
+      linked = await withSerializableTransaction(async (tx) => {
         const current = await tx.restaurantMenuImport.findUniqueOrThrow({ where: { id: job.id } });
         const parts = JSON.parse(current.sourceManifest) as Part[];
         if (parts.some((part) => part.total !== total)) throw new AppError("SOURCE_MISMATCH", 409, "Selecciona el mismo PDF original.");

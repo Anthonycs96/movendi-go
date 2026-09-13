@@ -1,3 +1,4 @@
+import { MinimarketWorkspace } from "@/modules/minimarket/MinimarketWorkspace";
 import { notFound, redirect } from "next/navigation";
 import { hasPermission } from "@/core/auth/permissions";
 import { getManifest, isValidModulePath } from "@/core/modules/registry";
@@ -27,7 +28,7 @@ export default async function TenantSectionPage({ params, searchParams }: Tenant
   const { industry } = workspace;
   const manifest = getManifest(industry);
   const section = requestedSection;
-  if (!section) redirect(`/t/${session.tenantSlug}/${manifest.defaultPath}`);
+  if (!section) redirect(`/t/${session.tenantSlug}/${manifest.navigation.find((item) => hasPermission(session.permissions, item.permission) && (!session.enabledModules.length || session.enabledModules.includes(item.path)))?.path ?? manifest.defaultPath}`);
   if (parts && parts.length > 1) notFound();
   if (!isValidModulePath(manifest, section)) notFound();
   const navItem = manifest.navigation.find((item) => item.path === section);
@@ -39,5 +40,6 @@ export default async function TenantSectionPage({ params, searchParams }: Tenant
   if (industry === "restaurant") {
     return <PageContainer><RestaurantWorkspace key={`${session.tenantId}:${session.branchId}`} section={section} data={workspace.data} core={workspace.core} permissions={session.permissions} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;
   }
+  if (industry === "minimarket") return <PageContainer><MinimarketWorkspace key={`${session.tenantId}:${session.branchId}`} section={section} data={workspace.data} core={workspace.core} permissions={session.permissions} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;
   return <PageContainer><TransportWorkspace section={section} data={workspace.data} core={workspace.core} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;
 }

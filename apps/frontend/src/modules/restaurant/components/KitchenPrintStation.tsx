@@ -7,7 +7,7 @@ import { Button, Card, StatusBadge } from "@/shared/components/ui";
 
 type PrintItem = { name: string; quantity: number; notes: string | null };
 type PrintJob = {
-  id: string; printerId: string | null; type: "INITIAL" | "ADDITION" | "CANCELLATION" | "TEST"; status: "PENDING" | "PROCESSING" | "PRINTED" | "FAILED" | "SENT"; claimable: boolean; automatic: boolean; copies: number; attempts: number; lastError: string | null; createdAt: string; printedAt: string | null;
+  id: string; printerId: string | null; type: "INITIAL" | "ADDITION" | "CANCELLATION" | "TEST"; status: "PENDING" | "PROCESSING" | "PRINTED" | "FAILED" | "SENT" | "UNKNOWN"; claimable: boolean; automatic: boolean; copies: number; attempts: number; lastError: string | null; createdAt: string; printedAt: string | null;
   order: { code: string; source: string; notes: string | null; tableName: string | null }; createdBy: string; payload: { printerName?: string; fields?: string[]; sections?: Array<{ areaName: string; items: PrintItem[] }>; items?: PrintItem[]; orderNotes?: string | null };
 };
 
@@ -36,8 +36,8 @@ export function KitchenPrintStation({ businessName, printers }: { businessName: 
     return () => window.clearTimeout(timer);
   }, [printers]);
 
-  const updateStatus = useCallback(async (job: PrintJob, status: "PRINTED" | "FAILED", error?: string) => {
-    const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, error, confirmed: status === "PRINTED", stationId: stationId.current }) });
+  const updateStatus = useCallback(async (job: PrintJob, status: "PRINTED" | "FAILED" | "UNKNOWN", error?: string) => {
+    const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status, error, attempt: job.attempts, confirmed: status === "PRINTED", stationId: stationId.current }) });
     if (!response.ok) throw new Error("No se pudo confirmar el estado de la impresión.");
   }, []);
 
@@ -50,16 +50,17 @@ export function KitchenPrintStation({ businessName, printers }: { businessName: 
     try {
       const claimResponse = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/claim`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stationId: stationId.current }) });
       if (!claimResponse.ok) throw new Error("No se pudo reservar la comanda para esta estación.");
-      const claim = await claimResponse.json() as { claimed: boolean };
+      const claim = await claimResponse.json() as { claimed: boolean; attempt: number };
       if (!claim.claimed) { processing.current = null; return; }
       claimed = true;
+      job = { ...job, attempts: claim.attempt };
       setCurrent(job);
       await new Promise((resolve) => window.setTimeout(resolve, 180));
       for (let copy = 0; copy < Math.max(1, job.copies); copy += 1) window.print();
       setMessage("Revisa el papel y confirma el resultado. Cerrar el diálogo no confirma la impresión.");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "No se pudo completar la impresión.";
-      if (claimed) await updateStatus(job, "FAILED", detail).catch(() => undefined);
+      if (claimed) await updateStatus(job, "UNKNOWN", detail).catch(() => undefined);
       setMessage(detail); setCurrent(null); processing.current = null;
     }
   }, [simulation, updateStatus, printers]);
@@ -96,11 +97,11 @@ export function KitchenPrintStation({ businessName, printers }: { businessName: 
   function toggleEnabled(value: boolean) { setEnabled(value); window.localStorage.setItem("movendi-kitchen-print-enabled", String(value)); }
   function toggleSimulation(value: boolean) { setSimulation(value); window.localStorage.setItem("movendi-kitchen-print-simulation", String(value)); }
   function choosePrinter(value: string) { setSelectedPrinter(value); window.localStorage.setItem("movendi-kitchen-printer-id", value); }
-  async function retry(job: PrintJob) { const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/retry`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); if (!response.ok) { setMessage("No se pudo reenviar la comanda; actualiza la cola."); return; } setMessage("Comanda colocada nuevamente en la cola."); await loadJobs(); }
+  async function retry(job: PrintJob) { const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/retry`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attempt: job.attempts }) }); if (!response.ok) { setMessage("No se pudo reenviar la comanda; actualiza la cola."); return; } setMessage("Comanda colocada nuevamente en la cola."); await loadJobs(); }
 
   const pending = jobs.filter((job) => job.claimable).length;
   const failed = jobs.filter((job) => job.status === "FAILED");
-  const sent = jobs.filter((job) => job.status === "SENT");
+  const sent = jobs.filter((job) => job.status === "SENT" || job.status === "UNKNOWN");
   const manual = jobs.filter((job) => job.claimable && (!job.automatic || !enabled || simulation));
   return <>
     <Card className="kitchen-print-station">
@@ -109,7 +110,7 @@ export function KitchenPrintStation({ businessName, printers }: { businessName: 
       <div className="kitchen-print-station__controls">{printers.length ? <label><span>Impresora</span><select value={selectedPrinter} disabled={Boolean(current)} onChange={(event) => choosePrinter(event.target.value)}>{printers.map((printer) => <option value={printer.id} key={printer.id}>{printer.name}</option>)}</select></label> : null}<label><input type="checkbox" checked={enabled} onChange={(event) => toggleEnabled(event.target.checked)} /><span>Abrir siguientes comandas</span></label><label><input type="checkbox" disabled={Boolean(current)} checked={simulation} onChange={(event) => toggleSimulation(event.target.checked)} /><span>Modo simulación</span></label><Button type="button" size="sm" variant="ghost" onClick={() => void loadJobs()}><RefreshCw size={14} />Actualizar</Button></div>
       {current ? <div className="kitchen-print-errors" role="group" aria-label="Confirmar impresión"><strong>{simulation ? "Prueba sin cambios" : `Confirma la impresión de ${current.order.code}`}</strong><p>{simulation ? "Elige Guardar como PDF en el diálogo del navegador. La cola no cambia y no se confirma salida en papel." : "Si cancelaste el diálogo, faltó papel o salió incompleta, elige No salió."}</p>{simulation ? <><Button type="button" onClick={() => window.print()}>Ver formato / guardar PDF</Button><Button type="button" onClick={() => void confirmPrint(false)}>Cerrar prueba</Button></> : <><Button type="button" onClick={() => void confirmPrint(true)}>Salió correctamente</Button><Button type="button" variant="secondary" onClick={() => void confirmPrint(false)}>No salió / cancelé</Button></>}</div> : null}
       {message ? <p className="kitchen-print-message" role="status"><CheckCircle2 size={15} />{message}</p> : null}
-      {sent.length ? <div className="kitchen-print-errors"><strong>Enviadas al equipo · Verificar papel</strong>{sent.map((job) => <div key={job.id}><span>{job.order.code} · {job.payload.printerName}</span><Button type="button" onClick={async () => { const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/confirm-delivery`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ printed: true }) }); setMessage(response.ok ? "Salida en papel confirmada." : "No se pudo confirmar. Actualiza e intenta otra vez."); await loadJobs(); }}>Recibida en papel</Button><Button type="button" variant="secondary" onClick={async () => { const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/confirm-delivery`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ printed: false }) }); setMessage(response.ok ? "Fallo registrado; verifica antes de reimprimir." : "No se pudo registrar el fallo."); await loadJobs(); }}>No salió</Button></div>)}</div> : null}
+      {sent.length ? <div className="kitchen-print-errors"><strong>Enviadas o sin confirmar · Verificar papel</strong>{sent.map((job) => <div key={job.id}><span>{job.order.code} · {job.payload.printerName}</span><Button type="button" onClick={async () => { const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/confirm-delivery`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ printed: true, attempt: job.attempts }) }); setMessage(response.ok ? "Salida en papel confirmada." : "No se pudo confirmar. Actualiza e intenta otra vez."); await loadJobs(); }}>Recibida en papel</Button><Button type="button" variant="secondary" onClick={async () => { const response = await fetch(`/api/operations/restaurant/print-jobs/${job.id}/confirm-delivery`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ printed: false, attempt: job.attempts }) }); setMessage(response.ok ? "Fallo registrado; verifica antes de reimprimir." : "No se pudo registrar el fallo."); await loadJobs(); }}>No salió</Button></div>)}</div> : null}
       {failed.length ? <div className="kitchen-print-errors"><strong><TriangleAlert size={15} />Impresiones pendientes de atención</strong>{failed.slice(0, 3).map((job) => <div key={job.id}><span><b>{typeLabels[job.type]} · {job.order.code}</b><small>{job.lastError || "No confirmada"}</small></span><Button type="button" size="sm" variant="secondary" onClick={() => void retry(job)}>Reimprimir</Button></div>)}</div> : null}
       {manual.length ? <div className="kitchen-print-errors"><strong><Printer size={15} />Impresiones manuales</strong>{manual.slice(0, 3).map((job) => <div key={job.id}><span><b>{typeLabels[job.type]} · {job.order.code}</b><small>{job.payload.printerName ?? "Impresora seleccionada"}</small></span><Button type="button" size="sm" variant="secondary" onClick={() => void processJob(job)}>Imprimir ahora</Button></div>)}</div> : null}
     </Card>

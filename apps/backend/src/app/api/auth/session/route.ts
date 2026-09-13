@@ -9,7 +9,7 @@ export async function GET() {
   try {
     const session = await requireSession(undefined, true);
     const membership = await prisma.membership.findUniqueOrThrow({ where: { id: session.membershipId }, select: { branchId: true } });
-    const assignedBranch = session.tenantType === "RESTAURANT" && !hasPermission(session.permissions, "settings:write") ? membership.branchId : null;
+    const assignedBranch = ["RESTAURANT", "MINIMARKET"].includes(session.tenantType) && !hasPermission(session.permissions, "settings:write") ? membership.branchId : null;
     const branches = await prisma.branch.findMany({
       where: { tenantId: session.tenantId, active: true, ...(assignedBranch ? { id: assignedBranch } : {}) },
       orderBy: { createdAt: "asc" },

@@ -37,15 +37,7 @@ export async function cancelOrderIngredients(tx: Prisma.TransactionClient, scope
   }
 }
 
-export function aggregatePreparationStatus(statuses: string[]) {
-  const active = statuses.filter((status) => status !== "CANCELLED");
-  if (!active.length) return "CANCELLED";
-  if (active.every((status) => status === "HELD")) return "HELD";
-  if (active.every((status) => status === "SERVED")) return "SERVED";
-  if (active.every((status) => ["READY", "SERVED"].includes(status))) return "READY";
-  if (active.some((status) => ["PREPARING", "READY", "SERVED"].includes(status))) return "PREPARING";
-  return "QUEUED";
-}
+export { aggregatePreparationStatus } from "../domain/preparation-transition";
 
 export function assertDiscountLimit(subtotal: number, discount: number, maximumPct: number) {
   if (discount > Math.round(subtotal * maximumPct / 100)) throw new AppError("DISCOUNT_LIMIT", 409, `La promoción supera el descuento máximo autorizado de ${maximumPct}%. Ajusta la promoción o el límite de ventas.`);

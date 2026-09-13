@@ -17,12 +17,14 @@ import { detectRestaurantAreas, normalizeRestaurantArea, normalizeRestaurantCata
 import { existingPreparationAreasByKey, reconcilePreparationAreas, type PreparationAreaInput } from "@/modules/restaurant/server/areas";
 
 const moduleKeys = {
+  MINIMARKET: ["dashboard", "pos", "catalog", "inventory", "purchases", "sales", "checkout", "clients", "reports", "settings"],
   RESTAURANT: ["dashboard", "floor", "orders", "kitchen", "clients", "menu", "inventory", "promotions", "checkout", "reports", "settings"],
   BARBERSHOP: ["dashboard", "appointments", "clients", "team", "services", "inventory", "checkout", "settings"],
   TRANSPORT: ["dashboard", "operations", "fleet", "drivers", "documents", "finance", "fuel", "maintenance", "inventory", "tires", "reports", "settings"],
 } as const;
 
 export const setupTemplates = [
+  { key: "MINIMARKET_COMPLETE", type: "MINIMARKET", name: "Minimarket completo", description: "Productos, presentaciones, lotes, compras, punto de venta, devoluciones, caja y reportes.", modules: [...moduleKeys.MINIMARKET], preparationAreas: [], diningArea: null, roles: ["RETAIL_MANAGER", "RETAIL_CASHIER", "RETAIL_STOCK"] },
   { key: "RESTAURANT_SIMPLE", type: "RESTAURANT", name: "Restaurante esencial configurable", description: "Implementación guiada de salón, pedidos, cocina, carta, caja y reglas operativas.", modules: ["dashboard", "floor", "orders", "kitchen", "menu", "checkout", "settings"], preparationAreas: ["Cocina"], diningArea: "Salón", roles: ["WAITER", "KITCHEN", "CASHIER", "MANAGER"], restaurantConfiguration: defaultRestaurantConfiguration },
   { key: "RESTAURANT_COMPLETE", type: "RESTAURANT", name: "Restaurante completo configurable", description: "Operación completa con inventario, promociones, reportes, clientes e integraciones.", modules: [...moduleKeys.RESTAURANT], preparationAreas: ["Cocina", "Bar", "Postres"], diningArea: "Salón principal", roles: ["WAITER", "KITCHEN", "CASHIER", "MANAGER"], restaurantConfiguration: defaultRestaurantConfiguration },
   { key: "BARBERSHOP_STANDARD", type: "BARBERSHOP", name: "Barbería estándar", description: "Agenda, equipo, servicios, clientes, inventario y caja.", modules: [...moduleKeys.BARBERSHOP], preparationAreas: [], diningArea: null, roles: ["RECEPTION", "PROFESSIONAL", "CASHIER"] },
@@ -77,6 +79,9 @@ export const setupStepSchema = z.discriminatedUnion("step", [businessStep, modul
 export type SetupStepInput = z.infer<typeof setupStepSchema>;
 
 const defaultPermissions: Record<string, string[]> = {
+  RETAIL_MANAGER: ["*"],
+  RETAIL_CASHIER: ["minimarket:sales:read", "minimarket:sales:write", "minimarket:cash:write", "customers:read"],
+  RETAIL_STOCK: ["minimarket:catalog:read", "minimarket:catalog:write", "inventory:read", "inventory:write"],
   WAITER: ["dashboard:read", "restaurant:floor:read", "restaurant:floor:write", "restaurant:orders:read", "restaurant:orders:write", "restaurant:menu:read", "restaurant:promotions:read", "customers:read"],
   KITCHEN: ["dashboard:read", "restaurant:kitchen:read", "restaurant:kitchen:write", "restaurant:orders:read"],
   CASHIER: ["dashboard:read", "restaurant:orders:read", "restaurant:cash:write", "customers:read"],
@@ -88,7 +93,7 @@ const defaultPermissions: Record<string, string[]> = {
 };
 
 function roleName(key: string) {
-  const names: Record<string, string> = { WAITER: "Mesero", KITCHEN: "Cocina", CASHIER: "Caja", MANAGER: "Administrador de local", RECEPTION: "Recepción", PROFESSIONAL: "Profesional", DISPATCH: "Despacho", DRIVER_MANAGER: "Coordinación de conductores", FINANCE: "Finanzas" };
+  const names: Record<string, string> = { RETAIL_MANAGER: "Administrador de Minimarket", RETAIL_CASHIER: "Cajero", RETAIL_STOCK: "Almacén", WAITER: "Mesero", KITCHEN: "Cocina", CASHIER: "Caja", MANAGER: "Administrador de local", RECEPTION: "Recepción", PROFESSIONAL: "Profesional", DISPATCH: "Despacho", DRIVER_MANAGER: "Coordinación de conductores", FINANCE: "Finanzas" };
   return names[key] ?? key;
 }
 
@@ -208,7 +213,7 @@ async function saveDraft(tenantId: string, step: StepKey, session: AuthSession, 
   });
 }
 
-export async function initializeBusinessSetup(tenantId: string, branchId: string, tenantType: "RESTAURANT" | "BARBERSHOP" | "TRANSPORT", templateKey: string | undefined, actorId: string, transaction?: Prisma.TransactionClient) {
+export async function initializeBusinessSetup(tenantId: string, branchId: string, tenantType: "RESTAURANT" | "BARBERSHOP" | "TRANSPORT" | "MINIMARKET", templateKey: string | undefined, actorId: string, transaction?: Prisma.TransactionClient) {
   const template = setupTemplates.find((item) => item.key === templateKey && item.type === tenantType) ?? setupTemplates.find((item) => item.type === tenantType)!;
   const initialize = async (tx: Prisma.TransactionClient) => {
     await tx.tenant.update({ where: { id: tenantId }, data: { enabledModules: JSON.stringify(template.modules) } });
@@ -273,6 +278,7 @@ export async function saveBusinessSetupStep(tenantId: string, raw: unknown, sess
     await markStep(tenantId, input.step, tenant.type === "TRANSPORT" ? "TRANSPORT_OPERATION" : tenant.type === "RESTAURANT" ? "RESTAURANT_OPERATION" : "CATALOG", session, { enabledModules: enabled });
   } else if (input.step === "CATALOG") {
     let detectedAreas: DetectedRestaurantArea[] = [];
+    if (tenant.type === "MINIMARKET" && !input.skip) throw new AppError("CATALOG_IN_WORKSPACE", 400, "Carga el catálogo desde el espacio de Minimarket para definir SKU, presentaciones y lotes.");
     if (!input.skip && tenant.type === "RESTAURANT") {
       detectedAreas = await persistRestaurantCatalog(tenantId, branch.id, input);
     } else if (!input.skip && tenant.type === "BARBERSHOP") {

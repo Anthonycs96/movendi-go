@@ -8,7 +8,7 @@ import { formatDateTime } from "@/shared/lib/format";
 import { localizeCode } from "@/shared/lib/localization";
 
 const entities: Record<string, string> = { RestaurantOrder: "pedido", KitchenTicket: "comanda", DiningTable: "mesa", DiningArea: "ambiente", Sale: "venta", CashSession: "caja", CashMovement: "movimiento de caja", Customer: "cliente", Product: "producto", Category: "categoría", Promotion: "promoción", RestaurantPrintJob: "impresión", Membership: "usuario", User: "usuario", Role: "rol" };
-const actions: Record<string, string> = { UPDATE_PASSWORD: "Cambio de contraseña", OPEN: "Apertura", QUEUE: "Envío a cocina", TRANSFER: "Traslado", DELIVERY_STATUS_CHANGE: "Estado de entrega actualizado", CASH_IN: "Ingreso de efectivo", CASH_OUT: "Retiro de efectivo", PRINT_COMMAND: "Comanda impresa", PRINT_FAILED: "Fallo de impresión", REPRINT_COMMAND: "Reimpresión", REFUND: "Devolución", CANCEL: "Cancelación" };
+const actions: Record<string, string> = { UPDATE_PASSWORD: "Cambio de contraseña", OPEN: "Apertura", QUEUE: "Envío a cocina", TRANSFER: "Traslado", DELIVERY_STATUS_CHANGE: "Estado de entrega actualizado", CASH_IN: "Ingreso de efectivo", CASH_OUT: "Retiro de efectivo", PRINT_CLAIM: "Reserva de impresión", PRINT_COMPLETE: "Resultado de impresión", PRINT_CONFIRM: "Verificación de papel", PRINT_RETRY: "Reimpresión", PRINT_EXPIRE: "Reserva de impresión vencida", PRINT_COMMAND: "Comanda impresa", PRINT_FAILED: "Fallo de impresión", REPRINT_COMMAND: "Reimpresión", REFUND: "Devolución", CANCEL: "Cancelación" };
 function description(event: { action: string; entityType: string }) {
   return `${actions[event.action] ?? localizeCode(event.action)} · ${entities[event.entityType] ?? "registro operativo"}`;
 }

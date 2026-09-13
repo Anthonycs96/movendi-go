@@ -11,7 +11,7 @@ export const publicCheckoutSchema = z.object({
   businessName: z.string().trim().min(2).max(120),
   businessShortName: z.string().trim().min(2).max(40),
   businessSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).min(3).max(60),
-  businessType: z.enum(["BARBERSHOP", "RESTAURANT", "TRANSPORT"]),
+  businessType: z.enum(["BARBERSHOP", "RESTAURANT", "TRANSPORT", "MINIMARKET"]),
   branchName: z.string().trim().min(2).max(100).default("Sede principal"),
   adminName: z.string().trim().min(2).max(120),
   email: z.string().trim().toLowerCase().email().max(160),

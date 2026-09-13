@@ -1,4 +1,7 @@
+import { withSerializableTransaction } from "@/core/database/transactions";
+import { openCashSession, closeCashSession } from "@/modules/cash/server/service";
 import "server-only";
+import { checkoutAppointment } from "./checkout";
 import { assertTransactionalQuota } from "@/core/platform/entitlements";
 import { z } from "zod";
 import { prisma } from "@/core/database/prisma";
@@ -154,36 +157,26 @@ export async function handleBarbershopCommand(method: string, segments: string[]
   }
   if (method === "POST" && resource === "appointments" && id && action === "checkout") {
     const input = parse(checkoutSchema, body);
-    const appointment = await owned(prisma.appointment.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, include: { sale: true } }), "La cita");
-    if (appointment.sale) throw new AppError("ALREADY_PAID", 409, "Esta cita ya fue cobrada.");
-    if (["COMPLETED", "CANCELLED", "NO_SHOW"].includes(appointment.status)) throw new AppError("APPOINTMENT_CLOSED", 409, "La cita está cerrada y no puede cobrarse.");
-    const cash = await prisma.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, orderBy: { openedAt: "desc" } });
-    if (!cash) throw new AppError("CASH_CLOSED", 409, "Abre una caja antes de registrar el cobro.");
-    const sale = await prisma.$transaction(async (tx) => {
-      const created = await tx.sale.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, customerId: appointment.customerId, appointmentId: appointment.id, cashSessionId: cash.id, code: `VTA-N-${Date.now().toString().slice(-7)}`, paymentMethod: input.paymentMethod, totalCents: appointment.priceCents } });
-      await tx.appointment.update({ where: { id: appointment.id }, data: { status: "COMPLETED" } });
-      await tx.cashSession.update({ where: { id: cash.id }, data: { expectedCents: { increment: appointment.priceCents } } });
-      return created;
-    });
-    await audit(scope, "CHECKOUT", "Sale", sale.id, { appointmentId: appointment.id });
+    const sale = await checkoutAppointment(scope, id, input.paymentMethod);
     return { ok: true, id: sale.id, message: "Cobro registrado y cita completada." };
   }
   if (method === "POST" && resource === "cash" && action === undefined) {
     const input = parse(cashOpenSchema, body);
-    const existing = await prisma.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" } });
-    if (existing) throw new AppError("CASH_ALREADY_OPEN", 409, "Ya existe una caja abierta.");
-    const openingCents = Math.round(input.openingAmount * 100);
-    const entity = await prisma.cashSession.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, openedById: scope.actorId, openingCents, expectedCents: openingCents } });
-    await audit(scope, "OPEN", "CashSession", entity.id);
+    const entity = await withSerializableTransaction(async (tx) => {
+      const result = await openCashSession(tx, scope, { openingCents: Math.round(input.openingAmount * 100), registerName: "Caja principal" });
+      await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "OPEN", entityType: "CashSession", entityId: result.session.id } });
+      return result.session;
+    });
     return { ok: true, id: entity.id, message: "Caja abierta correctamente." };
   }
   if (method === "POST" && resource === "cash" && id && action === "close") {
     const input = parse(cashCloseSchema, body);
-    const cash = await owned(prisma.cashSession.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, select: { id: true, expectedCents: true } }), "La caja");
-    const countedCents = Math.round(input.countedAmount * 100);
-    await prisma.cashSession.update({ where: { id: cash.id }, data: { status: "CLOSED", countedCents, closedById: scope.actorId, closedAt: new Date() } });
-    await audit(scope, "CLOSE", "CashSession", cash.id, { countedCents, differenceCents: countedCents - cash.expectedCents });
-    return { ok: true, id: cash.id, message: `Caja cerrada. Diferencia: S/ ${((countedCents - cash.expectedCents) / 100).toFixed(2)}.` };
+    const result = await withSerializableTransaction(async (tx) => {
+      const closed = await closeCashSession(tx, scope, { id, countedCents: Math.round(input.countedAmount * 100) });
+      await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "CLOSE", entityType: "CashSession", entityId: id, metadata: JSON.stringify({ countedCents: closed.countedCents, differenceCents: closed.differenceCents }) } });
+      return closed;
+    });
+    return { ok: true, id, message: `Caja cerrada. Diferencia: S/ ${(result.differenceCents / 100).toFixed(2)}.` };
   }
   if (method === "POST" && resource === "schedules") {
     const input = parse(scheduleSchema, body);

@@ -10,6 +10,7 @@ const prismaCli = resolve("node_modules", "prisma", "build", "index.js");
 const nextCli = resolve("node_modules", "next", "dist", "bin", "next");
 const playwrightCli = resolve("node_modules", "@playwright", "test", "cli.js");
 const defaultSuites = [
+  "e2e/minimarket.spec.ts",
   "e2e/workspace-scoping.spec.ts",
   "e2e/app-performance.spec.ts",
   "e2e/app.spec.ts",
@@ -20,6 +21,8 @@ const defaultSuites = [
   "e2e/transport-configuration.spec.ts",
   "e2e/restaurant-configuration.spec.ts",
   "e2e/restaurant-production-audit.spec.ts",
+  "e2e/inventory-compatibility.spec.ts",
+  "e2e/sales-compatibility.spec.ts",
   "e2e/restaurant-frontend-journey.spec.ts",
   "e2e/restaurant-staff.spec.ts",
   "e2e/transport-operations-maintenance.spec.ts",

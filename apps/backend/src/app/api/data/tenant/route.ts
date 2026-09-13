@@ -1,3 +1,5 @@
+import { getMinimarketData } from "@/modules/minimarket/server/data";
+import { assertMinimarketAccess, minimarketSections } from "@/modules/minimarket/server/access";
 import { AppError, errorResponse } from "@/core/auth/errors";
 import { requireSession, toSessionView } from "@/core/auth/session";
 import { getCoreTenantData } from "@/core/tenancy/data";
@@ -6,7 +8,7 @@ import { getBarbershopData } from "@/modules/barbershop/server/data";
 import { getRestaurantData } from "@/modules/restaurant/server/data";
 import { normalizeRestaurantReportPeriod } from "@/modules/restaurant/server/reports";
 import { getTransportData, normalizeTransportDataSection, normalizeTransportQuery } from "@/modules/transport/server/data";
-import { getInventoryData } from "@/modules/inventory/server/data";
+import { getInventoryWorkspaceData } from "@/core/composition/inventory";
 import { hasPermission } from "@/core/auth/permissions";
 import { assertRestaurantModule } from "@/modules/restaurant/server/access";
 
@@ -31,7 +33,8 @@ export async function GET(request: Request) {
   try {
     const session = await requireSession();
     const searchParams = new URL(request.url).searchParams;
-    const requestedSection = searchParams.get("section");
+    const requestedSection = searchParams.get("section") ?? (session.tenantType === "MINIMARKET" ? Object.keys(minimarketSections).find((section) => session.enabledModules.includes(section) && hasPermission(session.permissions, minimarketSections[section])) ?? "pos" : null);
+    if (session.tenantType === "MINIMARKET") assertMinimarketAccess(session, requestedSection ?? "dashboard");
     if (session.tenantType === "RESTAURANT") {
       assertRestaurantModule(session, requestedSection ?? "dashboard");
       const required = restaurantSectionPermissions[requestedSection ?? "dashboard"];
@@ -43,10 +46,10 @@ export async function GET(request: Request) {
     const scope = { tenantId: session.tenantId, branchId: session.branchId, actorId: session.userId, permissions: session.permissions };
     if (requestedSection === "inventory" && !hasPermission(session.permissions, "inventory:read")) throw new AppError("FORBIDDEN", 403, "No tienes permiso para consultar el inventario.");
     const [branches, core, industryData, inventoryModule] = await Promise.all([
-      prisma.branch.findMany({ where: { tenantId: session.tenantId, active: true }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
-      getCoreTenantData(scope, !requestedSection || requestedSection === "settings"),
-      session.tenantType === "BARBERSHOP" ? getBarbershopData(scope, requestedSection) : session.tenantType === "RESTAURANT" ? getRestaurantData(scope, requestedSection === "reports" ? restaurantReportPeriod : undefined, requestedSection) : getTransportData(scope, transportSection, transportQuery),
-      requestedSection === "inventory" ? getInventoryData(scope, session.tenantType) : Promise.resolve(null),
+      prisma.branch.findMany({ where: { tenantId: session.tenantId, active: true, ...(session.tenantType === "MINIMARKET" && !hasPermission(session.permissions, "settings:write") ? { id: session.branchId } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
+      getCoreTenantData(scope, session.tenantType === "MINIMARKET" ? requestedSection === "settings" : !requestedSection || requestedSection === "settings"),
+      session.tenantType === "BARBERSHOP" ? getBarbershopData(scope, requestedSection) : session.tenantType === "RESTAURANT" ? getRestaurantData(scope, requestedSection === "reports" ? restaurantReportPeriod : undefined, requestedSection) : session.tenantType === "MINIMARKET" ? getMinimarketData(scope, requestedSection ?? "dashboard", searchParams) : getTransportData(scope, transportSection, transportQuery),
+      requestedSection === "inventory" && session.tenantType !== "MINIMARKET" ? getInventoryWorkspaceData(scope, session.tenantType) : Promise.resolve(null),
     ]);
     const data = inventoryModule ? { ...industryData, inventoryModule } : industryData;
     const durationMs = performance.now() - startedAt;
@@ -55,7 +58,7 @@ export async function GET(request: Request) {
     return Response.json({
       session: toSessionView(session),
       branches,
-      industry: session.tenantType === "BARBERSHOP" ? "barbershop" : session.tenantType === "RESTAURANT" ? "restaurant" : "transport",
+      industry: session.tenantType === "BARBERSHOP" ? "barbershop" : session.tenantType === "RESTAURANT" ? "restaurant" : session.tenantType === "MINIMARKET" ? "minimarket" : "transport",
       data,
       core,
     }, { headers: {

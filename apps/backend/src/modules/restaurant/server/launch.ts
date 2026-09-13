@@ -1,8 +1,9 @@
+import { withSerializableTransaction } from "@/core/database/transactions";
 import "server-only";
 import { z } from "zod";
 import { prisma } from "@/core/database/prisma";
 import { AppError } from "@/core/auth/errors";
-import { withInventoryTransaction } from "@/modules/inventory/server/service";
+
 export const pilotCases = [
   { key: "MISTRAL", label: "PDF real leído y productos revisados con Mistral" },
   { key: "MENU", label: "Carta y precios revisados" }, { key: "ROLES", label: "Acceso con cada rol y dos dispositivos" },
@@ -29,7 +30,7 @@ export async function updateLaunch(scope: Scope, body: unknown) {
     z.object({ action: z.literal("check"), key: z.string(), result: checkSchema, confirmedReal: z.literal(true) }),
     z.object({ action: z.literal("complete"), confirmedReal: z.literal(true) }),
   ]).parse(body);
-  return withInventoryTransaction(async (tx) => {
+  return withSerializableTransaction(async (tx) => {
     const where = { tenantId: scope.tenantId, branchId: scope.branchId };
     const current = await tx.restaurantLaunchPlan.findUnique({ where: { tenantId_branchId: where } });
     if (current?.status === "COMPLETED") throw new AppError("PILOT_COMPLETED", 409, "El piloto ya está cerrado. Registra incidencias en soporte.");
@@ -60,7 +61,7 @@ export async function updateLaunch(scope: Scope, body: unknown) {
 export const ticketUpdateSchema = z.object({ id: z.string(), version: z.number().int().positive(), status: z.enum(["OPEN", "IN_PROGRESS", "CLOSED"]), assignedTo: z.string().trim().max(120), resolution: z.string().trim().max(3000) }).refine((input) => input.status !== "CLOSED" || input.resolution.length >= 10, "Describe la solución antes de cerrar la incidencia.");
 export async function updateTicket(actorId: string, body: unknown, scope?: { tenantId: string; branchId: string }) {
   const { id, version, ...data } = ticketUpdateSchema.parse(body);
-  return withInventoryTransaction(async (tx) => {
+  return withSerializableTransaction(async (tx) => {
     const ticket = await tx.restaurantSupportTicket.findFirst({ where: { id, ...scope } });
     if (!ticket) throw new AppError("NOT_FOUND", 404, "Incidencia no encontrada.");
     const result = await tx.restaurantSupportTicket.updateMany({ where: { id, version, ...scope }, data: { ...data, version: { increment: 1 } } });

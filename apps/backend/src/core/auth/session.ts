@@ -50,7 +50,7 @@ export async function getOptionalSession(): Promise<AuthSession | null> {
   if (!record || record.expiresAt <= new Date() || !record.user.active || !record.membership.active || !record.branch.active || record.tenant.status !== "ACTIVE") return null;
   if (record.userId !== record.membership.userId || record.tenantId !== record.membership.tenantId || record.branch.tenantId !== record.tenantId) return null;
   if (record.membership.role.tenantId !== record.tenantId) return null;
-  if (record.tenant.type === "RESTAURANT" && record.membership.branchId && record.membership.branchId !== record.branchId && !hasPermission(parsePermissions(record.membership.role.permissions), "settings:write")) return null;
+  if (["RESTAURANT", "MINIMARKET"].includes(record.tenant.type) && record.membership.branchId && record.membership.branchId !== record.branchId && !hasPermission(parsePermissions(record.membership.role.permissions), "settings:write")) return null;
   return {
     sessionId: record.id,
     userId: record.userId,
@@ -93,7 +93,7 @@ export async function requireTenantScope(requiredPermission?: string): Promise<T
 
 export async function switchSessionBranch(branchId: string) {
   const session = await requireSession();
-  if (session.tenantType === "RESTAURANT" && !hasPermission(session.permissions, "settings:write")) {
+  if (["RESTAURANT", "MINIMARKET"].includes(session.tenantType) && !hasPermission(session.permissions, "settings:write")) {
     const membership = await prisma.membership.findUniqueOrThrow({ where: { id: session.membershipId }, select: { branchId: true } });
     if (membership.branchId && membership.branchId !== branchId) throw new AppError("BRANCH_ACCESS_DENIED", 403, "Tu usuario está asignado a otra sucursal.");
   }

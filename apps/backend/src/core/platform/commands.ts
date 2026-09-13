@@ -12,7 +12,7 @@ const tenantSchema = z.object({
   name: z.string().trim().min(2).max(120),
   shortName: z.string().trim().min(2).max(40),
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).min(3).max(60),
-  type: z.enum(["BARBERSHOP", "RESTAURANT", "TRANSPORT"]),
+  type: z.enum(["BARBERSHOP", "RESTAURANT", "TRANSPORT", "MINIMARKET"]),
   branchName: z.string().trim().min(2).max(100),
   adminName: z.string().trim().min(2).max(120),
   adminEmail: z.string().trim().toLowerCase().email(),

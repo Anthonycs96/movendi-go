@@ -17,6 +17,7 @@ const schema = z.object({
 const DUMMY_PASSWORD_HASH = "$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.";
 
 const tenantDestinations: Record<string, Array<{ path: string; permission: string }>> = {
+  MINIMARKET: [{ path: "pos", permission: "minimarket:sales:write" }, { path: "catalog", permission: "minimarket:catalog:read" }, { path: "inventory", permission: "inventory:read" }, { path: "sales", permission: "minimarket:sales:read" }, { path: "reports", permission: "minimarket:reports:read" }, { path: "settings", permission: "settings:write" }],
   BARBERSHOP: [
     { path: "dashboard", permission: "dashboard:read" }, { path: "appointments", permission: "barbershop:appointments:read" },
     { path: "clients", permission: "customers:read" }, { path: "team", permission: "barbershop:team:read" },
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
         return Response.json({ ok: true, selectBusiness: true, businesses: memberships.map(({ tenant }) => ({ name: tenant.name, slug: tenant.slug, type: tenant.type })) });
       }
     }
-    if (membership.tenant.type === "RESTAURANT" && membership.branchId && !membership.branch?.active && !hasPermission(parsePermissions(membership.role.permissions), "settings:write")) throw new AppError("ASSIGNED_BRANCH_INACTIVE", 403, "Tu sucursal asignada está inactiva. Solicita al administrador que reactive la sede o te asigne otra.");
+    if (["RESTAURANT", "MINIMARKET"].includes(membership.tenant.type) && membership.branchId && !membership.branch?.active && !hasPermission(parsePermissions(membership.role.permissions), "settings:write")) throw new AppError("ASSIGNED_BRANCH_INACTIVE", 403, "Tu sucursal asignada está inactiva. Solicita al administrador que reactive la sede o te asigne otra.");
     const branch = membership.branch?.active ? membership.branch : await prisma.branch.findFirst({ where: { tenantId: membership.tenantId, active: true }, orderBy: { createdAt: "asc" } });
     if (!branch) throw new AppError("NO_ACTIVE_BRANCH", 403, "La empresa no tiene una sucursal activa.");
     await clearLoginFailures(throttleKey);

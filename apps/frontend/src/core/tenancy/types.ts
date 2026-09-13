@@ -1,4 +1,4 @@
-export type IndustryId = "barbershop" | "restaurant" | "transport";
+export type IndustryId = "barbershop" | "restaurant" | "transport" | "minimarket";
 
 export interface Branch {
   id: string;

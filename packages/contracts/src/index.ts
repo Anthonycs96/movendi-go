@@ -1,7 +1,8 @@
+import type { MinimarketData } from "./minimarket";
 export * from "./restaurant-areas";
 export * from "./role-keys";
 
-export type BusinessType = "BARBERSHOP" | "RESTAURANT" | "TRANSPORT";
+export type BusinessType = "BARBERSHOP" | "RESTAURANT" | "TRANSPORT" | "MINIMARKET";
 
 export interface AuthSessionView {
   sessionId: string;
@@ -60,7 +61,7 @@ export interface BarbershopData {
   services: ServiceDto[];
   appointments: AppointmentDto[];
   sales: BarberSaleDto[];
-  cashSession: { id: string; status: string; openingCents: number; expectedCents: number; openedAt: string } | null;
+  cashSession: { id: string; balanceBasis: string; status: string; openingCents: number; expectedCents: number; openedAt: string } | null;
   metrics: { todayAppointments: number; confirmed: number; completed: number; todayRevenueCents: number; activeCustomers: number };
 }
 
@@ -346,7 +347,7 @@ export interface PlatformData {
 }
 
 export interface SessionContextResponse { session: AuthSessionView; branches: BranchSummary[]; businesses: BusinessAccessSummary[] }
-export type TenantWorkspaceResponse = SessionContextResponse & ({ industry: "barbershop"; data: BarbershopData; core: CoreTenantData } | { industry: "restaurant"; data: RestaurantData; core: CoreTenantData } | { industry: "transport"; data: TransportData; core: CoreTenantData });
+export type TenantWorkspaceResponse = SessionContextResponse & ({ industry: "barbershop"; data: BarbershopData; core: CoreTenantData } | { industry: "restaurant"; data: RestaurantData; core: CoreTenantData } | { industry: "minimarket"; data: MinimarketData; core: CoreTenantData } | { industry: "transport"; data: TransportData; core: CoreTenantData });
 export interface PlatformWorkspaceResponse extends SessionContextResponse { data: PlatformData }
 export interface ApiErrorPayload { error: { code: string; message: string; details?: unknown } }
 export interface OperationalNotification {
@@ -371,3 +372,5 @@ export function loyaltyRedemptionLimit(totalCents: number, deliveryFeeCents: num
   const maximumCents = Math.max(0, Math.min(merchandise - 1, Math.floor(merchandise * maxRedemptionPct / 100), Math.floor(subtotalCents * maxDiscountPct / 100) - discountCents));
   return Math.max(0, Math.min(Math.floor(balance), Math.floor(maximumCents / Math.max(1, pointValueCents))));
 }
+
+export type { MinimarketData, MinimarketProduct, MinimarketSale } from "./minimarket";

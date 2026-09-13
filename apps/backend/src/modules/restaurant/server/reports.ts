@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/core/database/prisma";
 import { restaurantCalendarDayOffset } from "./business-day";
 import { getRestaurantConfiguration } from "./configuration";
-import { allocateCents } from "./money-allocation";
+import { allocateCents } from "@/modules/invoicing/domain/allocate-cents";
 import { calendarReportPoints } from "./report-series";
 import type { TenantScope } from "@/core/auth/types";
 import type { RestaurantReportPeriod, RestaurantReportPoint, RestaurantReportsData } from "../types";

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fiscalAmounts, fiscalResponseStatus } from "./fiscal-payload";
+import { fiscalAmounts, fiscalResponseStatus } from "@/modules/invoicing/domain/fiscal-payload";
 
 test("comprobante mixto conserva total, bases e impuesto por clasificación", () => {
   const result = fiscalAmounts(23600, [

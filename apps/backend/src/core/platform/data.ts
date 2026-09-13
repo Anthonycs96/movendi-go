@@ -110,13 +110,13 @@ export async function getPlatformData(currentTenantId: string, section?: Platfor
   const businesses = tenantRecords.map((tenant) => {
     const sales = salesByTenant.get(tenant.id) ?? { count: 0, cents: 0 };
     const transportRevenue = transportRevenueByTenant.get(tenant.id) ?? { count: 0, cents: 0 };
-    const operations = (appointmentsByTenant.get(tenant.id) ?? 0) + (ordersByTenant.get(tenant.id) ?? 0) + (tripsByTenant.get(tenant.id) ?? 0);
+    const operations = (tenant.type === "MINIMARKET" ? (salesByTenant.get(tenant.id)?.count ?? 0) : 0) + (appointmentsByTenant.get(tenant.id) ?? 0) + (ordersByTenant.get(tenant.id) ?? 0) + (tripsByTenant.get(tenant.id) ?? 0);
     return {
       id: tenant.id,
       slug: tenant.slug,
       name: tenant.name,
       shortName: tenant.shortName,
-      type: tenant.type as "BARBERSHOP" | "RESTAURANT" | "TRANSPORT",
+      type: tenant.type as "BARBERSHOP" | "RESTAURANT" | "TRANSPORT" | "MINIMARKET",
       status: tenant.status,
       country: tenant.country,
       currency: tenant.currency,
@@ -173,6 +173,7 @@ export async function getPlatformData(currentTenantId: string, section?: Platfor
       emails: emailRecords.map((item) => ({ id: item.id, recipient: item.recipient, template: item.template, status: item.status, attempts: item.attempts, createdAt: item.createdAt.toISOString(), sentAt: item.sentAt?.toISOString() ?? null, businessName: item.tenant?.name ?? null })),
     },
     catalog: [
+      { key: "MINIMARKET", name: "Minimarkets", description: "Punto de venta, productos, lotes, compras, devoluciones y caja.", businessCount: businesses.filter((item) => item.type === "MINIMARKET").length, modules: ["Punto de venta", "Catálogo", "Compras", "Inventario", "Caja", "Reportes"], color: "#08685e" },
       { key: "BARBERSHOP", name: "Barberías y salones", description: "Agenda, profesionales, servicios, clientes, cobros y caja.", businessCount: businesses.filter((item) => item.type === "BARBERSHOP").length, modules: ["Panel", "Agenda", "Equipo", "Servicios", "Clientes", "Caja"], color: "#7758d8" },
       { key: "RESTAURANT", name: "Restaurantes", description: "Salón, mesas, carta, pedidos, cocina, clientes y caja.", businessCount: businesses.filter((item) => item.type === "RESTAURANT").length, modules: ["Panel", "Mesas", "Carta", "Pedidos", "Cocina", "Caja"], color: "#de7a38" },
       { key: "TRANSPORT", name: "Transporte y logística", description: "Viajes, flota, conductores, descansos, trazabilidad, finanzas y mantenimiento.", businessCount: businesses.filter((item) => item.type === "TRANSPORT").length, modules: ["Operaciones", "Flota", "Conductores", "Finanzas", "Combustible", "Mantenimiento", "Neumáticos"], color: "#187f71" },
