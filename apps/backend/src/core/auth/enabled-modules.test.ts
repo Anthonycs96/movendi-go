@@ -16,3 +16,16 @@ test("preserves all-enabled convention, other businesses and existing report acc
   assert.deepEqual(effectiveModules("TRANSPORT", ["dashboard"]), ["dashboard"]);
   assert.deepEqual(effectiveModules("RESTAURANT", ["reports"]), ["reports"]);
 });
+
+test("administrators can reach every management section despite an essential template", () => {
+  for (const permissions of [["*"], ["settings:write"]]) {
+    const modules = effectiveModules("RESTAURANT", ["dashboard", "floor", "settings"], permissions);
+    for (const section of ["orders", "kitchen", "clients", "menu", "inventory", "promotions", "checkout", "reports"]) assert.ok(modules.includes(section));
+  }
+});
+
+test("module availability does not grant action permissions or unlock other staff", () => {
+  assert.deepEqual(effectiveModules("RESTAURANT", ["orders"], ["restaurant:orders:write"]), ["orders", "reports"]);
+  assert.equal(hasPermission(["settings:write"], "restaurant:cash:write"), false);
+  assert.deepEqual(effectiveModules("TRANSPORT", ["dashboard"], ["*"]), ["dashboard"]);
+});

@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { restaurantReportCsv } from "../lib/report-csv";
+import { RestaurantGrowthPanels } from "./RestaurantGrowthPanels";
 import { useMemo, useState } from "react";
 import { BarChart3, Banknote, CalendarDays, CircleDollarSign, Clock3, Download, ReceiptText, ShoppingBasket, TrendingUp, Users } from "lucide-react";
 import type { RestaurantReportPoint, RestaurantReportsData } from "../types";
@@ -42,20 +44,7 @@ function RankingBar({ label, detail, value, maximum, suffix }: { label: string; 
 }
 
 function exportCsv(reports: RestaurantReportsData) {
-  const rows = [
-    ["Reporte", reports.periodLabel],
-    ["Ventas", (reports.metrics.salesCents / 100).toFixed(2)],
-    ["Ganancia estimada", (reports.metrics.profitCents / 100).toFixed(2)],
-    ["Atenciones", reports.metrics.attentions],
-    ["Ticket promedio", (reports.metrics.averageTicketCents / 100).toFixed(2)],
-    [],
-    ["Producto", "Categoría", "Unidades", "Ventas", "Ganancia estimada"],
-    ...reports.topProducts.map((product) => [product.name, product.category, product.quantity, (product.salesCents / 100).toFixed(2), (product.profitCents / 100).toFixed(2)]),
-    [],
-    ["Cliente", "DNI", "Compras", "Ventas", "Ticket promedio"],
-    ...reports.topCustomers.map((customer) => [customer.name, customer.dni ?? "", customer.orders, (customer.salesCents / 100).toFixed(2), (customer.averageTicketCents / 100).toFixed(2)]),
-  ];
-  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(",")).join("\r\n");
+  const csv = restaurantReportCsv(reports);
   const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
   const anchor = document.createElement("a");
   anchor.href = url; anchor.download = `reporte-restaurante-${reports.period}-${reports.generatedAt.slice(0, 10)}.csv`; anchor.click();
@@ -77,8 +66,8 @@ export function RestaurantReports({ reports }: { reports: RestaurantReportsData 
   return <>
     <PageHeader eyebrow="Análisis del negocio" title="Estadísticas y reportes" description={`Rendimiento real del restaurante · ${reports.periodLabel.toLowerCase()}`} icon={BarChart3} actions={<div className="report-actions"><div className="report-periods" aria-label="Periodo del reporte">{periods.map((period) => <Link className={reports.period === period.key ? "active" : ""} aria-current={reports.period === period.key ? "page" : undefined} href={`?period=${period.key}`} key={period.key}>{period.label}</Link>)}</div><Button type="button" variant="secondary" onClick={() => exportCsv(reports)}><Download size={15} />Exportar CSV</Button></div>} />
     <section className="stats-grid stats-grid--four report-metrics">
-      <StatCard label="Ventas totales" value={formatCurrencyCents(reports.metrics.salesCents)} detail={comparison(reports.comparison.salesPct)} icon={Banknote} tone="emerald" />
-      <StatCard label="Ganancia estimada" value={formatCurrencyCents(reports.metrics.profitCents)} detail={`${reports.metrics.marginPct.toFixed(1)}% de margen · ${comparison(reports.comparison.profitPct)}`} icon={CircleDollarSign} tone="violet" />
+      <StatCard label="Ventas vigentes" value={formatCurrencyCents(reports.metrics.salesCents)} detail={comparison(reports.comparison.salesPct)} icon={Banknote} tone="emerald" />
+      <StatCard label="Aporte sobre costo" value={formatCurrencyCents(reports.metrics.profitCents)} detail={`${reports.metrics.marginPct.toFixed(1)}% de margen · ${comparison(reports.comparison.profitPct)}`} icon={CircleDollarSign} tone="violet" />
       <StatCard label="Atenciones" value={String(reports.metrics.attentions)} detail={comparison(reports.comparison.attentionsPct)} icon={ReceiptText} tone="blue" />
       <StatCard label="Ticket promedio" value={formatCurrencyCents(reports.metrics.averageTicketCents)} detail={comparison(reports.comparison.averageTicketPct)} icon={TrendingUp} tone="amber" />
     </section>
@@ -90,9 +79,10 @@ export function RestaurantReports({ reports }: { reports: RestaurantReportsData 
       <Card><Clock3 size={18} /><span><small>Hora con más ventas</small><strong>{peakHour?.orders ? peakHour.label : "Sin datos"}</strong></span></Card>
       <Card><CalendarDays size={18} /><span><small>Día más fuerte</small><strong>{peakWeekday?.salesCents ? peakWeekday.label : "Sin datos"}</strong></span></Card>
     </section>
-    <Card className="report-panel report-trend-panel"><header className="report-panel__header"><div><span className="section-kicker">Evolución comercial</span><h2>Ventas en el tiempo</h2><p>Importes cobrados y cantidad de atenciones.</p></div><div className="report-view-tabs" role="tablist" aria-label="Agrupación de ventas"><button type="button" role="tab" aria-selected={trendView === "day"} className={trendView === "day" ? "active" : ""} onClick={() => setTrendView("day")}>Día</button><button type="button" role="tab" aria-selected={trendView === "week"} className={trendView === "week" ? "active" : ""} onClick={() => setTrendView("week")}>Semana</button><button type="button" role="tab" aria-selected={trendView === "month"} className={trendView === "month" ? "active" : ""} onClick={() => setTrendView("month")}>Mes</button></div></header>{trendPoints.some((point) => point.salesCents) ? <TrendBars points={trendPoints} /> : <div className="report-empty"><BarChart3 size={28} /><strong>Aún no hay ventas en esta vista</strong><span>Los cobros completados aparecerán aquí automáticamente.</span></div>}</Card>
+    <RestaurantGrowthPanels reports={reports} />
+    <Card className="report-panel report-trend-panel"><header className="report-panel__header"><div><span className="section-kicker">Evolución comercial</span><h2>Ventas en el tiempo</h2><p>Cobros vigentes por fecha de venta. Comparación con igual duración del periodo anterior.</p></div><div className="report-view-tabs" role="tablist" aria-label="Agrupación de ventas"><button type="button" role="tab" aria-selected={trendView === "day"} className={trendView === "day" ? "active" : ""} onClick={() => setTrendView("day")}>Día</button><button type="button" role="tab" aria-selected={trendView === "week"} className={trendView === "week" ? "active" : ""} onClick={() => setTrendView("week")}>Semana</button><button type="button" role="tab" aria-selected={trendView === "month"} className={trendView === "month" ? "active" : ""} onClick={() => setTrendView("month")}>Mes</button></div></header>{trendPoints.some((point) => point.salesCents) ? <TrendBars points={trendPoints} /> : <div className="report-empty"><BarChart3 size={28} /><strong>Aún no hay ventas en esta vista</strong><span>Los cobros completados aparecerán aquí automáticamente.</span></div>}</Card>
     <section className="report-grid report-grid--rankings">
-      <Card className="report-panel"><header className="report-panel__header"><div><span className="section-kicker">Demanda</span><h2>Productos más vendidos</h2><p>Ordenados por unidades vendidas.</p></div></header><div className="report-ranking">{reports.topProducts.length ? reports.topProducts.map((product) => <RankingBar key={product.id} label={product.name} detail={`${product.category} · Ganancia ${formatCurrencyCents(product.profitCents)}`} value={product.quantity} maximum={maxProduct} suffix={`${product.quantity} uds. · ${formatCurrencyCents(product.salesCents)}`} />) : <div className="report-empty"><ShoppingBasket size={24} /><strong>Sin productos vendidos</strong></div>}</div></Card>
+      <Card className="report-panel"><header className="report-panel__header"><div><span className="section-kicker">Demanda</span><h2>Productos más vendidos</h2><p>Ordenados por unidades vendidas.</p></div></header><div className="report-ranking">{reports.topProducts.length ? reports.topProducts.map((product) => <RankingBar key={product.id} label={product.name} detail={`${product.category} · Aporte ${formatCurrencyCents(product.profitCents)}`} value={product.quantity} maximum={maxProduct} suffix={`${product.quantity} uds. · ${formatCurrencyCents(product.salesCents)}`} />) : <div className="report-empty"><ShoppingBasket size={24} /><strong>Sin productos vendidos</strong></div>}</div></Card>
       <Card className="report-panel"><header className="report-panel__header"><div><span className="section-kicker">Preferencias</span><h2>Categorías con mayor demanda</h2><p>Participación sobre las ventas del periodo.</p></div></header><div className="report-ranking">{reports.topCategories.length ? reports.topCategories.map((category) => <RankingBar key={category.id} label={category.name} detail={`${category.quantity} unidades · ${category.sharePct.toFixed(1)}% del total`} value={category.salesCents} maximum={maxCategory} suffix={formatCurrencyCents(category.salesCents)} />) : <div className="report-empty"><BarChart3 size={24} /><strong>Sin categorías vendidas</strong></div>}</div></Card>
     </section>
     <section className="report-grid report-grid--customers">
@@ -103,6 +93,6 @@ export function RestaurantReports({ reports }: { reports: RestaurantReportsData 
       <Card className="report-panel"><header className="report-panel__header"><div><span className="section-kicker">Horarios</span><h2>Ventas por hora</h2><p>Detecta las franjas con mayor carga operativa.</p></div></header><div className="hourly-chart" tabIndex={0} role="region" aria-label="Ventas por hora, gráfico desplazable">{reports.salesByHour.map((hour) => <div key={hour.hour} title={`${hour.label}: ${hour.orders} ventas · ${formatCurrencyCents(hour.salesCents)}`}><i><b style={{ height: `${Math.max(hour.orders ? 10 : 2, hour.orders * 100 / maxHour)}%` }} /></i><small>{hour.hour % 3 === 0 ? hour.label : ""}</small></div>)}</div></Card>
       <Card className="report-panel"><header className="report-panel__header"><div><span className="section-kicker">Semana</span><h2>Demanda por día</h2><p>Compara el comportamiento de lunes a domingo.</p></div></header><div className="weekday-chart">{reports.salesByWeekday.map((day) => <div key={day.key}><span><strong>{day.label}</strong><small>{day.orders} ventas</small></span><i><b style={{ width: `${Math.max(day.salesCents ? 4 : 0, day.salesCents * 100 / maxWeekday)}%` }} /></i><em>{formatCurrencyCents(day.salesCents)}</em></div>)}</div></Card>
     </section>
-    <p className="report-footnote">Ventas y rankings muestran importes netos con descuentos y cargos repartidos proporcionalmente. Las ventas devueltas se excluyen. Ganancia estimada = ventas menos costo registrado; {reports.estimatedCostLines} líneas históricas usan el costo actual como estimación. {reports.includeCancelledOrders ? "La tasa incluye pedidos cancelados." : "Los pedidos cancelados están excluidos por configuración."} Generado el {formatGeneratedAt(reports.generatedAt, reports.timezone)}.</p>
+    <p className="report-footnote">Ventas vigentes = cobros que no han sido devueltos. Los rankings distribuyen descuentos y separan el delivery del precio del producto. Aporte sobre costo = ventas menos costo registrado, sin deducir impuestos ni gastos operativos; {reports.estimatedCostLines} líneas históricas usan el costo actual como estimación. La tasa de cancelación siempre considera todos los pedidos creados en el periodo. Generado el {formatGeneratedAt(reports.generatedAt, reports.timezone)}.</p>
   </>;
 }

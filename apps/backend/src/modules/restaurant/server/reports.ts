@@ -3,6 +3,7 @@ import { prisma } from "@/core/database/prisma";
 import { restaurantCalendarDayOffset } from "./business-day";
 import { getRestaurantConfiguration } from "./configuration";
 import { allocateCents } from "@/modules/invoicing/domain/allocate-cents";
+import { productPerformance } from "./product-performance";
 import { calendarReportPoints } from "./report-series";
 import type { TenantScope } from "@/core/auth/types";
 import type { RestaurantReportPeriod, RestaurantReportPoint, RestaurantReportsData } from "../types";
@@ -64,11 +65,13 @@ function reportSales(scope: TenantScope, createdAt: { gte: Date; lt: Date }, cur
     select: {
       id: true,
       totalCents: true,
+      subtotalCents: true,
+      discountCents: true,
       paymentMethod: true,
       payments: { select: { method: true, amountCents: true } },
       createdAt: true,
       customer: { select: { id: true, name: true, dni: true } },
-      order: { select: { items: { where: { status: { not: "CANCELLED" } }, select: { quantity: true, totalCents: true, unitCostCents: true, product: { select: { id: true, name: true, costCents: true, category: { select: { id: true, name: true } } } } } } } },
+      order: { select: { source: true, deliveryFeeCents: true, items: { where: { status: { not: "CANCELLED" } }, select: { name: true, quantity: true, totalCents: true, unitCostCents: true, product: { select: { id: true, name: true, costCents: true, category: { select: { id: true, name: true } } } } } } } },
     },
   });
 }
@@ -88,7 +91,8 @@ export async function getRestaurantReports(scope: TenantScope, period: Restauran
   const start = restaurantCalendarDayOffset(now, timezone, 1 - days);
   const previousStart = restaurantCalendarDayOffset(start, timezone, -days);
   const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
-  const orderCounts = await prisma.restaurantOrder.groupBy({ by: ["status"], where: { tenantId: scope.tenantId, branchId: scope.branchId, ...(configuration.reports.includeCancelledOrders ? {} : { status: { not: "CANCELLED" } }), createdAt: { gte: start, lt: now } }, _count: { _all: true } });
+  const previousEnd = new Date(previousStart.getTime() + (now.getTime() - start.getTime()));
+  const orderCounts = await prisma.restaurantOrder.groupBy({ by: ["status"], where: { tenantId: scope.tenantId, branchId: scope.branchId, createdAt: { gte: start, lt: now } }, _count: { _all: true } });
   const current = summarize([]);
   const previous = summarize([]);
   let estimatedCostLines = 0;
@@ -96,20 +100,31 @@ export async function getRestaurantReports(scope: TenantScope, period: Restauran
   const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, label: `${String(hour).padStart(2, "0")}:00`, salesCents: 0, orders: 0 }));
   const weekdays = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"].map((label, index) => ({ key: String(index), label, salesCents: 0, orders: 0 }));
   const customerOrders = new Map<string, { id: string; name: string; dni: string | null; orders: number; salesCents: number }>();
-  const products = new Map<string, { id: string; name: string; category: string; categoryId: string; quantity: number; salesCents: number; profitCents: number }>();
+  const products = new Map<string, { id: string; name: string; category: string; categoryId: string; quantity: number; salesCents: number; profitCents: number; zeroCostUnits: number }>();
   const categories = new Map<string, { id: string; name: string; quantity: number; salesCents: number }>();
   const payments = new Map<string, { method: string; orders: number; salesCents: number }>();
 
+  const channels = new Map<string, { source: string; orders: number; salesCents: number }>();
+  let subtotalCents = 0, discountsCents = 0, discountedOrders = 0, deliveryFeesCents = 0, identifiedOrders = 0, zeroCostUnits = 0;
   let cursor: string | undefined;
   for (;;) {
     const batch = await reportSales(scope, { gte: previousStart, lt: now }, cursor);
     if (!batch.length) break;
     cursor = batch[batch.length - 1].id;
     for (const sale of batch) {
+      if (sale.createdAt < start && sale.createdAt >= previousEnd) continue;
       const summary = summarize([sale]);
       const target = sale.createdAt >= start ? current : previous;
       for (const key of ["salesCents", "costCents", "profitCents", "attentions", "itemsSold"] as const) target[key] += summary[key];
       if (sale.createdAt < start) continue;
+      subtotalCents += sale.subtotalCents;
+      discountsCents += sale.discountCents;
+      discountedOrders += Number(sale.discountCents > 0);
+      deliveryFeesCents += sale.order?.deliveryFeeCents ?? 0;
+      identifiedOrders += Number(Boolean(sale.customer));
+      const source = sale.order?.source ?? "OTHER";
+      const channel = channels.get(source) ?? { source, orders: 0, salesCents: 0 };
+      channel.orders += 1; channel.salesCents += sale.totalCents; channels.set(source, channel);
       estimatedCostLines += sale.order?.items.filter((item) => item.unitCostCents === null).length ?? 0;
       const parts = localParts(sale.createdAt, timezone);
       const dayKey = `${parts.year}-${parts.month}-${parts.day}`;
@@ -128,10 +143,11 @@ export async function getRestaurantReports(scope: TenantScope, period: Restauran
       customer.orders += 1; customer.salesCents += sale.totalCents; customerOrders.set(customer.id, customer);
     }
     const lines = sale.order?.items ?? [];
-    const allocated = lines.length ? allocateCents(sale.totalCents, lines.map((item) => item.totalCents)) : [];
+    const allocated = lines.length ? allocateCents(Math.max(0, sale.totalCents - (sale.order?.deliveryFeeCents ?? 0)), lines.map((item) => item.totalCents)) : [];
     for (const [index, item] of lines.entries()) {
       const netCents = allocated[index];
-      const product = products.get(item.product.id) ?? { id: item.product.id, name: item.product.name, category: item.product.category.name, categoryId: item.product.category.id, quantity: 0, salesCents: 0, profitCents: 0 };
+      const product = products.get(item.product.id) ?? { id: item.product.id, name: item.name, category: item.product.category.name, categoryId: item.product.category.id, quantity: 0, salesCents: 0, profitCents: 0, zeroCostUnits: 0 };
+      if ((item.unitCostCents ?? item.product.costCents) === 0) { product.zeroCostUnits += item.quantity; zeroCostUnits += item.quantity; }
       product.quantity += item.quantity; product.salesCents += netCents; product.profitCents += netCents - (item.unitCostCents ?? item.product.costCents) * item.quantity; products.set(product.id, product);
       const category = categories.get(item.product.category.id) ?? { id: item.product.category.id, name: item.product.category.name, quantity: 0, salesCents: 0 };
       category.quantity += item.quantity; category.salesCents += netCents; categories.set(category.id, category);
@@ -151,7 +167,33 @@ export async function getRestaurantReports(scope: TenantScope, period: Restauran
   const knownCustomers = [...customerOrders.values()];
   const profitCents = current.profitCents;
 
+  const unsoldWhere = { tenantId: scope.tenantId, branchId: scope.branchId, active: true, category: { active: true }, createdAt: { lt: start }, items: { none: { status: { not: "CANCELLED" }, order: { sale: { status: "PAID", createdAt: { gte: start, lt: now } } } } } };
+  const [refunds, pending, unsoldProducts, unsoldProductCount] = await Promise.all([
+    prisma.saleRefund.aggregate({ where: { tenantId: scope.tenantId, branchId: scope.branchId, createdAt: { gte: start, lt: now }, sale: { orderId: { not: null } } }, _sum: { totalCents: true }, _count: { _all: true } }),
+    prisma.restaurantOrder.aggregate({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: { notIn: ["CANCELLED", "COMPLETED"] }, sale: null }, _sum: { totalCents: true }, _count: { _all: true } }),
+    prisma.product.findMany({ where: unsoldWhere, orderBy: { name: "asc" }, take: 10, select: { id: true, name: true, category: { select: { name: true } } } }),
+    prisma.product.count({ where: unsoldWhere }),
+  ]);
+  // Only inspect histories for this period's identified customers, in bounded batches.
+  let returningCustomers = 0;
+  for (let index = 0; index < knownCustomers.length; index += 500) {
+    const prior = await prisma.sale.groupBy({ by: ["customerId"], where: { tenantId: scope.tenantId, branchId: scope.branchId, orderId: { not: null }, status: "PAID", createdAt: { lt: start }, customerId: { in: knownCustomers.slice(index, index + 500).map((customer) => customer.id) } } });
+    returningCustomers += prior.length;
+  }
+  const repeatCustomers = knownCustomers.filter((customer) => customer.orders >= 2).length;
+  const rate = (part: number, whole: number) => whole ? Math.round(part * 10_000 / whole) / 100 : 0;
   return {
+    growth: {
+      previousStartAt: previousStart.toISOString(), previousEndAt: previousEnd.toISOString(),
+      subtotalCents, discountsCents, discountedOrders, discountRatePct: rate(discountsCents, subtotalCents), deliveryFeesCents,
+      refundsCents: refunds._sum.totalCents ?? 0, refundsCount: refunds._count._all,
+      pendingOrders: pending._count._all, pendingCents: pending._sum.totalCents ?? 0,
+      identifiedOrders, anonymousOrders: current.attentions - identifiedOrders, customerIdentificationPct: rate(identifiedOrders, current.attentions),
+      newCustomers: knownCustomers.length - returningCustomers, returningCustomers, repeatCustomerRatePct: rate(repeatCustomers, knownCustomers.length),
+      unitsPerOrder: current.attentions ? Math.round(current.itemsSold * 100 / current.attentions) / 100 : 0, zeroCostUnits,
+      channels: [...channels.values()].sort((a, b) => b.salesCents - a.salesCents).map((channel) => ({ ...channel, averageTicketCents: Math.round(channel.salesCents / channel.orders), sharePct: rate(channel.salesCents, current.salesCents) })),
+      ...productPerformance([...products.values()]), unsoldProducts: unsoldProducts.map((product) => ({ ...product, category: product.category.name })), unsoldProductCount,
+    },
     period,
     estimatedCostLines,
     includeCancelledOrders: configuration.reports.includeCancelledOrders,
@@ -177,7 +219,7 @@ export async function getRestaurantReports(scope: TenantScope, period: Restauran
     salesByHour: hours,
     salesByWeekday: weekdays,
     topProducts: [...products.values()].sort((a, b) => b.quantity - a.quantity || b.salesCents - a.salesCents).slice(0, 10).map((product) => ({ id: product.id, name: product.name, category: product.category, quantity: product.quantity, salesCents: product.salesCents, profitCents: product.profitCents })),
-    topCategories: [...categories.values()].sort((a, b) => b.salesCents - a.salesCents).slice(0, 8).map((category) => ({ ...category, sharePct: current.salesCents ? Math.round((category.salesCents * 10_000) / current.salesCents) / 100 : 0 })),
+    topCategories: [...categories.values()].sort((a, b) => b.salesCents - a.salesCents).slice(0, 8).map((category) => ({ ...category, sharePct: current.salesCents > deliveryFeesCents ? Math.round((category.salesCents * 10_000) / (current.salesCents - deliveryFeesCents)) / 100 : 0 })),
     topCustomers: knownCustomers.sort((a, b) => b.salesCents - a.salesCents).slice(0, 10).map((customer) => ({ ...customer, averageTicketCents: customer.orders ? Math.round(customer.salesCents / customer.orders) : 0 })),
     paymentMethods: [...payments.values()].sort((a, b) => b.salesCents - a.salesCents).map((payment) => ({ ...payment, sharePct: current.salesCents ? Math.round((payment.salesCents * 10_000) / current.salesCents) / 100 : 0 })),
   };

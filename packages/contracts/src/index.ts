@@ -1,3 +1,5 @@
+import type { RestaurantGrowthReport } from "./restaurant-growth";
+export type { RestaurantGrowthReport, RestaurantProductPerformance } from "./restaurant-growth";
 import type { MinimarketData } from "./minimarket";
 export * from "./restaurant-areas";
 export * from "./role-keys";
@@ -117,6 +119,7 @@ export interface RestaurantData {
 export type RestaurantReportPeriod = "7d" | "30d" | "90d" | "12m";
 export interface RestaurantReportPoint { key: string; label: string; salesCents: number; orders: number }
 export interface RestaurantReportsData {
+  growth: RestaurantGrowthReport;
   estimatedCostLines: number;
   includeCancelledOrders: boolean;
   period: RestaurantReportPeriod;

@@ -1,4 +1,4 @@
-import type { InventoryData, RestaurantConfiguration } from "@movendi/contracts";
+import type { InventoryData, RestaurantConfiguration, RestaurantGrowthReport } from "@movendi/contracts";
 
 export interface RestaurantCategoryDto { id: string; name: string; active: boolean; preparationArea: { id: string; name: string } | null }
 export interface RestaurantProductDto { taxCategory: string; id: string; name: string; description: string | null; priceCents: number; costCents: number; kitchenArea: string; productType: string; areaAssignmentMode: string; detectedAreaKey: string | null; active: boolean; category: { id: string; name: string }; preparationArea: { id: string; name: string } | null }
@@ -11,6 +11,7 @@ export interface RestaurantTableDto { id: string; name: string; seats: number; s
 export type RestaurantReportPeriod = "7d" | "30d" | "90d" | "12m";
 export interface RestaurantReportPoint { key: string; label: string; salesCents: number; orders: number }
 export interface RestaurantReportsData {
+  growth: RestaurantGrowthReport;
   estimatedCostLines: number;
   includeCancelledOrders: boolean;
   period: RestaurantReportPeriod;

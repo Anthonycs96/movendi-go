@@ -21,6 +21,8 @@ const defaultSuites = [
   "e2e/transport-configuration.spec.ts",
   "e2e/restaurant-configuration.spec.ts",
   "e2e/restaurant-production-audit.spec.ts",
+  "e2e/restaurant-qr-print-reports.spec.ts",
+  "e2e/restaurant-admin-growth.spec.ts",
   "e2e/inventory-compatibility.spec.ts",
   "e2e/sales-compatibility.spec.ts",
   "e2e/restaurant-frontend-journey.spec.ts",

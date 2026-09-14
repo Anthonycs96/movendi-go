@@ -4,7 +4,7 @@ import { AppError } from "@/core/auth/errors";
 const resourceModules: Record<string, string> = {
   configuration: "settings", sunat: "settings", sales: "checkout", cash: "checkout",
   "preparation-areas": "settings", "print-devices": "settings", "area-printers": "settings", "print-settings": "settings", "print-routes": "settings",
-  tables: "floor", areas: "floor", orders: "orders", kitchen: "kitchen", "print-jobs": "kitchen",
+  tables: "floor", areas: "floor", orders: "orders", kitchen: "kitchen",
   customers: "clients", categories: "menu", products: "menu", promotions: "promotions",
 };
 

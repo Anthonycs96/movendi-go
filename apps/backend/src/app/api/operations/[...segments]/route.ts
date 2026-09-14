@@ -33,7 +33,7 @@ function requiredPermission(moduleName: string, resource: string, method: string
     if (resource === "tables" || resource === "areas") return method === "GET" ? "restaurant:floor:read" : "restaurant:floor:write";
     if (resource === "orders") return method === "GET" ? "restaurant:orders:read" : "restaurant:orders:write";
     if (resource === "kitchen") return method === "GET" ? "restaurant:kitchen:read" : "restaurant:kitchen:write";
-    if (resource === "print-jobs") return method === "GET" ? "restaurant:kitchen:read" : "restaurant:kitchen:write";
+    if (resource === "print-jobs") return method === "GET" ? "restaurant:printing:read" : "restaurant:printing:write";
     if (resource === "cash") return "restaurant:cash:write";
     if (resource === "customers") return method === "GET" ? "customers:read" : "customers:write";
     if (["categories", "products"].includes(resource)) return method === "GET" ? "restaurant:menu:read" : "restaurant:menu:write";

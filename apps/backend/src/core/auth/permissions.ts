@@ -8,6 +8,8 @@ export function parsePermissions(value: string): string[] {
 }
 
 const legacyPermissionImplications: Record<string, readonly string[]> = {
+  "restaurant:kitchen:read": ["restaurant:printing:read"],
+  "restaurant:kitchen:write": ["restaurant:printing:read", "restaurant:printing:write"],
   "restaurant:read": [
     "restaurant:menu:read",
     "restaurant:promotions:read",

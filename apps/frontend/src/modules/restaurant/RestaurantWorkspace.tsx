@@ -26,8 +26,7 @@ const KitchenPrintStation = dynamic(() => import("./components/KitchenPrintStati
 export function RestaurantWorkspace(props: Parameters<typeof RestaurantSection>[0]) {
   const printers = useMemo(() => props.data.printDevices.filter((printer) => printer.active), [props.data.printDevices]);
   const showPrinting = ["floor", "orders", "settings"].includes(props.section)
-    && hasPermission(props.permissions, "restaurant:kitchen:write")
-    && hasPermission(props.permissions, "restaurant:printing:read");
+    && hasPermission(props.permissions, "restaurant:printing:write");
   return <>
     {showPrinting ? <KitchenPrintStation businessName={props.core.tenant.shortName} printers={printers} defaultPrinterId={props.data.printSettings.defaultPrinterId} /> : null}
     <RestaurantSection {...props} />

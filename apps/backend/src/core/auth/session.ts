@@ -72,7 +72,7 @@ export async function getOptionalSession(): Promise<AuthSession | null> {
     roleKey: record.membership.role.key,
     roleName: record.membership.role.name,
     permissions: parsePermissions(record.membership.role.permissions),
-    enabledModules: effectiveModules(record.tenant.type, parsePermissions(record.tenant.enabledModules)),
+    enabledModules: effectiveModules(record.tenant.type, parsePermissions(record.tenant.enabledModules), parsePermissions(record.membership.role.permissions)),
     platformRole: record.user.platformRole,
     mustChangePassword: record.user.mustChangePassword,
     expiresAt: record.expiresAt,
