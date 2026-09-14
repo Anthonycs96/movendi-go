@@ -190,9 +190,13 @@ export async function handleRestaurantCommand(method: string, segments: string[]
       required(prisma.preparationArea.findFirst({ where: { id: input.areaId, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true } }), "El área de preparación"),
       required(prisma.printDevice.findFirst({ where: { id: input.printerId, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true } }), "La impresora"),
     ]);
-    const link = await prisma.preparationAreaPrinter.upsert({ where: { areaId_printerId: { areaId: area.id, printerId: printer.id } }, create: { tenantId: scope.tenantId, branchId: scope.branchId, areaId: area.id, printerId: printer.id, copies: input.copies, active: input.active }, update: { copies: input.copies, active: input.active } });
+    const link = await prisma.$transaction(async (tx) => {
+      const link = await tx.preparationAreaPrinter.upsert({ where: { areaId_printerId: { areaId: area.id, printerId: printer.id } }, create: { tenantId: scope.tenantId, branchId: scope.branchId, areaId: area.id, printerId: printer.id, copies: input.copies, active: input.active }, update: { copies: input.copies, active: input.active } });
+      if (input.active) await tx.preparationArea.update({ where: { id: area.id }, data: { dispatchMode: "PRINTER" } });
+      return link;
+    });
     await audit(scope, "UPSERT", "PreparationAreaPrinter", link.id, { copies: input.copies, active: input.active });
-    return { ok: true, id: link.id, message: "Impresora asignada al área." };
+    return { ok: true, id: link.id, message: input.active ? "Impresora asignada. El área enviará sus comandas a impresión en modo avanzado." : "Asignación de impresora desactivada." };
   }
   if (method === "PATCH" && resource === "print-settings") {
     const input = parse(printSettingsSchema, body);

@@ -25,7 +25,7 @@ const moduleKeys = {
 
 export const setupTemplates = [
   { key: "MINIMARKET_COMPLETE", type: "MINIMARKET", name: "Minimarket completo", description: "Productos, presentaciones, lotes, compras, punto de venta, devoluciones, caja y reportes.", modules: [...moduleKeys.MINIMARKET], preparationAreas: [], diningArea: null, roles: ["RETAIL_MANAGER", "RETAIL_CASHIER", "RETAIL_STOCK"] },
-  { key: "RESTAURANT_SIMPLE", type: "RESTAURANT", name: "Restaurante esencial configurable", description: "Implementación guiada de salón, pedidos, cocina, carta, caja y reglas operativas.", modules: ["dashboard", "floor", "orders", "kitchen", "menu", "checkout", "settings"], preparationAreas: ["Cocina"], diningArea: "Salón", roles: ["WAITER", "KITCHEN", "CASHIER", "MANAGER"], restaurantConfiguration: defaultRestaurantConfiguration },
+  { key: "RESTAURANT_SIMPLE", type: "RESTAURANT", name: "Restaurante esencial configurable", description: "Implementación guiada de salón, pedidos, cocina, carta, caja, reportes y reglas operativas.", modules: ["dashboard", "floor", "orders", "kitchen", "menu", "checkout", "reports", "settings"], preparationAreas: ["Cocina"], diningArea: "Salón", roles: ["WAITER", "KITCHEN", "CASHIER", "MANAGER"], restaurantConfiguration: defaultRestaurantConfiguration },
   { key: "RESTAURANT_COMPLETE", type: "RESTAURANT", name: "Restaurante completo configurable", description: "Operación completa con inventario, promociones, reportes, clientes e integraciones.", modules: [...moduleKeys.RESTAURANT], preparationAreas: ["Cocina", "Bar", "Postres"], diningArea: "Salón principal", roles: ["WAITER", "KITCHEN", "CASHIER", "MANAGER"], restaurantConfiguration: defaultRestaurantConfiguration },
   { key: "BARBERSHOP_STANDARD", type: "BARBERSHOP", name: "Barbería estándar", description: "Agenda, equipo, servicios, clientes, inventario y caja.", modules: [...moduleKeys.BARBERSHOP], preparationAreas: [], diningArea: null, roles: ["RECEPTION", "PROFESSIONAL", "CASHIER"] },
   { key: "TRANSPORT_STANDARD", type: "TRANSPORT", name: "Transporte configurable", description: "Implementación completa: operación, clientes, flota, conductores, reglas, finanzas, mantenimiento, seguridad e integraciones.", modules: [...moduleKeys.TRANSPORT], preparationAreas: [], diningArea: null, roles: ["DISPATCH", "DRIVER_MANAGER", "FINANCE"], transportConfiguration: defaultTransportConfiguration },
@@ -274,6 +274,7 @@ export async function saveBusinessSetupStep(tenantId: string, raw: unknown, sess
     const enabled = [...new Set(input.enabledModules.filter((item) => allowed.has(item as never)))];
     if (!enabled.includes("dashboard")) enabled.unshift("dashboard");
     if (!enabled.includes("settings")) enabled.push("settings");
+    if (tenant.type === "RESTAURANT" && !enabled.includes("reports")) enabled.push("reports");
     await prisma.tenant.update({ where: { id: tenantId }, data: { enabledModules: JSON.stringify(enabled) } });
     await markStep(tenantId, input.step, tenant.type === "TRANSPORT" ? "TRANSPORT_OPERATION" : tenant.type === "RESTAURANT" ? "RESTAURANT_OPERATION" : "CATALOG", session, { enabledModules: enabled });
   } else if (input.step === "CATALOG") {

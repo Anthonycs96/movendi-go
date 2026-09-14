@@ -70,7 +70,7 @@ export function KitchenWorkspace({
           </div>
         }
       />
-      {canWrite ? <KitchenPrintStation businessName={businessName} printers={activePrinters} /> : null}
+      {canWrite ? <KitchenPrintStation businessName={businessName} printers={activePrinters} defaultPrinterId={data.printSettings.defaultPrinterId} /> : null}
       <div className="kitchen-area-filter"><label htmlFor="kitchen-area">Área de preparación</label><Select id="kitchen-area" value={area} onChange={(event) => setArea(event.target.value)}><option value="ALL">Todas las áreas</option>{areas.map(([key, name]) => <option key={key} value={key}>{localizeCode(name, locale)}</option>)}</Select></div>
       <div className="workspace-tabs" role="group" aria-label="Vista de cocina"><button type="button" aria-pressed={view === "ORDERS"} onClick={() => setView("ORDERS")}>Por pedido</button><button type="button" aria-pressed={view === "PRODUCTION"} onClick={() => setView("PRODUCTION")}>Por producción</button></div>
       {view === "PRODUCTION" ? <section className="kitchen-grid" aria-label="Producción pendiente">{production.length ? production.map((group) => <Card className="kitchen-ticket kitchen-production-card" key={group.key}><header><div><small>{localizeCode(group.area, locale)} · {localizeCode(group.status, locale)}</small><h3>{group.quantity} × {group.name}</h3></div></header>{group.notes ? <p><strong>Observación: {group.notes}</strong></p> : null}<p>{group.orders.join(" · ")}</p><small>Avanza cada pedido desde la vista Por pedido para conservar su entrega individual.</small></Card>) : <EmptyState title="Sin producción pendiente" description="Los pedidos listos se consultan en la vista Por pedido." />}</section> : tickets.length ? (

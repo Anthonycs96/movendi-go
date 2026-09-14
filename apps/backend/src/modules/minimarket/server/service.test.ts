@@ -376,6 +376,9 @@ test("fiscal: trabajador respeta backoff, recupera tomas y deja revisiÃ³n despuÃ
   await configureFiscal(); const p = await classifiedProduct({ stock: 1 });
   const sale = await checkoutRetail(scope, { ...cart(p.presentations[0].id), documentKind: "BOLETA" });
   const job = await db.fiscalJob.findFirstOrThrow({ where: { saleId: sale.id } });
+  // The PostgreSQL release suite shares a database with other test files.
+  // Make this fixture due first so their pending jobs cannot fill the batch.
+  await db.fiscalJob.update({ where: { id: job.id }, data: { nextAttemptAt: new Date(0) } });
   context.mock.method(globalThis, "fetch", async () => { throw new Error("provider offline"); });
   await runFiscalBatch();
   const failed = await db.fiscalJob.findUniqueOrThrow({ where: { id: job.id } });

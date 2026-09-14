@@ -1832,6 +1832,9 @@ function TableQrScanner({
   const [manual, setManual] = useState("");
   const [error, setError] = useState("");
   const [resolving, setResolving] = useState(false);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [cameraId, setCameraId] = useState("");
+  const [activeCameraId, setActiveCameraId] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const handledRef = useRef(false);
@@ -1874,26 +1877,33 @@ function TableQrScanner({
     if (!open || !videoRef.current) return;
     handledRef.current = false;
     let cancelled = false;
+    let cameraStream: MediaStream | null = null;
     void import("@zxing/browser")
       .then(async ({ BrowserQRCodeReader }) => {
         if (cancelled || !videoRef.current) return;
         const reader = new BrowserQRCodeReader();
-        const stream = await openQrCamera();
+        const stream = await openQrCamera(cameraId || undefined);
+        cameraStream = stream;
         if (cancelled || !videoRef.current) {
           for (const track of stream.getTracks()) track.stop();
           return;
         }
+        setActiveCameraId(stream.getVideoTracks()[0]?.getSettings().deviceId ?? "");
+        const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+        if (cancelled) return;
+        setCameras(devices.filter((device) => device.kind === "videoinput" && device.deviceId));
         const controls = await reader.decodeFromStream(
           stream,
           videoRef.current,
           (result) => {
-            if (result) void resolveCode(result.getText());
+            if (!cancelled && result) void resolveCode(result.getText());
           },
         );
         if (cancelled) controls.stop();
         else controlsRef.current = controls;
       })
       .catch(() => {
+        cameraStream?.getTracks().forEach((track) => track.stop());
         if (!cancelled)
           setError(
             "No pudimos abrir la cámara trasera. Revisa el permiso o usa el código manual.",
@@ -1903,8 +1913,9 @@ function TableQrScanner({
       cancelled = true;
       controlsRef.current?.stop();
       controlsRef.current = null;
+      cameraStream?.getTracks().forEach((track) => track.stop());
     };
-  }, [open, resolveCode]);
+  }, [open, resolveCode, cameraId]);
   return (
     <>
       <Button
@@ -1930,6 +1941,8 @@ function TableQrScanner({
             <video ref={videoRef} muted playsInline />
             <div className="qr-scanner__frame" />
           </div>
+          {cameras.length > 1 ? <Field label="Cámara"><Select value={cameraId || activeCameraId} disabled={resolving} onChange={(event) => { setError(""); setCameraId(event.target.value); }}>{cameras.map((camera, index) => <option key={camera.deviceId} value={camera.deviceId}>{camera.label || `Cámara ${index + 1}`}</option>)}</Select></Field> : null}
+          <p>Si la imagen está borrosa, aleja un poco el QR o selecciona otra cámara.</p>
           <div className="customer-picker__select">
             <Input
               value={manual}

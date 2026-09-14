@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/core/database/prisma";
 import { AppError } from "./errors";
 import { hasPermission, parsePermissions } from "./permissions";
+import { effectiveModules } from "./enabled-modules";
 import type { AuthSession, TenantScope } from "./types";
 import type { AuthSessionView } from "@movendi/contracts";
 
@@ -71,7 +72,7 @@ export async function getOptionalSession(): Promise<AuthSession | null> {
     roleKey: record.membership.role.key,
     roleName: record.membership.role.name,
     permissions: parsePermissions(record.membership.role.permissions),
-    enabledModules: parsePermissions(record.tenant.enabledModules),
+    enabledModules: effectiveModules(record.tenant.type, parsePermissions(record.tenant.enabledModules)),
     platformRole: record.user.platformRole,
     mustChangePassword: record.user.mustChangePassword,
     expiresAt: record.expiresAt,

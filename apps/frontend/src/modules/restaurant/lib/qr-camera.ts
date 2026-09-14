@@ -60,7 +60,8 @@ async function applyQrCameraSettings(stream: MediaStream) {
   const track = stream.getVideoTracks()[0];
   if (!track) return;
 
-  const capabilities = track.getCapabilities() as CameraCapabilities;
+  // Some mobile browsers expose a stream without the capabilities API.
+  const capabilities = (track.getCapabilities?.() ?? {}) as CameraCapabilities;
   if (capabilities.focusMode?.includes("continuous")) {
     await track
       .applyConstraints({
@@ -89,17 +90,19 @@ const qrVideoConstraints: MediaTrackConstraints = {
   aspectRatio: { ideal: 4 / 3 },
 };
 
-export async function openQrCamera() {
+export async function openQrCamera(deviceId?: string) {
   let stream = await navigator.mediaDevices.getUserMedia({
     audio: false,
-    video: qrVideoConstraints,
+    video: deviceId ? { width: qrVideoConstraints.width, height: qrVideoConstraints.height, deviceId: { exact: deviceId } } : qrVideoConstraints,
   });
 
   const currentDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
   const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
   const preferredCamera = selectQrCamera(devices, currentDeviceId);
 
-  if (preferredCamera && preferredCamera.deviceId !== currentDeviceId) {
+  if (!deviceId && preferredCamera && preferredCamera.deviceId !== currentDeviceId) {
+    // Android devices often cannot open two rear lenses simultaneously.
+    stopStream(stream);
     try {
       const preferredStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -108,14 +111,13 @@ export async function openQrCamera() {
           deviceId: { exact: preferredCamera.deviceId },
         },
       });
-      stopStream(stream);
       stream = preferredStream;
     } catch {
-      // The environment-facing stream remains a safe fallback when a browser
-      // exposes a device but refuses to open it by id.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: qrVideoConstraints });
     }
   }
 
-  await applyQrCameraSettings(stream);
+  // Focus/zoom are best-effort enhancements, never a reason to lose a stream.
+  await applyQrCameraSettings(stream).catch(() => undefined);
   return stream;
 }

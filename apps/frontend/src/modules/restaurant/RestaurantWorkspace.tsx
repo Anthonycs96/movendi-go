@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useMemo } from "react";
 import { RouteLoading } from "@/shared/components/layout/RouteLoading";
 
 import type { RestaurantData } from "./types";
@@ -20,7 +21,20 @@ const RestaurantDirectory = dynamic(() => import("./components/RestaurantDirecto
 const RestaurantReports = dynamic(() => import("./components/RestaurantReports").then((module) => module.RestaurantReports), { loading: RouteLoading });
 const InventoryWorkspace = dynamic(() => import("@/modules/inventory/InventoryWorkspace").then((module) => module.InventoryWorkspace), { loading: RouteLoading });
 
-export function RestaurantWorkspace({
+const KitchenPrintStation = dynamic(() => import("./components/KitchenPrintStation").then((module) => module.KitchenPrintStation));
+
+export function RestaurantWorkspace(props: Parameters<typeof RestaurantSection>[0]) {
+  const printers = useMemo(() => props.data.printDevices.filter((printer) => printer.active), [props.data.printDevices]);
+  const showPrinting = ["floor", "orders", "settings"].includes(props.section)
+    && hasPermission(props.permissions, "restaurant:kitchen:write")
+    && hasPermission(props.permissions, "restaurant:printing:read");
+  return <>
+    {showPrinting ? <KitchenPrintStation businessName={props.core.tenant.shortName} printers={printers} defaultPrinterId={props.data.printSettings.defaultPrinterId} /> : null}
+    <RestaurantSection {...props} />
+  </>;
+}
+
+function RestaurantSection({
   section,
   data,
   core,

@@ -1,3 +1,5 @@
+import { can } from "../rbac/permissions";
+
 export function parsePermissions(value: string): string[] {
   try {
     const parsed: unknown = JSON.parse(value);
@@ -8,5 +10,5 @@ export function parsePermissions(value: string): string[] {
 }
 
 export function hasPermission(permissions: string[], required?: string): boolean {
-  return !required || permissions.includes("*") || permissions.includes(required);
+  return can(permissions, required);
 }
