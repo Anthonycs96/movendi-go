@@ -2,6 +2,8 @@
 import { useState } from "react";
 import type { MinimarketProduct } from "@movendi/contracts";
 import { BarcodeScanner } from "@/shared/barcode/BarcodeScanner";
+import { Dialog } from "@/shared/components/ui";
+import styles from "./MinimarketWorkspace.module.css";
 
 export type BarcodeMatch = {
   product: MinimarketProduct; presentationId: string; branch: { id: string; name: string };
@@ -16,7 +18,7 @@ export async function findBarcode(code: string, section: string): Promise<Barcod
 }
 export function BarcodeField({ initial = "" }: { initial?: string }) {
   const [value, setValue] = useState(initial), [open, setOpen] = useState(false);
-  return <div><label>Código de barras<input name="barcode" value={value} maxLength={80} onChange={(event) => setValue(event.target.value)} /></label><button type="button" onClick={() => setOpen(!open)}>{open ? "Cerrar lector" : "Leer código con cámara"}</button>{open ? <BarcodeScanner onScan={async (code) => { setValue(code); return "Código copiado al producto. Completa los datos y guarda."; }} /> : null}</div>;
+  return <div className={styles.barcodeField}><label>Código de barras<input name="barcode" value={value} maxLength={80} onChange={(event) => setValue(event.target.value)} /></label><button type="button" onClick={() => setOpen(true)}>Leer código con cámara</button><Dialog open={open} title="Leer código de barras" description="Al leer el código volverás al producto." initialFocus="dialog" onClose={() => setOpen(false)} className={styles.productDialog}><div className={styles.workspace}><BarcodeScanner autoStart compact onScan={(code) => { setValue(code); setOpen(false); }} /></div></Dialog></div>;
 }
 export function ProductLookup({ section, currency, onProduct, canCreate = false }: { section: string; currency: string; onProduct?: (product: MinimarketProduct, presentationId: string) => void; canCreate?: boolean }) {
   const [match, setMatch] = useState<BarcodeMatch | null>(null), [missing, setMissing] = useState("");

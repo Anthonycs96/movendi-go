@@ -66,14 +66,71 @@ test.beforeAll(async ({ browser }) => {
 
 test("jornada completa en pantalla: catálogo, compra con lote, caja, cobro, ticket, devolución y cierre", async ({ page }, info) => {
   await login(page.request);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    const state = window as unknown as { BarcodeDetector: unknown; registrationCode: string; registrationStream: MediaStream };
+    state.registrationCode = "";
+    state.BarcodeDetector = class {
+      static async getSupportedFormats() { return ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]; }
+      async detect() { return state.registrationCode ? [{ rawValue: state.registrationCode }] : []; }
+    };
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", { value: async () => {
+      const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = 480;
+      const ctx = canvas.getContext("2d")!; ctx.fillStyle = "white"; ctx.fillRect(0, 0, 640, 480);
+      state.registrationStream = canvas.captureStream(5);
+      setInterval(() => ctx.fillRect(0, 0, 1, 1), 100);
+      return state.registrationStream;
+    } });
+  });
   await page.goto(`/t/${slug}/catalog`);
-  await page.locator("summary").filter({ hasText: /^Nuevo producto$/ }).click();
-  const create = page.locator("form").filter({ has: page.getByRole("heading", { name: "Nuevo producto" }) });
+  await expect(page.getByLabel("Nombre", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Nuevo producto", exact: true })).toBeInViewport();
+  await page.screenshot({ path: info.outputPath("catalog-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "Nuevo producto", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "Nuevo producto", exact: true });
+  await create.getByRole("button", { name: "Continuar", exact: true }).click();
+  await expect(create.getByRole("heading", { name: "Identifica tu producto" })).toBeVisible();
   await create.getByLabel("Nombre", { exact: true }).fill("Leche entera"); await create.getByLabel("SKU", { exact: true }).fill("LECHE-01");
-  await create.getByLabel("Controlar lotes y vencimientos").check(); await create.getByLabel("Código de barras").fill("7750000000010");
+  await page.screenshot({ path: info.outputPath("product-step-one-mobile.png"), fullPage: true });
+  await create.getByRole("button", { name: "Continuar", exact: true }).click();
+  await create.getByRole("button", { name: "Atrás", exact: true }).click();
+  await expect(create.getByLabel("Nombre", { exact: true })).toHaveValue("Leche entera");
+  await create.getByRole("button", { name: "Continuar", exact: true }).click();
   await create.getByLabel("Precio de venta").fill("5");
+  await create.getByText("Presentación y venta por peso", { exact: true }).click();
+  await expect(create.getByLabel("Unidades base por presentación")).toHaveValue("1");
+  await create.getByRole("button", { name: "Leer código con cámara", exact: true }).click();
+  const reader = page.getByRole("dialog", { name: "Leer código de barras", exact: true });
+  await expect(reader.getByLabel("Vista de la cámara para escanear")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(reader).toHaveCount(0);
+  await expect(create).toBeVisible();
+  await expect(create.getByLabel("Precio de venta")).toHaveValue("5");
+  await create.getByRole("button", { name: "Leer código con cámara", exact: true }).click();
+  await expect(reader.getByLabel("Vista de la cámara para escanear")).toBeVisible();
+  await expect.poll(() => create.getByLabel("Unidades base por presentación").evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(60);
+  await page.screenshot({ path: info.outputPath("product-scanner-mobile.png"), fullPage: true });
+  await page.evaluate(() => { (window as unknown as { registrationCode: string }).registrationCode = "7750000000010"; });
+  await expect(reader).toHaveCount(0);
+  await expect(create.getByLabel("Código de barras")).toHaveValue("7750000000010");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { registrationStream: MediaStream }).registrationStream.getTracks().every((track) => track.readyState === "ended"))).toBeTruthy();
+  await page.setViewportSize({ width: 320, height: 700 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await expect(create.getByRole("button", { name: "Continuar", exact: true })).toBeInViewport();
+  await page.screenshot({ path: info.outputPath("product-price-small-mobile.png"), fullPage: true });
+  await create.getByRole("button", { name: "Continuar", exact: true }).click();
+  await expect(create.getByLabel("Alertar vencimiento con días de anticipación")).toBeDisabled();
+  await create.getByLabel("Controlar lotes y vencimientos").check();
+  await expect(create.getByLabel("Alertar vencimiento con días de anticipación")).toBeVisible();
+  await create.getByLabel("Alertar vencimiento con días de anticipación").fill("-1");
+  await create.getByLabel("Controlar lotes y vencimientos").uncheck();
+  expect(await create.getByLabel("Alertar vencimiento con días de anticipación").evaluate((element) => (element as HTMLInputElement).checkValidity())).toBe(true);
+  await create.getByLabel("Controlar lotes y vencimientos").check();
+  await create.getByLabel("Alertar vencimiento con días de anticipación").fill("30");
   await create.getByRole("button", { name: "Crear producto" }).click();
+  await expect(create).toHaveCount(0);
   await expect(page.getByRole("status")).toContainText("guardados");
+  await page.setViewportSize({ width: 1280, height: 800 });
   const p = (await workspace(page.request, "catalog")).products.find((p) => p.sku === "LECHE-01")!;
   await page.goto(`/t/${slug}/purchases`);
   await page.getByLabel("Proveedor", { exact: true }).fill("Distribuidor local"); await page.getByRole("combobox", { name: "Producto", exact: true }).selectOption(p.id);
@@ -148,7 +205,7 @@ test("fiscal en pantalla: configuración, clasificación, comprador y factura en
   const item = (await workspace(page.request, "catalog")).products[0];
   await page.goto('/t/'+slug+'/catalog');
   await page.getByRole("button", { name: 'Editar '+item.sku, exact: true }).click();
-  const edit = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Editar '+item.sku, exact: true }) });
+  const edit = page.getByRole('dialog', { name: 'Editar '+item.sku, exact: true });
   await edit.getByLabel('Clasificación tributaria').selectOption('GRAVADA');
   await edit.getByRole('button', { name: 'Guardar', exact: true }).click();
   await expect.poll(async () => (await workspace(page.request, 'catalog')).products[0].taxCategory).toBe('GRAVADA');

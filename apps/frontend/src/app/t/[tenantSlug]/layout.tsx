@@ -13,5 +13,5 @@ export default async function TenantLayout({ children, params }: { children: Rea
   if (session.tenantSlug !== tenantSlug) notFound();
   const industry = session.tenantType === "BARBERSHOP" ? "barbershop" : session.tenantType === "RESTAURANT" ? "restaurant" : session.tenantType === "MINIMARKET" ? "minimarket" : "transport";
   const manifest = getManifest(industry);
-  return <AppShell session={session} branches={branches} manifest={manifest}>{session.pilot ? <aside role="note" className={styles.banner}><strong>Piloto gratuito · Entorno de prueba</strong><p>Puedes registrar datos y probar las herramientas. No se cobra una suscripción durante el piloto.</p></aside> : null}{children}</AppShell>;
+  return <AppShell session={session} branches={branches} manifest={manifest}>{session.pilot ? <aside role="note" className={styles.banner}><details><summary>Piloto gratuito · Entorno de prueba</summary><p>Puedes registrar datos y probar las herramientas. No se cobra una suscripción durante el piloto.</p></details></aside> : null}{children}</AppShell>;
 }

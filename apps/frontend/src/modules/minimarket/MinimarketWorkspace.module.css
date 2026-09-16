@@ -183,3 +183,52 @@
 .mobileCheckout[hidden] { display: none; }
 :global(.dark) .workspace .primary, :global(.dark) .workspace .scanButton { color: #1b1608; }
 :global(.dark) .workspace .primary:hover:not(:disabled), :global(.dark) .workspace .scanButton:hover:not(:disabled) { color: white; }
+
+/* Keep forms independent from the height of neighboring controls and scanners. */
+.workspace label { align-content: start; }
+.workspace input, .workspace select { align-self: start; }
+.workspace > :global(.page-header) { margin-bottom: 0; }
+.catalog { display: grid; gap: 18px; }
+.catalogActions { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.catalogList { display: grid; gap: 12px; }
+.catalogItem { display: flex; align-items: center; gap: 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-solid); padding: 18px; }
+.catalogItem > div { flex: 1; min-width: 0; }
+.catalogItem h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.catalogItem p { margin: 5px 0 8px; font-size: 12px; color: var(--text-soft); }
+.catalogItem small { display: block; color: var(--text-soft); margin-top: 5px; font-size: 11px; }
+.catalogItem > button { flex-shrink: 0; }
+.catalogList .emptyState { padding: 36px 20px; background: var(--surface-solid); }
+.catalogList .emptyState h2 { font-size: 18px; margin: 0; }
+.productDialog { width: min(560px, 100%); }
+.productDialog :global(.dialog__content) { padding: 22px; }
+.productDialog .workspace { padding-bottom: 0; gap: 20px; }
+.productDialog .panel { border: 0; box-shadow: none; padding: 0; }
+.productDialog > footer { flex-shrink: 0; }
+.formFields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+.formFields input:not([type=checkbox]), .formFields select { height: 46px; max-height: 46px; }
+.formFields [hidden] { display: none; }
+.optionalFields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.barcodeField { display: grid; gap: 10px; }
+.barcodeField > button { justify-self: start; }
+.wizardSteps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.wizardSteps li { display: flex; align-items: center; gap: 6px; flex: 1; color: var(--text-soft); font-size: 12px; }
+.wizardSteps li > span { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-soft); border: 1px solid var(--border); flex-shrink: 0; }
+.wizardSteps li[aria-current=step] { color: #1769d3; font-weight: 700; }
+.wizardSteps li[aria-current=step] > span { background: #1769d3; color: white; border-color: #1769d3; }
+.wizardTitle { margin: 0; font-size: 18px; }
+.wizardActions { display: flex; width: 100%; gap: 12px; }
+.wizardActions > button { min-height: 46px; border-radius: 12px; border: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font: inherit; font-size: 14px; }
+.wizardActions > button:first-child { color: var(--text); background: var(--surface-solid); }
+.wizardActions > button:last-child { flex: 1; width: auto; }
+.wizardActions > button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 600px) {
+  .workspace form .grid { grid-template-columns: minmax(0, 1fr); }
+  .workspace > :global(.page-header) { padding: 14px; }
+  .workspace > :global(.page-header) p { display: none; }
+  .catalogActions { display: grid; grid-template-columns: 1fr 1fr; }
+  .catalogActions button { padding: 10px 8px; font-size: 12px; }
+  .catalogItem { padding: 14px; gap: 10px; }
+  .productDialog :global(.dialog__content) { padding: 20px 18px; }
+  .productDialog > footer { padding: 14px 18px; }
+  .wizardSteps li { font-size: 11px; }
+}
