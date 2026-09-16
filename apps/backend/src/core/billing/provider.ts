@@ -17,10 +17,10 @@ export async function createProviderCheckout(checkoutId: string, input: Checkout
   const configuration = billingConfiguration();
   if (!configuration.configured) throw new AppError("BILLING_NOT_CONFIGURED", 503, "El proveedor de cobro no está configurado.");
 
-  if (configuration.provider === "mock") {
-    if (!configuration.mockAllowed) throw new AppError("MOCK_BILLING_DISABLED", 503, "El simulador de cobro está deshabilitado en producción.");
+  if (configuration.provider === "mock" || configuration.provider === "pilot") {
+    if (configuration.provider === "mock" && !configuration.mockAllowed) throw new AppError("MOCK_BILLING_DISABLED", 503, "El simulador de cobro está deshabilitado en producción.");
     return {
-      providerSessionRef: `mock_cs_${checkoutId}`,
+      providerSessionRef: `${configuration.provider}_cs_${checkoutId}`,
       url: `${input.publicOrigin}/checkout/${checkoutId}`,
       expiresAt: new Date(Date.now() + 30 * 60_000),
     };

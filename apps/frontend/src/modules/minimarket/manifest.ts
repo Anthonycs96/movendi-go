@@ -1,9 +1,9 @@
 import type { BusinessModuleManifest } from "@/core/modules/types";
 export const minimarketManifest: BusinessModuleManifest = {
-  id: "minimarket", industry: "minimarket", name: "Minimarket", description: "Productos, caja, compras y existencias.", defaultPath: "pos",
+  id: "minimarket", industry: "minimarket", name: "Minimarket", description: "Productos, caja, compras y existencias.", defaultPath: "dashboard",
   navigation: [
-    { id: "mm-pos", label: "Punto de venta", description: "Escanear y cobrar", path: "pos", icon: "cash", group: "operations", permission: "minimarket:sales:write" },
     { id: "mm-dashboard", label: "Resumen", description: "Resultados y alertas", path: "dashboard", icon: "dashboard", group: "overview", permission: "minimarket:reports:read" },
+    { id: "mm-pos", label: "Punto de venta", description: "Escanear y cobrar", path: "pos", icon: "cash", group: "operations", permission: "minimarket:sales:write" },
     { id: "mm-catalog", label: "Catálogo", description: "Productos y presentaciones", path: "catalog", icon: "menu", group: "commerce", permission: "minimarket:catalog:read" },
     { id: "mm-stock", label: "Inventario", description: "Stock, lotes y conteos", path: "inventory", icon: "inventory", group: "commerce", permission: "inventory:read" },
     { id: "mm-purchases", label: "Compras", description: "Recepciones de proveedores", path: "purchases", icon: "orders", group: "commerce", permission: "inventory:read" },

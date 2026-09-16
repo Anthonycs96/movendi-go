@@ -171,13 +171,13 @@ test.describe("fase 5 comercial: 22 escenarios reales", () => {
   });
 
   test("[22/22] readiness informa cobro y correo, y housekeeping entrega la bandeja", async ({ page }) => {
-    const before = await body(await page.request.get("http://localhost:3101/api/ready")) as { billing: { provider: string; status: string }; email: { provider: string; queued: number } };
+    const before = await body(await page.request.get("/api/ready")) as { billing: { provider: string; status: string }; email: { provider: string; queued: number } };
     expect(before.billing).toMatchObject({ provider: "mock", status: "configured" });
     expect(before.email.provider).toBe("log");
     expect(before.email.queued).toBeGreaterThan(0);
     const housekeeping = await page.request.post("/api/internal/maintenance", { headers: { "x-job-runner-secret": "phase-3-e2e-worker-secret-0001" } });
     expect(housekeeping.status()).toBe(200);
-    const after = await body(await page.request.get("http://localhost:3101/api/ready")) as { email: { queued: number } };
+    const after = await body(await page.request.get("/api/ready")) as { email: { queued: number } };
     expect(after.email.queued).toBe(0);
     expect(subscriptionRef).toBe(`mock_sub_${checkoutId}`);
   });

@@ -5,12 +5,15 @@ import { AppError } from "@/core/auth/errors";
 import { prisma } from "@/core/database/prisma";
 import { billingConfiguration, billingPublicOrigin } from "./configuration";
 import { createProviderCheckout } from "./provider";
+import { randomBytes } from "node:crypto";
+import { businessSlugFromName } from "@movendi/contracts";
+import { processBillingEvent } from "./processor";
 
 export const publicCheckoutSchema = z.object({
   planKey: z.string().trim().toUpperCase().regex(/^[A-Z0-9_]+$/).max(30),
   businessName: z.string().trim().min(2).max(120),
   businessShortName: z.string().trim().min(2).max(40),
-  businessSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).min(3).max(60),
+  businessSlug: z.string().trim().transform(businessSlugFromName).pipe(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).min(3).max(60)).optional(),
   businessType: z.enum(["BARBERSHOP", "RESTAURANT", "TRANSPORT", "MINIMARKET"]),
   branchName: z.string().trim().min(2).max(100).default("Sede principal"),
   adminName: z.string().trim().min(2).max(120),
@@ -44,6 +47,19 @@ export async function createPublicCheckout(body: unknown, request: Request) {
   const parsed = publicCheckoutSchema.safeParse(body);
   if (!parsed.success) throw new AppError("VALIDATION_ERROR", 400, "Revisa los datos de contratación.", parsed.error.flatten());
   const input = parsed.data;
+  if (!input.businessSlug) {
+    const base = businessSlugFromName(input.businessShortName) || "negocio";
+    input.businessSlug = base.length < 3 ? `negocio-${base}` : base;
+    // Keep the readable name; add a suffix when another business already uses it.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const [tenant, pending] = await Promise.all([
+        prisma.tenant.findUnique({ where: { slug: input.businessSlug }, select: { id: true } }),
+        prisma.billingCheckoutSession.findFirst({ where: { businessSlug: input.businessSlug, status: "OPEN", expiresAt: { gt: new Date() } }, select: { id: true } }),
+      ]);
+      if (!tenant && !pending) break;
+      input.businessSlug = `${base}-${randomBytes(4).toString("hex")}`;
+    }
+  }
   const recentSince = new Date(Date.now() - 15 * 60_000);
   const [plan, tenantExists, userExists, recentAttempts, openCheckout] = await Promise.all([
     prisma.platformPlan.findFirst({ where: { key: input.planKey, active: true } }),
@@ -74,7 +90,7 @@ export async function createPublicCheckout(body: unknown, request: Request) {
     branchName: input.branchName,
     country: input.country,
     currency: "PEN",
-    amountCents: plan.monthlyPriceCents,
+    amountCents: configuration.provider === "pilot" ? 0 : plan.monthlyPriceCents,
     expiresAt: provisionalExpiry,
     successUrl: `${publicOrigin}/checkout/success`,
     cancelUrl: `${publicOrigin}/planes?checkout=cancelado`,
@@ -101,6 +117,7 @@ export async function createPublicCheckout(body: unknown, request: Request) {
       providerSessionRef: providerCheckout.providerSessionRef,
       expiresAt: providerCheckout.expiresAt,
     } });
+    if (configuration.provider === "pilot") await activatePilotCheckout(checkout.id);
     return { checkoutId: checkout.id, provider: configuration.provider, url: providerCheckout.url, expiresAt: providerCheckout.expiresAt.toISOString() };
   } catch (error) {
     await prisma.billingCheckoutSession.update({ where: { id: checkout.id }, data: { status: "FAILED", adminPasswordHash: null } });
@@ -114,6 +131,7 @@ export async function getPublicCheckout(id: string) {
   return {
     id: checkout.id,
     provider: checkout.provider,
+    pilot: checkout.provider === "pilot" || (checkout.provider === "mock" && billingConfiguration().provider === "pilot"),
     status: checkout.status,
     businessName: checkout.businessName,
     email: checkout.email,
@@ -124,4 +142,17 @@ export async function getPublicCheckout(id: string) {
     tenantSlug: checkout.tenant?.slug ?? null,
     plan: { key: checkout.plan.key, name: checkout.plan.name },
   };
+}
+
+export async function activatePilotCheckout(id: string) {
+  if (billingConfiguration().provider !== "pilot") throw new AppError("NOT_FOUND", 404, "El registro piloto no está habilitado.");
+  const checkout = await prisma.billingCheckoutSession.findUnique({ where: { id } });
+  if (!checkout || !["pilot", "mock"].includes(checkout.provider)) throw new AppError("NOT_FOUND", 404, "El registro piloto no existe.");
+  if (checkout.status === "COMPLETED") return getPublicCheckout(id);
+  if (checkout.status !== "OPEN" || checkout.expiresAt < new Date()) throw new AppError("CHECKOUT_EXPIRED", 409, "El registro expiró. Vuelve a registrarte desde Planes.");
+  // Pending registrations from the previous simulator can enter the pilot without a payment.
+  if (checkout.provider === "mock") await prisma.billingCheckoutSession.updateMany({ where: { id, provider: "mock", status: "OPEN" }, data: { provider: "pilot", amountCents: 0 } });
+  const data = { checkoutId: id, customerRef: `pilot_cus_${id}`, subscriptionRef: `pilot_sub_${id}` };
+  await processBillingEvent("pilot", { id: `pilot_registration_${id}`, type: "checkout.completed", originalType: "pilot.registration", data, payload: JSON.stringify(data) });
+  return getPublicCheckout(id);
 }

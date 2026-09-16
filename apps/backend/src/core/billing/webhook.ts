@@ -98,6 +98,7 @@ export function signMockWebhook(payload: string) {
 
 export async function parseBillingWebhook(provider: string, payload: string, signature: string | null): Promise<NormalizedBillingEvent> {
   const configuration = billingConfiguration();
+  if (provider === "pilot") throw new AppError("NOT_FOUND", 404, "El piloto no recibe eventos de pago.");
   if (provider !== configuration.provider) throw new AppError("BILLING_PROVIDER_MISMATCH", 404, "El proveedor de cobro indicado no está habilitado.");
   if (provider === "mock") {
     if (!configuration.mockAllowed) throw new AppError("MOCK_BILLING_DISABLED", 404, "El simulador de cobro no está disponible.");

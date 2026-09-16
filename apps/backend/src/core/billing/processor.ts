@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { AppError } from "@/core/auth/errors";
 import { prisma } from "@/core/database/prisma";
+import { initializeBusinessSetup } from "@/core/platform/onboarding";
 import type { BillingEventData, BillingProviderName, NormalizedBillingEvent } from "./types";
 
 function addMonth(value = new Date()) {
@@ -37,7 +38,8 @@ async function completeCheckout(provider: BillingProviderName, data: BillingEven
     if (slugExists || userExists) throw new AppError("PROVISIONING_CONFLICT", 409, "El negocio o el administrador ya fue registrado por otro proceso.");
 
     const now = new Date();
-    const periodEnd = data.currentPeriodEnd ?? addMonth(now);
+    const pilot = provider === "pilot";
+    const periodEnd = pilot ? null : data.currentPeriodEnd ?? addMonth(now);
     const tenant = await tx.tenant.create({ data: {
       slug: checkout.businessSlug,
       name: checkout.businessName,
@@ -48,7 +50,7 @@ async function completeCheckout(provider: BillingProviderName, data: BillingEven
       email: checkout.email,
       planId: checkout.planId,
       status: "ACTIVE",
-      subscriptionStatus: "ACTIVE",
+      subscriptionStatus: pilot ? "TRIAL" : "ACTIVE",
       subscriptionStartedAt: now,
       subscriptionEndsAt: periodEnd,
     } });
@@ -56,6 +58,7 @@ async function completeCheckout(provider: BillingProviderName, data: BillingEven
     const role = await tx.role.create({ data: { tenantId: tenant.id, key: "ADMIN", name: "Administrador", permissions: JSON.stringify(["*"]) } });
     const user = await tx.user.create({ data: { name: checkout.adminName, email: checkout.email, passwordHash: checkout.adminPasswordHash } });
     await tx.membership.create({ data: { tenantId: tenant.id, userId: user.id, roleId: role.id, branchId: branch.id } });
+    await initializeBusinessSetup(tenant.id, branch.id, checkout.businessType as "MINIMARKET" | "RESTAURANT" | "TRANSPORT" | "BARBERSHOP", undefined, user.id, tx);
     await tx.billingCustomer.create({ data: {
       tenantId: tenant.id,
       provider,
@@ -71,8 +74,8 @@ async function completeCheckout(provider: BillingProviderName, data: BillingEven
       checkoutSessionId: checkout.id,
       provider,
       providerSubscriptionRef: data.subscriptionRef,
-      status: "ACTIVE",
-      amountCents: checkout.amountCents,
+      status: pilot ? "TRIAL" : "ACTIVE",
+      amountCents: pilot ? 0 : checkout.amountCents,
       currency: checkout.currency,
       currentPeriodStart: data.currentPeriodStart ?? now,
       currentPeriodEnd: periodEnd,
@@ -103,7 +106,7 @@ async function completeCheckout(provider: BillingProviderName, data: BillingEven
       } });
     }
     await tx.billingCheckoutSession.update({ where: { id: checkout.id }, data: { tenantId: tenant.id, status: "COMPLETED", completedAt: now, adminPasswordHash: null } });
-    await tx.emailOutbox.create({ data: { tenantId: tenant.id, recipient: checkout.email, template: "WELCOME_PAID", subject: `Bienvenido a Movendi, ${checkout.businessShortName}`, payload: JSON.stringify({ tenantSlug: tenant.slug, plan: checkout.plan.name }) } });
+    await tx.emailOutbox.create({ data: { tenantId: tenant.id, recipient: checkout.email, template: pilot ? "WELCOME_PILOT" : "WELCOME_PAID", subject: `Bienvenido a Movendi, ${checkout.businessShortName}`, payload: JSON.stringify({ tenantSlug: tenant.slug, plan: checkout.plan.name, pilot }) } });
     await tx.auditLog.create({ data: { tenantId: tenant.id, branchId: branch.id, userId: user.id, action: "BILLING_CHECKOUT_COMPLETED", entityType: "BillingCheckoutSession", entityId: checkout.id, metadata: JSON.stringify({ provider, planId: checkout.planId, amountCents: checkout.amountCents }) } });
     return tenant.id;
   });

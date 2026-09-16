@@ -12,6 +12,7 @@ export function billingConfiguration(): BillingConfiguration {
   const production = process.env.NODE_ENV === "production";
   const provider = (process.env.BILLING_PROVIDER?.toLowerCase() || (production ? "stripe" : "mock")) as BillingProviderName;
   const mockAllowed = !production || process.env.ALLOW_MOCK_BILLING === "true";
+  if (provider === "pilot") return { provider, configured: true, webhookConfigured: true, mockAllowed: false };
   if (provider === "stripe") {
     return {
       provider,

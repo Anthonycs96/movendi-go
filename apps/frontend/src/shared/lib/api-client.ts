@@ -61,6 +61,7 @@ export interface PublicBillingPlan {
 }
 
 export interface PublicCheckoutView {
+  pilot?: boolean;
   id: string;
   provider: string;
   status: string;
@@ -88,7 +89,7 @@ export async function getPublicBusinessSite(slug: string) {
 }
 
 export async function getPublicBillingPlans() {
-  return getJson<{ plans: PublicBillingPlan[] }>("/api/billing/plans");
+  return getJson<{ plans: PublicBillingPlan[]; registrationMode: "pilot" | "paid" }>("/api/billing/plans");
 }
 
 export async function getPublicCheckout(id: string) {

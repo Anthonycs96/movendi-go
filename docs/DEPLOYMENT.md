@@ -113,6 +113,14 @@ Referencias oficiales: [monorepos](https://docs.railway.com/deployments/monorepo
 
 ## Despliegue continuo desde GitHub
 
+### Registro durante el piloto
+
+Para el piloto público se configura `BILLING_PROVIDER=pilot` y `ALLOW_MOCK_BILLING=false` en el backend. El formulario genera el nombre corto y la dirección; crea el negocio con sus módulos y una suscripción `TRIAL` de importe cero, sin factura, pago ni renovación automática. El panel indica que se está usando un entorno de prueba. Los registros pendientes del simulador anterior pueden activarse como piloto si no han expirado; sus registros históricos completados se conservan.
+
+El proveedor `mock` queda para pruebas de desarrollo; `stripe` conserva el flujo de pago. Cambiar posteriormente la configuración a Stripe no convierte ni cobra automáticamente las suscripciones piloto existentes. No se necesitan migraciones de esquema para esta corrección.
+
+Verificación del registro piloto: `E2E_BILLING_PROVIDER=pilot node scripts/run-e2e.mjs e2e/pilot-registration.spec.ts` (en PowerShell, asignar primero `$env:E2E_BILLING_PROVIDER='pilot'`). El runner usa una base aislada.
+
 El repositorio privado `Anthonycs96/movendi-go` usa `main` como rama de
 producción. Cada `git push origin main` activa dos despliegues independientes:
 

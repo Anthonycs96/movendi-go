@@ -1,4 +1,4 @@
-export type BillingProviderName = "mock" | "stripe";
+export type BillingProviderName = "mock" | "stripe" | "pilot";
 
 export interface CheckoutRequestData {
   planId: string;

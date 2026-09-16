@@ -3,6 +3,13 @@ import test from "node:test";
 import { effectiveModules } from "./enabled-modules";
 import { hasPermission } from "./permissions";
 
+test("legacy public minimarkets open their dashboard while explicit restrictions and permissions remain", () => {
+  assert.ok(effectiveModules("MINIMARKET", []).includes("dashboard"));
+  assert.ok(effectiveModules("MINIMARKET", []).includes("pos"));
+  assert.deepEqual(effectiveModules("MINIMARKET", ["pos"]), ["pos"]);
+  assert.equal(hasPermission(["minimarket:sales:write"], "minimarket:reports:read"), false);
+});
+
 test("existing essential restaurants gain reports without enabling other optional modules", () => {
   const saved = ["dashboard", "floor", "orders", "settings"];
   assert.deepEqual(effectiveModules("RESTAURANT", saved), [...saved, "reports"]);

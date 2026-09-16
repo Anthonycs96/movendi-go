@@ -5,6 +5,7 @@ import { prisma } from "@/core/database/prisma";
 import { AppError } from "./errors";
 import { hasPermission, parsePermissions } from "./permissions";
 import { effectiveModules } from "./enabled-modules";
+import { billingConfiguration } from "@/core/billing/configuration";
 import type { AuthSession, TenantScope } from "./types";
 import type { AuthSessionView } from "@movendi/contracts";
 
@@ -126,5 +127,5 @@ export async function switchSessionTenant(tenantSlug: string) {
 }
 
 export function toSessionView(session: AuthSession): AuthSessionView {
-  return { ...session, expiresAt: session.expiresAt.toISOString() };
+  return { ...session, pilot: billingConfiguration().provider === "pilot", expiresAt: session.expiresAt.toISOString() };
 }

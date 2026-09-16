@@ -7,6 +7,7 @@ export * from "./role-keys";
 export type BusinessType = "BARBERSHOP" | "RESTAURANT" | "TRANSPORT" | "MINIMARKET";
 
 export interface AuthSessionView {
+  pilot?: boolean;
   sessionId: string;
   userId: string;
   membershipId: string;
@@ -377,3 +378,4 @@ export function loyaltyRedemptionLimit(totalCents: number, deliveryFeeCents: num
 }
 
 export type { MinimarketData, MinimarketProduct, MinimarketSale } from "./minimarket";
+export { businessSlugFromName } from "./business-slug";
