@@ -1285,6 +1285,7 @@ a:has(> .navigation-hint) { position: relative; }
 .growth-report__tabs { display:flex; flex-wrap:wrap; gap:8px; }
 .growth-report__tabs button { padding:11px 16px; min-height:44px; border:1px solid var(--border); border-radius:9px; color:var(--text); background:var(--surface-solid); cursor:pointer; font:inherit; font-size:12px; }
 .growth-report__tabs button[aria-pressed="true"] { background:var(--primary); color:white; border-color:var(--primary); }
+.dark .growth-report__tabs button[aria-pressed="true"] { color:#1b1608; }
 .growth-report__grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
 .growth-report .report-panel { min-width:0; }
 .growth-table-scroll { overflow-x:auto; }

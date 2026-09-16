@@ -15,10 +15,13 @@ export function ConnectionStatus({ op }: { op: RetailOperation }) {
     }).catch(() => { /* Browser operation remains available when installation is unsupported. */ });
     return () => { alive = false; };
   }, []);
-  return <aside className={styles.panel} aria-label="Conexión y recuperación"><strong>{!op.online ? "SIN CONEXIÓN" : op.busy ? "SINCRONIZANDO" : op.error && op.pending ? "ERROR DE SINCRONIZACIÓN" : "ONLINE"}</strong>
-    {!op.online ? <p>Puedes conservar el carrito. Reconecta para verificar stock, caja, precios y comprobantes antes de cobrar.</p> : null}
-    {op.pending ? <div><p>Operación pendiente: {op.pending.path} · {new Date(op.pending.createdAt).toLocaleString("es-PE")}. El resultado aún debe confirmarse. No registres el mismo pago como una venta nueva.</p><button disabled={op.busy || !op.online} onClick={() => void op.recover()}>Recuperar operación pendiente</button></div> : null}
-    {waiting ? <button disabled={op.busy || !!op.pending} onClick={() => { navigator.serviceWorker.addEventListener("controllerchange", () => location.reload(), { once: true }); waiting.postMessage("ACTIVATE_UPDATE"); }}>Actualizar aplicación (conserva carrito)</button> : null}
-    <details><summary>Instalar en el teléfono</summary><p>En Android usa «Instalar aplicación» del navegador. En iPhone abre Safari, Compartir → Añadir a pantalla de inicio. La disponibilidad depende del navegador y de la conexión HTTPS.</p></details>
+  return <aside className={styles.connection} aria-label="Conexión y recuperación">
+    <span className={`${styles.connectionBadge} ${!op.online || op.pending ? styles.connectionWarning : ""}`}><i />{!op.online ? "Sin conexión" : op.busy ? "Guardando…" : op.pending ? "Operación pendiente" : "Conectado"}</span>
+    <details className={styles.appOptions}><summary>{waiting ? "Actualización disponible" : "Instalar / actualizar"}</summary><div>
+      {waiting ? <button disabled={op.busy || !!op.pending} onClick={() => { navigator.serviceWorker.addEventListener("controllerchange", () => location.reload(), { once: true }); waiting.postMessage("ACTIVATE_UPDATE"); }}>Actualizar aplicación (conserva carrito)</button> : <p>La aplicación está actualizada.</p>}
+      <strong>Instalar en el teléfono</strong><p>Android: usa «Instalar aplicación» del navegador. iPhone: Safari → Compartir → Añadir a pantalla de inicio.</p>
+    </div></details>
+    {!op.online ? <p className={styles.connectionAlert}>Tu carrito se conserva. Reconecta antes de cobrar.</p> : null}
+    {op.pending ? <div className={styles.connectionAlert}><p>Hay una operación cuyo resultado falta confirmar. Recupérala antes de registrar otro pago.</p><button disabled={op.busy || !op.online} onClick={() => void op.recover()}>Recuperar operación pendiente</button></div> : null}
   </aside>;
 }

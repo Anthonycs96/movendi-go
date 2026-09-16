@@ -1,0 +1,66 @@
+"use client";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { ArrowRight, Barcode, CheckCircle2, Minus, Package, Plus, ScanLine, ShoppingBag, Trash2 } from "lucide-react";
+import type { MinimarketData, MinimarketProduct } from "@movendi/contracts";
+import { Dialog } from "@/shared/components/ui";
+import { BarcodeScanner } from "@/shared/barcode/BarcodeScanner";
+import { localizeCode } from "@/shared/lib/localization";
+import { findBarcode } from "./barcode";
+import { useCart } from "./use-cart";
+import { useQuote } from "./use-quote";
+import { scopeKey, type RetailOperation } from "./use-operation";
+import { Form, Input, s, money } from "./ui";
+import { RetailSearch } from "./RetailSearch";
+import styles from "./MinimarketWorkspace.module.css";
+
+export function PointOfSale({ data, op }: { data: MinimarketData; op: RetailOperation }) {
+  const { cart, setCart, intentId, clearCart, ready: cartReady, error: cartError } = useCart(scopeKey(data.scope));
+  useEffect(() => { if (op.recoveredSale) queueMicrotask(clearCart); }, [op.recoveredSale, clearCart]);
+  const [scanner, setScanner] = useState<"camera" | "manual" | null>(null), [checkout, setCheckout] = useState(false);
+  const [method, setMethod] = useState("CASH"), [split, setSplit] = useState(false), [second, setSecond] = useState("CARD"), [firstAmount, setFirstAmount] = useState(0);
+  const [ticket, setTicket] = useState<{ code: string; totalCents: number; changeCents: number | null } | null>(null);
+  const path = usePathname(), pricing = useQuote(cart, op.error + String(op.online)), fmt = money(data);
+  const locked = op.busy || !!op.pending || !cartReady;
+  const total = pricing.quote?.totalCents ?? cart.reduce((sum, line) => sum + Math.round(line.priceCents * line.quantity), 0);
+  const units = cart.reduce((sum, line) => sum + line.quantity, 0);
+  const count = new Intl.NumberFormat("es-PE", { maximumFractionDigits: 3 }).format(units);
+  function add(product: MinimarketProduct, presentation: MinimarketProduct["presentations"][number]) {
+    if (locked) throw new Error("Recupera el carrito o la operación pendiente antes de añadir productos.");
+    if (!product.active || !presentation.active) throw new Error("El producto o la presentación están inactivos.");
+    setCart((rows) => rows.some((row) => row.presentationId === presentation.id) ? rows.map((row) => row.presentationId === presentation.id ? { ...row, quantity: row.quantity + 1 } : row) : [...rows, { presentationId: presentation.id, name: `${product.name} · ${presentation.name}`, priceCents: presentation.priceCents, weighted: presentation.weighted, quantity: 1 }]);
+  }
+  const cartLines = <div className={styles.cartLines}>{cart.map((line) => <div className={styles.cartLine} key={line.presentationId}><div><strong>{line.name}</strong><small>{fmt(line.priceCents)} por presentación</small></div><strong>{fmt(Math.round(line.quantity * line.priceCents))}</strong><div className={styles.quantity}><button type="button" disabled={locked || line.quantity <= 1} aria-label={`Restar ${line.name}`} onClick={() => setCart((rows) => rows.map((row) => row.presentationId === line.presentationId ? { ...row, quantity: Math.max(1, row.quantity - 1) } : row))}><Minus size={15} /></button><input disabled={locked} aria-label={`Cantidad ${line.name}`} type="number" min={line.weighted ? "0.000001" : "1"} step={line.weighted ? "0.000001" : "1"} value={line.quantity} onChange={(event) => setCart((rows) => rows.map((row) => row.presentationId === line.presentationId ? { ...row, quantity: Number(event.target.value) } : row))} /><button type="button" disabled={locked} aria-label={`Sumar ${line.name}`} onClick={() => setCart((rows) => rows.map((row) => row.presentationId === line.presentationId ? { ...row, quantity: row.quantity + 1 } : row))}><Plus size={15} /></button></div><button className={styles.remove} type="button" disabled={locked} aria-label={`Quitar ${line.name}`} onClick={() => setCart((rows) => rows.filter((row) => row.presentationId !== line.presentationId))}><Trash2 size={17} /></button></div>)}</div>;
+  return <>
+    {ticket ? <div className={styles.saleSuccess}><CheckCircle2 size={22} /><div><strong>Venta {ticket.code} registrada</strong><p>{fmt(ticket.totalCents)} · Vuelto: {fmt(ticket.changeCents ?? 0)}.</p><a href={path.replace(/\/pos$/, "/sales")}>Ver / imprimir comprobante</a></div></div> : null}
+    {cartError ? <p className={styles.error} role="alert">{cartError}</p> : null}
+    <div className={styles.posLayout}><section className={styles.productArea} aria-label="Productos para vender">
+      <div className={styles.posTools}><RetailSearch data={data} /><div className={styles.scanActions}><button type="button" className={styles.scanButton} disabled={locked} onClick={() => setScanner("camera")}><ScanLine size={20} />Escanear con cámara</button><button type="button" disabled={locked} onClick={() => setScanner("manual")}><Barcode size={20} />Ingresar código</button></div></div>
+      <div className={styles.sectionTitle}><h2>Productos</h2><span>Elige una presentación para añadirla</span></div>
+      <div className={styles.productGrid}>{data.products.filter((product) => product.active).flatMap((product) => product.presentations.filter((presentation) => presentation.active).map((presentation) => { const quantity = cart.find((line) => line.presentationId === presentation.id)?.quantity; return <button className={`${styles.productCard} ${quantity ? styles.productSelected : ""}`} disabled={locked} key={presentation.id} onClick={() => add(product, presentation)}><div className={styles.productTop}><span className={styles.productIcon}><Package size={23} /></span><small>{product.category || "General"}</small></div><strong>{product.name}</strong><span>{presentation.name}</span><small>{product.stock} {product.unit} disponibles{product.trackExpiry ? " · por lote" : ""}</small><div className={styles.productBottom}><b>{fmt(presentation.priceCents)}</b><span className={styles.addBadge}>{quantity ? quantity : <Plus size={19} />}</span></div></button>; }))}</div>
+      {!data.products.length ? <div className={styles.emptyState}><Package size={38} /><h3>No hay productos para mostrar</h3><p>Busca otro nombre o registra productos y una compra desde el menú para empezar a vender.</p></div> : null}
+    </section>
+    <aside className={styles.desktopCart} aria-label="Resumen de la venta"><div className={styles.sectionTitle}><h2><ShoppingBag size={20} /> Venta actual</h2><span>{count} artículos</span></div>{!cart.length ? <div className={styles.emptyState}><ShoppingBag size={34} /><h3>Tu venta empieza aquí</h3><p>Selecciona un producto o escanea su código.</p></div> : !checkout ? cartLines : <p>Revisa los productos en la ventana de cobro.</p>}<div className={styles.total}><span>Total</span><strong>{fmt(total)}</strong></div><button type="button" className={styles.primary} disabled={!cart.length || !cartReady} onClick={() => setCheckout(true)}>Ir a cobrar <ArrowRight size={18} /></button><p className={styles.muted}>Revisa la venta y elige cómo pagar en el siguiente paso.</p></aside></div>
+    {cart.length > 0 ? <div className={styles.mobileCheckout} hidden={checkout || !!scanner}><div><small>{count} artículos en tu venta</small><strong>{fmt(total)}</strong></div><button type="button" onClick={() => setCheckout(true)}>Ir a cobrar <ArrowRight size={18} /></button></div> : null}
+    <Dialog initialFocus={scanner === "camera" ? "dialog" : "field"} open={!!scanner} title={scanner === "camera" ? "Escanear productos" : "Ingresar un código"} description="Los productos se añaden a tu venta. Puedes seguir escaneando." onClose={() => setScanner(null)} className={styles.retailDialog} footer={<button className={styles.dialogAction} type="button" onClick={() => { setScanner(null); if (cart.length) setCheckout(true); }}>{cart.length ? `Revisar venta · ${fmt(total)}` : "Volver a productos"}<ArrowRight size={18} /></button>}>
+      <div className={styles.workspace}><BarcodeScanner autoStart={scanner === "camera"} compact={scanner === "camera"} disabled={locked} onScan={async (code) => { const found = await findBarcode(code, "pos"); const presentation = found.product.presentations.find((item) => item.id === found.presentationId)!; add(found.product, presentation); return `${found.product.name} · ${presentation.name} agregado`; }} /><div className={styles.scannedSummary} aria-live="polite"><ShoppingBag size={18} /><span>{count} artículos</span><strong>{fmt(total)}</strong></div></div>
+    </Dialog>
+    <Dialog initialFocus="dialog" open={checkout} title="Revisar y cobrar" description="Confirma los productos y el medio de pago." onClose={() => { if (!op.busy) setCheckout(false); }} className={styles.retailDialog}>
+      <div className={styles.workspace}><Form id="retail-checkout" busy={op.busy} disabled={!data.cash || !cart.length || !pricing.ready || locked || !!cartError || !op.online} label="Cobrar venta" submit={async (form) => {
+        const payments = split ? [{ method, amountCents: Math.round(firstAmount * 100), reference: s(form, "reference") || null }, { method: second, amountCents: total - Math.round(firstAmount * 100), reference: s(form, "reference2") || null }] : [{ method, amountCents: total, reference: s(form, "reference") || null }];
+        const received = s(form, "received");
+        const result = await op.run("sales", { idempotencyKey: intentId, documentKind: s(form, "documentKind"), cashSessionId: data.cash?.id, lines: cart.map(({ presentationId, quantity }) => ({ presentationId, quantity })), payments, ...(s(form, "customer") ? { customerId: s(form, "customer") } : {}), ...(received ? { cashReceivedCents: Math.round(Number(received) * 100) } : {}) });
+        if (result?.code && result.totalCents != null) { setTicket({ code: result.code, totalCents: result.totalCents, changeCents: result.changeCents ?? null }); clearCart(); setCheckout(false); }
+      }}>
+        {op.error ? <p className={styles.error} role="alert">{op.error}</p> : null}{!data.cash ? <p className={styles.error}>Abre un turno en <a href={path.replace(/\/pos$/, "/checkout")}>Caja</a> antes de cobrar.</p> : null}
+        {cartLines}{!cart.length ? <p>Tu venta está vacía. Vuelve a productos para empezar.</p> : null}
+        {pricing.error ? <p role="alert">{pricing.error} Reconecta para cobrar.</p> : !pricing.ready && cart.length ? <p>Verificando precios y promociones…</p> : null}
+        {pricing.quote?.lines.filter((line) => line.discountCents > 0).map((line) => <p className={styles.discount} key={line.presentationId}>{line.promotionName}: −{fmt(line.discountCents)}</p>)}
+        <div className={styles.checkoutTotal}><span>Total a cobrar</span><strong>{fmt(total)}</strong></div>
+        <div className={styles.paymentGrid}><label>Medio de pago<select value={method} onChange={(event) => setMethod(event.target.value)}>{data.paymentMethods.map((value) => <option key={value} value={value}>{localizeCode(value)}</option>)}</select></label>{method === "CASH" || (split && second === "CASH") ? <Input name="received" label="Efectivo recibido (opcional)" type="number" min="0" step="0.01" required={false} /> : null}{method !== "CASH" ? <Input name="reference" label="Referencia de pago (opcional)" required={false} /> : null}</div>
+        <details className={styles.disclosure}><summary>Cliente y comprobante</summary><div className={styles.paymentGrid}><label>Comprobante<select name="documentKind"><option value="TICKET">Ticket interno</option><option value="BOLETA" disabled={!data.fiscal.enabled}>Boleta electrónica</option><option value="FACTURA" disabled={!data.fiscal.enabled}>Factura electrónica</option></select></label><label>Cliente<select name="customer"><option value="">Consumidor final</option>{data.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.dni ? ` · ${customer.dni}` : ""}</option>)}</select></label></div>{data.fiscal.enabled ? <p className={styles.muted}>Emisión en {data.fiscal.environment === "BETA" ? "pruebas" : "producción"}. Consulta la aceptación en Ventas.</p> : <p className={styles.muted}>Usamos un ticket interno. Activa la emisión electrónica desde Configuración si la necesitas.</p>}</details>
+        <details className={styles.disclosure}><summary>Pago dividido y referencia</summary>{method === "CASH" ? <Input name="reference" label="Referencia de pago (opcional)" required={false} /> : null}<label className={styles.checkLabel}><input type="checkbox" checked={split} onChange={(event) => setSplit(event.target.checked)} />Dividir en dos métodos</label>{split ? <><div className={styles.paymentGrid}><label>Importe del primer método<input type="number" min="0" max={total / 100} step="0.01" value={firstAmount} onChange={(event) => setFirstAmount(Number(event.target.value))} /></label><label>Segundo método<select value={second} onChange={(event) => setSecond(event.target.value)}>{data.paymentMethods.map((value) => <option key={value} value={value}>{localizeCode(value)}</option>)}</select></label></div><p>Segundo importe: {fmt(total - Math.round(firstAmount * 100))}</p><Input name="reference2" label="Referencia del segundo pago" required={false} /></> : null}</details>
+      </Form></div>
+    </Dialog>
+  </>;
+}

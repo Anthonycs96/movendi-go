@@ -8,7 +8,7 @@ import { cn } from "@/shared/lib/cn";
 
 const subscribeToClient = () => () => undefined;
 
-export function Dialog({ open, title, description, children, onClose, footer, className }: { open: boolean; title: string; description?: string; children: ReactNode; onClose: () => void; footer?: ReactNode; className?: string }) {
+export function Dialog({ open, title, description, children, onClose, footer, className, initialFocus = "field" }: { open: boolean; title: string; description?: string; children: ReactNode; onClose: () => void; footer?: ReactNode; className?: string; initialFocus?: "field" | "dialog" }) {
   const dialogRef = useRef<HTMLElement>(null);
   const titleId = useId();
   const mounted = useSyncExternalStore(subscribeToClient, () => true, () => false);
@@ -19,7 +19,7 @@ export function Dialog({ open, title, description, children, onClose, footer, cl
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const frame = window.requestAnimationFrame(() => {
-      const initial = dialogRef.current?.querySelector<HTMLElement>("[autofocus]")
+      const initial = initialFocus === "dialog" ? dialogRef.current : dialogRef.current?.querySelector<HTMLElement>("[autofocus]")
         ?? dialogRef.current?.querySelector<HTMLElement>("input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled])")
         ?? dialogRef.current?.querySelector<HTMLElement>("button:not([disabled])");
       (initial ?? dialogRef.current)?.focus();
@@ -29,7 +29,7 @@ export function Dialog({ open, title, description, children, onClose, footer, cl
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus();
     };
-  }, [open]);
+  }, [open, initialFocus]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
@@ -38,7 +38,7 @@ export function Dialog({ open, title, description, children, onClose, footer, cl
       return;
     }
     if (event.key !== "Tab" || !dialogRef.current) return;
-    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
+    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), summary, [href], [tabindex]:not([tabindex='-1'])")].filter((element) => element.getClientRects().length > 0);
     if (!focusable.length) {
       event.preventDefault();
       dialogRef.current.focus();
@@ -46,7 +46,7 @@ export function Dialog({ open, title, description, children, onClose, footer, cl
     }
     const first = focusable[0];
     const last = focusable.at(-1)!;
-    if (event.shiftKey && document.activeElement === first) {
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
       event.preventDefault();
       last.focus();
     } else if (!event.shiftKey && document.activeElement === last) {

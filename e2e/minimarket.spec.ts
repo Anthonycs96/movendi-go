@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import type { MinimarketData } from "@movendi/contracts";
 
@@ -21,6 +21,17 @@ async function command(api: APIRequestContext, path: string, data: unknown, meth
   return response.json();
 }
 async function workspace(api: APIRequestContext, section: string) { const response = await api.get(`/api/data/tenant?section=${section}`); expect(response.status(), await response.text()).toBe(200); return (await response.json()).data as MinimarketData; }
+async function openCheckout(page: Page) {
+  await page.getByRole("button", { name: "Ir a cobrar", exact: true }).filter({ visible: true }).click();
+  await expect(page.getByRole("dialog", { name: "Revisar y cobrar" })).toBeVisible();
+}
+async function enterCode(page: Page, code: string) {
+  await page.getByRole("button", { name: "Ingresar código", exact: true }).click();
+  await page.getByLabel("Código manual", { exact: true }).fill(code);
+  await page.getByRole("button", { name: "Usar código", exact: true }).click();
+  await expect(page.getByRole("dialog").getByText(/agregado/)).toBeVisible();
+  await page.getByRole("button", { name: /Revisar venta ·/ }).click();
+}
 async function ensureProduct(api: APIRequestContext) {
   if ((await workspace(api, "catalog")).products.length) return;
   const p = await command(api, "minimarket/products", { idempotencyKey: randomUUID(), name: "Producto de prueba", sku: "TEST", presentations: [{ name: "Unidad", factor: 1, priceCents: 500 }] });
@@ -56,6 +67,7 @@ test.beforeAll(async ({ browser }) => {
 test("jornada completa en pantalla: catálogo, compra con lote, caja, cobro, ticket, devolución y cierre", async ({ page }, info) => {
   await login(page.request);
   await page.goto(`/t/${slug}/catalog`);
+  await page.locator("summary").filter({ hasText: /^Nuevo producto$/ }).click();
   const create = page.locator("form").filter({ has: page.getByRole("heading", { name: "Nuevo producto" }) });
   await create.getByLabel("Nombre", { exact: true }).fill("Leche entera"); await create.getByLabel("SKU", { exact: true }).fill("LECHE-01");
   await create.getByLabel("Controlar lotes y vencimientos").check(); await create.getByLabel("Código de barras").fill("7750000000010");
@@ -68,7 +80,7 @@ test("jornada completa en pantalla: catálogo, compra con lote, caja, cobro, tic
   await page.getByLabel(/Cantidad recibida/).fill("10"); await page.getByLabel("Costo por unidad base").fill("3"); await page.getByLabel("Código de lote").fill("LECHE-A"); await page.getByLabel("Vencimiento", { exact: true }).fill("2090-01-01");
   await page.getByRole("button", { name: "Recibir compra" }).click(); await expect(page.getByRole("status")).toContainText("registrada");
   await page.goto(`/t/${slug}/checkout`); await page.getByLabel("Fondo inicial").fill("100"); await page.getByRole("button", { name: "Abrir caja", exact: true }).click(); await expect(page.getByRole("heading", { name: "Arqueo de caja" })).toBeVisible();
-  await page.goto(`/t/${slug}/pos`); await page.getByRole("button", { name: /Leche entera.*Unidad/ }).click(); await page.getByLabel("Cantidad Leche entera · Unidad").fill("2"); await page.getByLabel(/Efectivo recibido/).fill("20");
+  await page.goto(`/t/${slug}/pos`); await page.getByRole("button", { name: /Leche entera.*Unidad/ }).click(); await page.getByLabel("Cantidad Leche entera · Unidad").fill("2"); await openCheckout(page); await page.getByLabel(/Efectivo recibido/).fill("20");
   await page.screenshot({ path: info.outputPath("minimarket-pos-desktop.png"), fullPage: true });
   await page.getByRole("button", { name: "Cobrar venta" }).click(); await expect(page.getByRole("status")).toContainText("registrada"); await expect(page.getByText(/Vuelto: S\/\s*10/)).toBeVisible();
   await page.goto(`/t/${slug}/sales`); await page.getByRole("button", { name: "Ver ticket" }).first().click(); await expect(page.getByText("Ticket de venta", { exact: true })).toBeVisible();
@@ -76,9 +88,19 @@ test("jornada completa en pantalla: catálogo, compra con lote, caja, cobro, tic
   await page.getByRole("button", { name: "Registrar devolución" }).click(); await expect(page.getByRole("status")).toContainText("registrada");
   const stock = await workspace(page.request, "inventory"); expect(stock.products.find((row) => row.id === p.id)?.stock).toBe(9); expect(stock.products.find((row) => row.id === p.id)?.lots[0].stock).toBe(9);
   await page.goto(`/t/${slug}/reports`); await expect(page.getByText("Ventas netas", { exact: true })).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/t/${slug}/pos`); await expect(page.getByRole("heading", { name: "Venta actual" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Cobrar venta" })).toBeDisabled();
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/t/${slug}/pos`); await expect(page.getByRole("heading", { name: "Punto de venta", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Ir a cobrar", exact: true }).filter({ visible: true })).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy(); await page.screenshot({ path: info.outputPath("minimarket-pos-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: /Leche entera.*Unidad/ }).click();
+  await expect(page.getByRole("button", { name: "Ir a cobrar", exact: true }).filter({ visible: true })).toBeInViewport();
+  await openCheckout(page);
+  await expect(page.getByRole("button", { name: "Cobrar venta", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Cobrar venta", exact: true })).toBeInViewport();
+  await page.screenshot({ path: info.outputPath("minimarket-checkout-mobile.png"), fullPage: true });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Ir a cobrar", exact: true }).filter({ visible: true })).toBeFocused();
   await page.setViewportSize({ width: 1280, height: 800 }); await page.goto(`/t/${slug}/checkout`); await page.getByLabel("Efectivo contado").fill("105"); await page.getByRole("button", { name: "Cerrar turno" }).click(); await expect(page.getByRole("heading", { name: "Abrir turno" })).toBeVisible();
 });
 
@@ -139,6 +161,8 @@ test("fiscal en pantalla: configuración, clasificación, comprador y factura en
   if (!cash.cash) await command(page.request, 'minimarket/cash', { idempotencyKey: randomUUID(), openingCents: 0 });
   await page.goto('/t/'+slug+'/pos');
   await page.getByRole('button', { name: new RegExp(item.name) }).first().click();
+  await openCheckout(page);
+  await page.getByText('Cliente y comprobante', { exact: true }).click();
   await page.getByRole('combobox', { name: 'Comprobante', exact: true }).selectOption('FACTURA');
   await page.getByRole('combobox', { name: 'Cliente', exact: true }).selectOption({ label: 'Cliente con RUC · 20123456789' });
   await page.getByRole('button', { name: 'Cobrar venta', exact: true }).click();
@@ -179,11 +203,15 @@ test("fiscal en pantalla: configuración, clasificación, comprador y factura en
   await page.waitForTimeout(800);
   await page.evaluate(() => { (window as unknown as { scannerCode: string }).scannerCode = "7751234567894"; });
   await expect(page.getByLabel("Cantidad Galleta cámara · Pack seis")).toHaveValue("2");
-  await page.getByRole("button", { name: "Detener cámara", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Escanear productos" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ir a cobrar", exact: true }).filter({ visible: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Revisar venta ·/ })).toBeInViewport();
+  await page.evaluate(() => { (window as unknown as { capturedStream: MediaStream }).capturedStream = document.querySelector("video")!.srcObject as MediaStream; });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-  await expect(page.getByRole("button", { name: "Cobrar venta", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: /Revisar venta ·/ })).toBeEnabled();
   await page.screenshot({ path: info.outputPath("mobile-camera-pos.png"), fullPage: true });
-  await page.getByRole("button", { name: "Ir a cobrar", exact: true }).click();
+  await page.getByRole("button", { name: /Revisar venta ·/ }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { capturedStream: MediaStream }).capturedStream.getTracks().every((track) => track.readyState === "ended"))).toBeTruthy();
   await page.getByRole("combobox", { name: "Medio de pago", exact: true }).selectOption("YAPE");
   await page.getByRole("button", { name: "Cobrar venta", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Operación registrada");
@@ -240,26 +268,31 @@ test("operación ampliada: transferencia recibida y proveedor con pago parcial d
   const source = (await workspace(page.request, 'catalog')).products.find((p) => p.id === product.id)!;
   await command(page.request, 'minimarket/transfers', { idempotencyKey: randomUUID(), destinationBranchId: branch.id, lines: [{ presentationId: source.presentations[0].id, quantity: 3 }] });
   await page.goto('/t/' + slug + '/inventory');
+  await page.getByRole('tab', { name: 'Transferencias', exact: true }).click();
   await page.getByRole('button', { name: 'Confirmar despacho', exact: true }).click();
   await expect(page.getByText('Despachada · En tránsito', { exact: false })).toBeVisible();
   expect((await page.request.post('/api/auth/branch', { data: { branchId: branch.id } })).status()).toBe(200);
   await page.reload();
+  await page.getByRole('tab', { name: 'Transferencias', exact: true }).click();
   await page.getByLabel('Cantidad y lote revisados', { exact: true }).check();
   await page.getByRole('button', { name: 'Confirmar recepción completa', exact: true }).click();
   await expect.poll(async () => (await workspace(page.request, 'inventory')).products[0]?.stock).toBe(3);
   await page.request.post('/api/auth/branch', { data: { branchId: primary } });
   await page.goto('/t/' + slug + '/purchases');
+  await page.getByRole('tab', { name: 'Proveedores y deudas', exact: true }).click();
   await page.getByText('Nuevo proveedor', { exact: true }).click();
   await page.getByLabel('Documento del proveedor registrado', { exact: true }).fill('20123456789');
   await page.getByLabel('Razón social / nombre del proveedor', { exact: true }).fill('Proveedor de crédito');
   await page.getByRole('button', { name: 'Guardar proveedor', exact: true }).click();
   await expect.poll(async () => (await workspace(page.request, 'purchases')).suppliers.length).toBe(1);
+  await page.getByRole('tab', { name: 'Recepciones', exact: true }).click();
   await page.getByRole('combobox', { name: 'Proveedor registrado', exact: true }).selectOption({ label: 'Proveedor de crédito · 20123456789' });
   await page.getByLabel('Compra al crédito', { exact: true }).check();
   await page.getByLabel('Vencimiento de la compra al crédito', { exact: true }).fill('2090-01-01');
   await page.getByRole('combobox', { name: 'Producto', exact: true }).selectOption(product.id);
   await page.getByLabel(/Cantidad recibida/).fill('5'); await page.getByLabel('Costo por unidad base', { exact: true }).fill('2');
   await page.getByRole('button', { name: 'Recibir compra', exact: true }).click();
+  await page.getByRole('tab', { name: 'Proveedores y deudas', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Cuentas por pagar', exact: true })).toBeVisible();
   await page.getByLabel('Importe del pago al proveedor', { exact: true }).fill('4');
   await page.getByRole('combobox', { name: 'Medio de pago al proveedor', exact: true }).selectOption('YAPE');
@@ -278,12 +311,12 @@ test("carrito persistente, promoción y recuperación tras perder respuesta sin 
   if (!(await workspace(page.request, 'pos')).cash) await command(page.request, 'minimarket/cash', { idempotencyKey: randomUUID(), registerName: 'Recuperación', openingCents: 0 });
   const before = (await workspace(page.request, 'sales')).totalRows;
   await page.goto('/t/' + slug + '/pos');
-  await page.getByLabel('Código manual', { exact: true }).fill(code); await page.getByRole('button', { name: 'Usar código', exact: true }).click();
+  await enterCode(page, code);
   await expect(page.getByText(/Precio recuperable: −/)).toBeVisible();
-  await page.reload(); await expect(page.getByLabel('Cantidad Producto recuperable · Unidad')).toHaveValue('1');
-  await context.setOffline(true); await expect(page.getByText('SIN CONEXIÓN', { exact: true })).toBeVisible();
+  await page.reload(); await expect(page.getByLabel('Cantidad Producto recuperable · Unidad')).toHaveValue('1'); await openCheckout(page);
+  await context.setOffline(true); await expect(page.getByText('Sin conexión', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cobrar venta', exact: true })).toBeDisabled();
-  await context.setOffline(false); await expect(page.getByText('ONLINE', { exact: true })).toBeVisible();
+  await context.setOffline(false); await expect(page.getByText('Conectado', { exact: true })).toBeVisible();
   await page.route('**/api/operations/minimarket/sales', async (route) => { const response = await route.fetch(); expect(response.status()).toBe(200); await route.abort('failed'); }, { times: 1 });
   await page.getByRole('button', { name: 'Cobrar venta', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Recuperar operación pendiente', exact: true })).toBeEnabled();
@@ -296,7 +329,7 @@ test("carrito persistente, promoción y recuperación tras perder respuesta sin 
   expect((await workspace(page.request, 'sales')).totalRows).toBe(before + 1);
   expect((await workspace(page.request, 'catalog')).products.find((r) => r.id === p.id)?.stock).toBe(9);
   await expect(secondTab.getByLabel('Cantidad Producto recuperable · Unidad')).toHaveCount(0); await secondTab.close();
-  await page.getByLabel('Código manual', { exact: true }).fill(code); await page.getByRole('button', { name: 'Usar código', exact: true }).click();
+  await enterCode(page, code);
   await page.getByRole('button', { name: 'Cobrar venta', exact: true }).click(); await expect(page.getByLabel('Cantidad Producto recuperable · Unidad')).toHaveCount(0);
   expect((await workspace(page.request, 'sales')).totalRows).toBe(before + 2);
   const wrongContext = await page.request.post('/api/operations/minimarket/cash', { headers: { 'X-Retail-Context': 'otro:ambito:actor' }, data: { idempotencyKey: randomUUID(), openingCents: 0 } }); expect(wrongContext.status()).toBe(409);
@@ -306,7 +339,7 @@ test("carrito persistente, promoción y recuperación tras perder respuesta sin 
 test("importación CSV con vista previa confirma producto y stock juntos", async ({ page }) => {
   await login(page.request); const template = await page.request.get('/api/minimarket/import?format=csv'); expect(template.status()).toBe(200);
   const csv = (await template.text()).replace('EJEMPLO-01', 'IMPORT-' + Date.now()).replace('Producto de ejemplo', 'Importado en pantalla');
-  await page.goto('/t/' + slug + '/catalog'); await page.getByText('Importar productos desde Excel o CSV', { exact: true }).click();
+  await page.goto('/t/' + slug + '/catalog'); await page.getByRole('tab', { name: 'Importar', exact: true }).click(); await page.getByText('Importar productos desde Excel o CSV', { exact: true }).click();
   await page.getByLabel('Archivo de productos').setInputFiles({ name: 'productos.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(page.getByRole('heading', { name: 'Vista previa: 1 filas válidas' })).toBeVisible();
   await page.getByRole('button', { name: 'Confirmar importación completa', exact: true }).click();

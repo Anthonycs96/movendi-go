@@ -8,3 +8,9 @@
 .scanner button, .scanner input, .scanner select { min-height: 44px; }
 .message { margin: 0; padding: 10px; border-radius: 8px; background: #eff8f5; color: #175446; overflow-wrap: anywhere; }
 .error { color: #922f26; background: #fff0ef; }
+.compact .preview { aspect-ratio: 16 / 10; max-height: min(260px, 32dvh); border-radius: 16px; }
+.compact .guide { border-color: #d9eaff; border-width: 2px; }
+.compact .manual { padding-top: 10px; border-top: 1px solid #e1e7ef; }
+.compact .controls { gap: 10px; }
+.compact .controls label { font-size: 12px; }
+.compact .controls > label:has(select) { flex: 1; min-width: 130px; }

@@ -8,8 +8,8 @@ type NativeDetector = { detect: (video: HTMLVideoElement) => Promise<Array<{ raw
 type NativeConstructor = { new(options: { formats: string[] }): NativeDetector; getSupportedFormats: () => Promise<string[]> };
 type TorchConstraints = MediaTrackConstraintSet & { torch: boolean };
 
-export function BarcodeScanner({ onScan, cooldownMs = 1200, disabled = false, label = "Escanear con cámara" }: { onScan: (code: string) => Promise<string | void> | string | void; cooldownMs?: number; disabled?: boolean; label?: string }) {
-  const [active, setActive] = useState(false), [camera, setCamera] = useState("");
+export function BarcodeScanner({ onScan, cooldownMs = 1200, disabled = false, label = "Escanear con cámara", autoStart = false, compact = false }: { onScan: (code: string) => Promise<string | void> | string | void; cooldownMs?: number; disabled?: boolean; label?: string; autoStart?: boolean; compact?: boolean }) {
+  const [active, setActive] = useState(autoStart), [camera, setCamera] = useState("");
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]), [torch, setTorch] = useState(false), [canTorch, setCanTorch] = useState(false);
   const [error, setError] = useState(""), [message, setMessage] = useState(""), [code, setCode] = useState("");
   const [sound, setSound] = useState(false), [vibrate, setVibrate] = useState(false), [busy, setBusy] = useState(false);
@@ -88,7 +88,7 @@ export function BarcodeScanner({ onScan, cooldownMs = 1200, disabled = false, la
     return () => { release(); document.removeEventListener("visibilitychange", hide); };
   }, [active, camera, cooldownMs, disabled]);
 
-  return <div className={styles.scanner}>
+  return <div className={`${styles.scanner} ${compact ? styles.compact : ""}`}>
     <div className={styles.controls}><button type="button" disabled={disabled} onClick={() => { setError(""); setActive(!active); }}>{active ? "Detener cámara" : label}</button>
       {active && cameras.length > 1 ? <label>Cámara<select value={camera} onChange={(event) => setCamera(event.target.value)}><option value="">Trasera automática</option>{cameras.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Cámara ${index + 1}`}</option>)}</select></label> : null}
       {active && canTorch ? <button type="button" onClick={async () => { try { await stream.current?.getVideoTracks()[0]?.applyConstraints({ advanced: [{ torch: !torch } as TorchConstraints] }); setTorch(!torch); } catch { setError("Este dispositivo no permite activar la linterna."); } }}>{torch ? "Apagar linterna" : "Linterna"}</button> : null}

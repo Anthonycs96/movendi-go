@@ -52,3 +52,134 @@
 }
 @media (max-width: 1000px) { .split { grid-template-columns: 1fr; } }
 @media print { :global(body) * { visibility: hidden; } .receipt, .receipt * { visibility: visible; } .receipt { position: absolute; top: 0; left: 0; width: 80mm; border: 0; font-size: 11px; } }
+
+/* Use the same calm surfaces and blue actions as the shared restaurant shell. */
+.workspace { color: var(--text, #18283b); gap: 22px; --retail-blue: var(--primary, #1769d3); }
+.workspace h2, .workspace h3 { letter-spacing: -.025em; }
+.workspace button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-color: var(--border, #dfe6ee); border-radius: 12px; min-height: 44px; font-size: 13px; font-weight: 650; color: var(--text, #25364b); background: var(--surface-solid, #fff); transition: border-color .15s, background .15s; }
+.workspace button:hover:not(:disabled) { border-color: #86afe8; background: #f4f8ff; }
+.workspace .primary, .workspace .scanButton { background: var(--retail-blue); color: white; border-color: transparent; }
+.workspace .primary:hover:not(:disabled), .workspace .scanButton:hover:not(:disabled) { background: #1458b0; color: white; }
+.workspace input, .workspace select { border-radius: 10px; border-color: var(--border, #dfe6ee); background: var(--surface-solid, #fff); color: var(--text, #25364b); padding: 11px 12px; min-height: 44px; }
+.workspace a { color: var(--retail-blue); }
+.workspace p { line-height: 1.6; }
+.muted { color: var(--text-soft, #65758a); font-size: 13px; }
+.panel { background: var(--surface-solid, #fff); border-color: var(--border, #e1e7ef); box-shadow: 0 3px 14px #22355704; gap: 18px; }
+.panel > p { margin: 0; }
+.panel > h2 { font-size: 17px; }
+.panel > .primary { width: 100%; }
+.workspace label:has(> input[type=checkbox]) { display: flex; align-items: center; gap: 10px; }
+.workspace input[type=checkbox] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; accent-color: var(--retail-blue); }
+.workspace [role=tabpanel] > :not(:last-child) { margin-bottom: 20px; }
+.tabs { display: flex; gap: 5px; padding: 5px; border-radius: 14px; background: var(--surface-soft, #edf1f6); width: fit-content; max-width: 100%; overflow-x: auto; }
+.tabs button { border: 0; background: transparent; color: var(--text-soft, #65758a); white-space: nowrap; min-height: 42px; padding: 10px 18px; }
+.tabs button[aria-selected=true] { background: var(--surface-solid, #fff); color: var(--retail-blue); box-shadow: 0 2px 6px #18283b0d; }
+.disclosure { padding: 16px; border: 1px solid var(--border, #e1e7ef); border-radius: 14px; background: var(--surface-solid, #fff); }
+.disclosure > summary { cursor: pointer; font-size: 14px; font-weight: 650; color: var(--text, #25364b); min-height: 24px; }
+.disclosure[open] > summary { margin-bottom: 16px; }
+.disclosure > .panel { border: 0; box-shadow: none; padding: 0; }
+.disclosure .paymentGrid { margin-bottom: 12px; }
+.connection { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12px; padding: 0 2px; }
+.connectionBadge { display: inline-flex; align-items: center; gap: 7px; color: #287450; font-weight: 600; }
+.connectionBadge i { width: 7px; height: 7px; border-radius: 50%; background: #23a66c; }
+.connectionWarning { color: #9a5b09; }
+.connectionWarning i { background: #d79830; }
+.appOptions { position: relative; color: var(--text-soft, #65758a); }
+.appOptions > summary { cursor: pointer; padding: 8px 0; min-height: 32px; }
+.appOptions > div { position: absolute; right: 0; top: 100%; width: min(300px, 85vw); z-index: 45; padding: 18px; border: 1px solid var(--border, #e1e7ef); border-radius: 14px; background: var(--surface-solid, #fff); box-shadow: 0 12px 32px #22355722; }
+.connectionAlert { flex-basis: 100%; background: #fff8e9; color: #7c5011; padding: 14px; border-radius: 12px; margin: 0; }
+.searchToolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; width: 100%; }
+.searchBox { display: flex; align-items: center; gap: 10px; background: var(--surface-solid, #fff); border: 1px solid var(--border, #dfe6ee); border-radius: 14px; padding: 6px 6px 6px 14px; flex: 1; min-width: 0; }
+.searchBox > svg { color: #8493a5; flex-shrink: 0; }
+.searchBox input { border: 0; min-width: 0; flex: 1; padding: 8px 0; background: transparent; outline-offset: 1px; }
+.searchBox button { background: #eff5ff; color: #1762ba; border: 0; min-height: 40px; padding: 8px 12px; }
+.pagination { display: flex; gap: 10px; align-items: center; color: var(--text-soft, #65758a); font-size: 12px; }
+.pagination button { padding: 8px; }
+.posLayout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 350px); gap: 24px; align-items: start; }
+.productArea { display: grid; gap: 22px; min-width: 0; }
+.posTools { display: grid; gap: 12px; }
+.scanActions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.scanActions button { padding: 11px 16px; }
+.sectionTitle { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sectionTitle h2 { font-size: 17px; margin: 0; display: flex; gap: 8px; align-items: center; }
+.sectionTitle > span { font-size: 12px; color: var(--text-soft, #65758a); }
+.productGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 14px; }
+.workspace .productCard { display: flex; flex-direction: column; align-items: stretch; text-align: left; padding: 16px; gap: 8px; border-radius: 18px; min-width: 0; font-weight: 400; box-shadow: 0 3px 12px #22355704; }
+.productCard > strong { font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.productCard > span { font-size: 12px; color: var(--text-soft, #65758a); }
+.productCard small { color: var(--text-soft, #65758a); font-size: 11px; line-height: 1.45; }
+.productTop { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.productTop > small { text-align: right; }
+.productIcon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 13px; background: #eef4fc; color: #4b7fbd; flex-shrink: 0; }
+.productBottom { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 10px; gap: 8px; }
+.productBottom b { font-size: 18px; letter-spacing: -.04em; }
+.addBadge { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; color: #1762ba; background: #eaf2fe; font-weight: 750; }
+.workspace .productSelected { border-color: #72a5e8; background: color-mix(in srgb, #1769d3 5%, var(--surface-solid, white)); }
+.productSelected .addBadge { color: white; background: #1769d3; }
+.desktopCart { display: grid; gap: 20px; padding: 22px; background: var(--surface-solid, #fff); border: 1px solid var(--border, #e1e7ef); border-radius: 20px; position: sticky; top: 24px; }
+.desktopCart > p { margin: 0; font-size: 12px; text-align: center; }
+.desktopCart .total { font-size: 20px; border-top: 1px dashed var(--border, #e1e7ef); }
+.cartLines { display: grid; gap: 16px; }
+.cartLine { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid var(--border, #e1e7ef); }
+.cartLine > div:first-child { display: grid; gap: 5px; }
+.cartLine strong { font-size: 13px; line-height: 1.5; }
+.cartLine small { color: var(--text-soft, #65758a); font-size: 11px; }
+.quantity { display: flex; width: fit-content; align-items: center; border: 1px solid var(--border, #e1e7ef); border-radius: 10px; }
+.quantity button { padding: 6px; min-height: 38px; width: 34px; border: 0; background: transparent; }
+.quantity input { border: 0; padding: 5px 0; width: 66px; min-height: 38px; text-align: center; border-radius: 0; -moz-appearance: textfield; }
+.quantity input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.workspace .remove { justify-self: end; border: 0; color: #bb4f4f; background: transparent; padding: 8px; }
+.emptyState { display: grid; justify-items: center; text-align: center; padding: 38px 18px; gap: 12px; color: var(--text-soft, #65758a); border: 1px dashed var(--border, #e1e7ef); border-radius: 18px; }
+.emptyState > svg { color: #8ca6c5; }
+.emptyState h3 { font-size: 15px; color: var(--text, #25364b); margin: 0; }
+.emptyState p { margin: 0; font-size: 13px; max-width: 340px; }
+.desktopCart .emptyState { border: 0; padding: 32px 0; }
+.retailDialog { width: min(640px, 100%); }
+.retailDialog :global(.dialog__content) { padding: 20px; }
+.retailDialog .panel { padding: 0; border: 0; box-shadow: none; }
+.retailDialog .workspace { padding-bottom: 0; }
+.retailDialog :global(.dialog__content) > .workspace { color: var(--text, #25364b); }
+.checkoutTotal { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px; background: #eff5ff; color: #174f99; border-radius: 14px; }
+.checkoutTotal strong { font-size: 28px; letter-spacing: -.04em; }
+.paymentGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.workspace .discount { color: #217650; font-size: 13px; margin: 0; }
+.scannedSummary { display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: 12px; background: #eff5ff; color: #175bb3; }
+.scannedSummary strong { margin-left: auto; }
+.dialogAction { min-height: 46px; padding: 12px 18px; background: #1769d3; color: white; font-weight: 650; border: 0; border-radius: 12px; display: flex; gap: 12px; align-items: center; justify-content: center; cursor: pointer; width: 100%; }
+.saleSuccess { display: flex; align-items: flex-start; gap: 12px; padding: 18px; border: 1px solid #c7ead9; background: #f0fbf5; border-radius: 16px; color: #216446; }
+.saleSuccess p { margin: 5px 0; }
+.quickActions { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.quickActions a { display: flex; align-items: center; justify-content: space-between; gap: 14px; background: var(--surface-solid, white); border: 1px solid var(--border, #e1e7ef); padding: 20px; border-radius: 16px; text-decoration: none; font-weight: 650; }
+@media (max-width: 1100px) { .posLayout { grid-template-columns: minmax(0, 1fr) 285px; gap: 16px; } .desktopCart { padding: 16px; } }
+@media (max-width: 760px) {
+  .posLayout { display: block; }
+  .desktopCart { display: none; }
+  .workspace { gap: 18px; padding-bottom: 110px; }
+  .productGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .workspace .productCard { padding: 13px; border-radius: 15px; }
+  .productTop { margin-bottom: 2px; }
+  .productCard > strong { font-size: 14px; }
+  .productBottom b { font-size: 17px; }
+  .sectionTitle { flex-wrap: wrap; gap: 5px; }
+  .scanActions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .scanActions button { padding: 11px 8px; font-size: 12px; }
+  .scanActions button svg { flex-shrink: 0; }
+  .connection { font-size: 11px; }
+  .tabs { width: 100%; }
+  .tabs button { flex: 1; padding: 10px 13px; font-size: 12px; }
+  .mobileCheckout { display: flex; position: fixed; bottom: calc(86px + env(safe-area-inset-bottom)); left: 14px; right: 14px; z-index: 39; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #d8e4f5; border-radius: 18px; padding: 12px 14px; box-shadow: 0 8px 32px #21375424; background: var(--surface-solid, #fff); }
+  .mobileCheckout > div { display: grid; gap: 3px; }
+  .mobileCheckout small { color: var(--text-soft, #65758a); font-size: 11px; }
+  .mobileCheckout strong { font-size: 23px; letter-spacing: -.04em; }
+  .mobileCheckout button { color: white; background: #1769d3; border: 0; min-height: 46px; padding: 10px 15px; }
+  .retailDialog :global(.dialog__content) { padding: 16px; }
+  .retailDialog .workspace { padding-bottom: 0; }
+  .paymentGrid { grid-template-columns: 1fr; }
+}
+
+.cashPicker { font-size: 12px; color: var(--text-soft, #65758a); }
+.cashPicker > summary { cursor: pointer; padding: 8px 0; }
+.cashPicker > label { margin-top: 10px; max-width: 420px; }
+.mobileCheckout[hidden] { display: none; }
+:global(.dark) .workspace .primary, :global(.dark) .workspace .scanButton { color: #1b1608; }
+:global(.dark) .workspace .primary:hover:not(:disabled), :global(.dark) .workspace .scanButton:hover:not(:disabled) { color: white; }
