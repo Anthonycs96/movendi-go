@@ -8,7 +8,7 @@ export const minimarketManifest: BusinessModuleManifest = {
     { id: "mm-stock", label: "Inventario", description: "Stock, lotes y conteos", path: "inventory", icon: "inventory", group: "commerce", permission: "inventory:read" },
     { id: "mm-purchases", label: "Compras", description: "Recepciones de proveedores", path: "purchases", icon: "orders", group: "commerce", permission: "inventory:read" },
     { id: "mm-sales", label: "Ventas", description: "Tickets y devoluciones", path: "sales", icon: "reports", group: "commerce", permission: "minimarket:sales:read" },
-    { id: "mm-cash", label: "Caja", description: "Turnos, movimientos y cierre", path: "checkout", icon: "cash", group: "commerce", permission: "minimarket:cash:write" },
+    { id: "mm-cash", label: "Caja", description: "Turnos, movimientos y cierre", path: "checkout", icon: "cash", group: "commerce", permission: "minimarket:cash:read" },
     { id: "mm-clients", label: "Clientes", description: "Directorio del negocio", path: "clients", icon: "customers", group: "operations", permission: "customers:read" },
     { id: "mm-reports", label: "Reportes", description: "Ventas netas y alertas", path: "reports", icon: "reports", group: "commerce", permission: "minimarket:reports:read" },
     { id: "mm-settings", label: "Configuración", description: "Empresa, equipo y permisos", path: "settings", icon: "settings", group: "system", permission: "settings:write" },

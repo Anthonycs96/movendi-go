@@ -271,7 +271,7 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function prepareSafeWorkbookBuffer(buffer: Buffer) {
+export async function prepareSafeWorkbookBuffer(buffer: Buffer) {
   const archive = await JSZip.loadAsync(buffer, { checkCRC32: false });
   let entries = 0;
   let uncompressed = 0;

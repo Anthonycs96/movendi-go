@@ -81,7 +81,7 @@ export type SetupStepInput = z.infer<typeof setupStepSchema>;
 const defaultPermissions: Record<string, string[]> = {
   RETAIL_MANAGER: ["*"],
   RETAIL_CASHIER: ["minimarket:sales:read", "minimarket:sales:write", "minimarket:cash:write", "customers:read"],
-  RETAIL_STOCK: ["minimarket:catalog:read", "minimarket:catalog:write", "inventory:read", "inventory:write"],
+  RETAIL_STOCK: ["minimarket:transfers:write", "minimarket:catalog:read", "minimarket:catalog:write", "inventory:read", "inventory:write"],
   WAITER: ["dashboard:read", "restaurant:floor:read", "restaurant:floor:write", "restaurant:orders:read", "restaurant:orders:write", "restaurant:menu:read", "restaurant:promotions:read", "customers:read"],
   KITCHEN: ["dashboard:read", "restaurant:kitchen:read", "restaurant:kitchen:write", "restaurant:orders:read"],
   CASHIER: ["dashboard:read", "restaurant:orders:read", "restaurant:cash:write", "customers:read"],

@@ -5,10 +5,15 @@ export class PrismaCashRepository implements CashRepository {
   private readonly scope: { tenantId: string; branchId: string };
   constructor(private readonly tx: Prisma.TransactionClient, private readonly actor: CashScope) { this.scope = { tenantId: actor.tenantId, branchId: actor.branchId }; }
   findSession(id: string) { return this.tx.cashSession.findFirst({ where: { id, ...this.scope } }); }
-  findOpenSession() { return this.tx.cashSession.findFirst({ where: { ...this.scope, status: "OPEN" }, orderBy: { openedAt: "desc" } }); }
+  async findOpenSession(registerSlot?: string) {
+    if (!registerSlot) return this.tx.cashSession.findFirst({ where: { ...this.scope, status: "OPEN" }, orderBy: { openedAt: "desc" } });
+    const sessions = await this.tx.cashSession.findMany({ where: { ...this.scope, status: "OPEN" } });
+    // Old shifts used the shared OPEN slot. Preserve their identity until closure.
+    return sessions.find((session) => session.activeSlot === registerSlot || `REGISTER:${session.registerName.normalize("NFKC").trim().toLocaleLowerCase("es-PE")}` === registerSlot) ?? null;
+  }
   async createSession(input: OpenCashInput) {
     if (!await this.tx.branch.findFirst({ where: { id: this.scope.branchId, tenantId: this.scope.tenantId }, select: { id: true } })) throw new CashError("NOT_FOUND", "La sucursal no pertenece a esta empresa.");
-    try { return await this.tx.cashSession.create({ data: { ...this.scope, id: input.requestId, openedById: this.actor.actorId, openingCents: input.openingCents, expectedCents: input.openingCents, registerName: input.registerName, openingNote: input.notes || null, activeSlot: "OPEN" } }); }
+    try { return await this.tx.cashSession.create({ data: { ...this.scope, id: input.requestId, openedById: this.actor.actorId, openingCents: input.openingCents, expectedCents: input.openingCents, registerName: input.registerName, openingNote: input.notes || null, activeSlot: input.registerSlot ?? "OPEN" } }); }
     catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new CashConcurrencyError("Otra apertura ocupó la caja durante la operación.");
       throw error;

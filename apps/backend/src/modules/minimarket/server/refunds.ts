@@ -1,3 +1,4 @@
+import { assertRetailCash } from "./cash-access";
 import { queueRefundDocument } from "@/modules/invoicing/server/outbox";
 import type { RefundFiscalLine } from "@/modules/invoicing/domain/partial-credit";
 import { validateSalePayments } from "@/modules/sales/server/service";
@@ -14,6 +15,7 @@ import type { refundSchema } from "./schemas";
 
 export function refundRetail(scope: TenantScope, saleId: string, input: z.infer<typeof refundSchema>) {
   return retailOperation(scope, "REFUND", { ...input, saleId }, async (tx, operationId) => {
+    await assertRetailCash(tx, scope, input.cashSessionId);
     if (new Set(input.lines.map((line) => line.lineId)).size !== input.lines.length) throw new AppError("DUPLICATE_LINES", 400, "Hay líneas repetidas.");
     const sale = await tx.sale.findFirst({ where: { id: saleId, ...scoped(scope), retailSaleId: { not: null } }, include: { payments: true, retailSale: { include: { lines: true } } } });
     if (!sale?.retailSale) throw new AppError("NOT_FOUND", 404, "Venta no encontrada en esta sucursal.");

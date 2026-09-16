@@ -10,7 +10,7 @@ export async function openCashUseCase(repository: CashRepository, input: OpenCas
       return { session, replayed: true };
     }
   }
-  if (await repository.findOpenSession()) throw new CashError("CASH_ALREADY_OPEN", "Ya existe una caja abierta en esta sede.");
+  if (await repository.findOpenSession(input.registerSlot)) throw new CashError("CASH_ALREADY_OPEN", "Esta caja ya tiene un turno abierto en la sede.");
   return { session: await repository.createSession(input), replayed: false };
 }
 

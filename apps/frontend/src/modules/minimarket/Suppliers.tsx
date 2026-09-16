@@ -1,0 +1,24 @@
+"use client";
+import { useState } from "react";
+import type { MinimarketData } from "@movendi/contracts";
+import { localizeCode } from "@/shared/lib/localization";
+import { Form, Input, n, s, money } from "./ui";
+import type { RetailOperation } from "./use-operation";
+import styles from "./MinimarketWorkspace.module.css";
+
+export function Suppliers({ data, op, canWrite, canPay }: { data: MinimarketData; op: RetailOperation; canWrite: boolean; canPay: boolean }) {
+  const [selected, setSelected] = useState("");
+  const supplier = data.suppliers.find((p) => p.id === selected);
+  return <>
+    <section className={styles.panel}><h2>Proveedores</h2><p>Directorio de esta sucursal · hasta 200 registros.</p>{data.suppliers.map((row) => <article className={styles.panel} key={row.id}><strong>{row.name}{!row.active ? " · Inactivo" : ""}</strong><span>{row.documentType} {row.documentNumber} · {row.phone} · {row.email}</span><span>{row.address} · {row.contact}</span>{canWrite ? <button onClick={() => setSelected(row.id)}>Editar proveedor</button> : null}<details><summary>Últimas 10 compras</summary>{row.purchases.map((p) => <p key={p.code}>{p.code} · {new Date(p.createdAt).toLocaleDateString("es-PE")}</p>)}</details></article>)}</section>
+    {canWrite ? <details className={styles.panel} open={Boolean(selected)}><summary>{supplier ? "Editar proveedor seleccionado" : "Nuevo proveedor"}</summary><Form key={supplier?.id ?? "new"} busy={op.busy} label="Guardar proveedor" submit={async (f) => { const result = await op.run(supplier ? `suppliers/${supplier.id}` : "suppliers", { documentType: s(f, "type"), documentNumber: s(f, "document"), name: s(f, "name"), phone: s(f, "phone"), email: s(f, "email"), address: s(f, "address"), contact: s(f, "contact"), active: f.has("active") }, supplier ? "PATCH" : "POST"); if (result) setSelected(""); }}>
+      <label>Tipo de documento<select name="type" defaultValue={supplier?.documentType ?? "RUC"}><option>RUC</option><option>DNI</option><option value="OTHER">Otro</option></select></label><Input name="document" label="Documento del proveedor registrado" value={supplier?.documentNumber} /><Input name="name" label="Razón social / nombre del proveedor" value={supplier?.name} /><Input name="phone" label="Teléfono del proveedor" value={supplier?.phone ?? ""} required={false} /><Input name="email" label="Correo del proveedor" type="email" value={supplier?.email ?? ""} required={false} /><Input name="address" label="Dirección del proveedor" value={supplier?.address ?? ""} required={false} /><Input name="contact" label="Persona de contacto" value={supplier?.contact ?? ""} required={false} /><label><input type="checkbox" name="active" defaultChecked={supplier?.active ?? true} />Proveedor activo</label>{supplier ? <button type="button" onClick={() => setSelected("")}>Crear otro proveedor</button> : null}
+    </Form></details> : null}
+    {data.payables.length ? <section className={styles.panel}><h2>Cuentas por pagar</h2><p>Hasta 100 cuentas, ordenadas por vencimiento. Los pagos quedan en la moneda de la compra.</p>{data.payables.map((debt) => {
+      const fmt = money(debt), balance = debt.totalCents - debt.paidCents;
+      return <article className={styles.panel} key={debt.id}><h3>{debt.supplierName} · {debt.purchaseCode}</h3><p>{({ PAID: "Pagada", PARTIAL: "Parcial", OVERDUE: "Vencida", PENDING: "Pendiente" } as Record<string, string>)[debt.status]} · Vence {debt.dueOn}</p><p>Total {fmt(debt.totalCents)} · Pagado {fmt(debt.paidCents)} · Saldo <strong>{fmt(balance)}</strong></p><details><summary>Historial de pagos</summary>{debt.payments.map((payment) => <p key={payment.id}>{new Date(payment.createdAt).toLocaleString("es-PE")} · {fmt(payment.amountCents)} · {localizeCode(payment.method)} · {payment.reference}</p>)}</details>
+        {canPay && balance > 0 ? <Form busy={op.busy} label="Registrar pago al proveedor" submit={(f) => op.run(`payables/${debt.id}/payments`, { amountCents: Math.round(n(f, "amount") * 100), method: s(f, "method"), reference: s(f, "reference"), cashSessionId: data.cash?.id })}><Input name="amount" label="Importe del pago al proveedor" type="number" min="0.01" max={String(balance / 100)} step="0.01" /><label>Medio de pago al proveedor<select name="method" defaultValue="TRANSFER">{data.paymentMethods.map((method) => <option key={method} value={method} disabled={method === "CASH" && (!data.cash || data.currency !== debt.currency)}>{localizeCode(method)}</option>)}</select></label><Input name="reference" label="Referencia del pago al proveedor" required={false} /><p>El efectivo se retira de la caja seleccionada. Otros medios se registran con su referencia.</p></Form> : null}
+      </article>;
+    })}</section> : null}
+  </>;
+}

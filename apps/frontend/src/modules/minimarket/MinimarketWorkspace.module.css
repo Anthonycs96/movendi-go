@@ -31,5 +31,24 @@
 .metric { font-size: 26px; display: block; margin-top: 8px; }
 .receipt { border: 1px dashed #a8b9bd; padding: 20px; max-width: 480px; background: #fff; }
 .receipt h2 { margin: 0 0 8px; }
+.mobileCheckout { display: none; }
+.workspace section { min-width: 0; }
+.workspace input, .workspace select { font-size: 16px; }
+.workspace a { color: #08685e; text-underline-offset: 3px; }
+@media (max-width: 600px) {
+  .workspace { padding-bottom: 92px; gap: 14px; }
+  .panel { padding: 14px; }
+  .workspace button, .workspace input, .workspace select { min-height: 44px; }
+  .line { flex-wrap: wrap; overflow-wrap: anywhere; }
+  .line > span, .line > div { min-width: 0; flex: 1; }
+  .grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .mobileCheckout { display: flex; position: fixed; bottom: calc(76px + env(safe-area-inset-bottom)); left: 10px; right: 10px; z-index: 39; align-items: center; justify-content: space-between; padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); background: #fff; box-shadow: 0 -4px 18px #143f4426; }
+  .mobileCheckout strong { font-size: 21px; }
+  .mobileCheckout button { background: #08685e; color: white; }
+  .table table, .table tbody, .table tr, .table td { display: block; }
+  .table thead { display: none; }
+  .table tr { padding: 12px; border: 1px solid #dce4e7; border-radius: 10px; margin-bottom: 10px; }
+  .table td { border: 0; padding: 5px 0; white-space: normal; overflow-wrap: anywhere; }
+}
 @media (max-width: 1000px) { .split { grid-template-columns: 1fr; } }
 @media print { :global(body) * { visibility: hidden; } .receipt, .receipt * { visibility: visible; } .receipt { position: absolute; top: 0; left: 0; width: 80mm; border: 0; font-size: 11px; } }

@@ -40,6 +40,6 @@ export default async function TenantSectionPage({ params, searchParams }: Tenant
   if (industry === "restaurant") {
     return <PageContainer><RestaurantWorkspace key={`${session.tenantId}:${session.branchId}`} section={section} data={workspace.data} core={workspace.core} permissions={session.permissions} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;
   }
-  if (industry === "minimarket") return <PageContainer><MinimarketWorkspace key={`${session.tenantId}:${session.branchId}`} section={section} data={workspace.data} core={workspace.core} permissions={session.permissions} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;
+  if (industry === "minimarket") return <PageContainer><MinimarketWorkspace key={`${session.tenantId}:${session.branchId}:${session.userId}`} section={section} data={workspace.data} core={workspace.core} permissions={session.permissions} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;
   return <PageContainer><TransportWorkspace section={section} data={workspace.data} core={workspace.core} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;
 }

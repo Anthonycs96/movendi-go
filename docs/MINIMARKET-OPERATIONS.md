@@ -1,5 +1,7 @@
 # Minimarket: módulo operativo
 
+> Actualización móvil de septiembre de 2026: consultar [MINIMARKET-MOBILE-PLAN.md](MINIMARKET-MOBILE-PLAN.md) para fases, pruebas, límites y recuperación.
+
 ## Alcance
 
 La etapa 5 deja de ser un piloto de checkout. Minimarket se incorpora como cuarto rubro del SaaS, con alta de empresa, asistente, roles, navegación y diez secciones operativas. Comparte las capacidades de Inventario, Ventas/Pagos y Caja ya extraídas.
@@ -10,17 +12,17 @@ La etapa 5 deja de ser un piloto de checkout. Minimarket se incorpora como cuart
 | Presentaciones | Unidad, paquete/caja mediante factor, código de barras por sucursal y venta fraccionada por peso/volumen |
 | Inventario | Stock normalizado a seis decimales, Kardex, conteo protegido contra cambios y auditoría |
 | Lotes | Recepción con código y vencimiento, consumo FEFO, rechazo de vencidos, conteo por lote |
-| Compras | Proveedor y documento en cada recepción, cantidades en unidad base y costo promedio ponderado; API hasta 100 productos, formulario de una recepción/producto por vez |
+| Compras | Proveedor y documento en cada recepción, cantidades en unidad base y costo promedio ponderado; hasta 100 productos por recepción, captura con cámara, proveedores y compras a crédito |
 | Punto de venta | Búsqueda por nombre/SKU/barcode, carrito, consumidor final o cliente, pagos divididos, referencias, efectivo y vuelto |
 | Ventas | Origen minorista propio, snapshot histórico, consulta paginada y ticket imprimible desde el navegador |
 | Devoluciones | Parciales por línea, redondeo acumulado, uno o varios métodos originales, límite contra lo cobrado y reposición opcional en el lote de origen |
-| Caja | Un turno abierto por sucursal, fondo, ingresos/retiros, saldo solo de efectivo, arqueo y aprobación de diferencias |
+| Caja | Cajas nombradas independientes por sucursal, turno por cajero, fondo, ingresos/retiros, saldo solo de efectivo, arqueo y aprobación de diferencias |
 | Clientes | Directorio compartido por empresa y alta desde Minimarket |
 | Reportes | Ventas brutas/netas, devoluciones, operaciones, alertas de stock/vencimientos y CSV de la página consultada |
 | Administración | Roles de administración/caja/almacén, permisos editables y separación de sucursales |
 | Sitio público | Catálogo de hasta 100 presentaciones activas de la primera sede, sujeto al plan y publicación existentes |
 
-La lectura de códigos usa un lector que escribe como teclado o el ingreso manual. El peso se introduce manualmente; no se ha integrado una balanza física.
+La lectura de códigos usa cámara (BarcodeDetector/ZXing), lector que escribe como teclado o ingreso manual. El peso se introduce manualmente; no se ha integrado una balanza física.
 
 ## Arquitectura y patrones
 

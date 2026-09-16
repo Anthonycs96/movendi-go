@@ -8,6 +8,9 @@ datasource db {
 }
 
 model Tenant {
+  inventorySuppliers InventorySupplier[]
+  inventoryPayables InventoryPayable[]
+  retailTransfers RetailTransfer[]
   fiscalConfigurations FiscalConfiguration[]
   fiscalJobs FiscalJob[]
   retailProducts RetailProduct[]
@@ -425,6 +428,10 @@ model EmailOutbox {
 }
 
 model Branch {
+  inventorySuppliers InventorySupplier[]
+  inventoryPayables InventoryPayable[]
+  retailTransfersOut RetailTransfer[] @relation("RetailTransferSource")
+  retailTransfersIn RetailTransfer[] @relation("RetailTransferDestination")
   fiscalConfiguration FiscalConfiguration?
   fiscalJobs FiscalJob[]
   retailProducts RetailProduct[]
@@ -983,6 +990,12 @@ model RestaurantPrintJob {
 }
 
 model Promotion {
+  retailProductId String?
+  retailPresentationId String?
+  priority Int @default(0)
+  minQuantity Float @default(1)
+  retailProduct RetailProduct? @relation(fields: [retailProductId], references: [id])
+  retailPresentation RetailPresentation? @relation(fields: [retailPresentationId], references: [id])
   id               String    @id @default(cuid())
   tenantId         String
   branchId         String
@@ -2329,6 +2342,9 @@ model InventoryMovement {
 }
 
 model InventoryPurchase {
+  supplierId String?
+  supplier InventorySupplier? @relation(fields: [supplierId], references: [id])
+  payable InventoryPayable?
   id             String   @id @default(cuid())
   tenantId       String
   branchId       String
@@ -2622,6 +2638,8 @@ model RestaurantSupportTicket {
 
 // Retail quantities use the same six-decimal normalization as Inventory.
 model RetailProduct {
+  promotions Promotion[]
+  expiryAlertDays Int @default(30)
   taxCategory String @default("UNCLASSIFIED")
   id String @id @default(cuid())
   tenantId String
@@ -2636,7 +2654,81 @@ model RetailProduct {
   lots RetailLot[]
   @@index([tenantId, branchId])
 }
+
+model InventorySupplier {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  documentType String
+  documentNumber String
+  name String
+  phone String?
+  email String?
+  address String?
+  contact String?
+  active Boolean @default(true)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id])
+  purchases InventoryPurchase[]
+  payables InventoryPayable[]
+  @@unique([tenantId, branchId, documentType, documentNumber])
+}
+
+model InventoryPayable {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  supplierId String
+  purchaseId String @unique
+  currency String
+  totalCents Int
+  paidCents Int @default(0)
+  dueOn String
+  createdAt DateTime @default(now())
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id])
+  supplier InventorySupplier @relation(fields: [supplierId], references: [id])
+  purchase InventoryPurchase @relation(fields: [purchaseId], references: [id])
+  payments InventorySupplierPayment[]
+  @@index([tenantId, branchId, dueOn])
+}
+
+model InventorySupplierPayment {
+  id String @id @default(cuid())
+  payableId String
+  actorId String
+  amountCents Int
+  method String
+  reference String?
+  createdAt DateTime @default(now())
+  payable InventoryPayable @relation(fields: [payableId], references: [id])
+  @@index([payableId, createdAt])
+}
+// Frozen presentation, quantity, cost and lot allocations provide transit traceability.
+model RetailTransfer {
+  id String @id @default(cuid())
+  tenantId String
+  sourceBranchId String
+  destinationBranchId String
+  createdById String
+  dispatchedById String?
+  receivedById String?
+  status String @default("DRAFT")
+  lines String
+  notes String?
+  createdAt DateTime @default(now())
+  dispatchedAt DateTime?
+  receivedAt DateTime?
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  source Branch @relation("RetailTransferSource", fields: [sourceBranchId], references: [id])
+  destination Branch @relation("RetailTransferDestination", fields: [destinationBranchId], references: [id])
+  @@index([tenantId, sourceBranchId, status])
+  @@index([tenantId, destinationBranchId, status])
+}
 model RetailPresentation {
+  promotions Promotion[]
+  sku String?
+  @@unique([tenantId, branchId, sku])
   id String @id @default(cuid())
   tenantId String
   branchId String
@@ -2675,6 +2767,8 @@ model RetailSale {
   @@index([tenantId, branchId, createdAt])
 }
 model RetailSaleLine {
+  discountCents Int @default(0)
+  promotionName String?
   id String @id @default(cuid())
   retailSaleId String
   itemId String

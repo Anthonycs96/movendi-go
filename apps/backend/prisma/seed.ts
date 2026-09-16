@@ -28,8 +28,12 @@ async function clearDatabase() {
   await prisma.transportTireEvent.deleteMany();
   await prisma.transportTire.deleteMany();
   await prisma.inventoryMovement.deleteMany();
+  await prisma.retailTransfer.deleteMany();
+  await prisma.inventorySupplierPayment.deleteMany();
+  await prisma.inventoryPayable.deleteMany();
   await prisma.inventoryPurchaseLine.deleteMany();
   await prisma.inventoryPurchase.deleteMany();
+  await prisma.inventorySupplier.deleteMany();
   await prisma.inventoryCountLine.deleteMany();
   await prisma.inventoryCount.deleteMany();
   await prisma.productRecipeIngredient.deleteMany();

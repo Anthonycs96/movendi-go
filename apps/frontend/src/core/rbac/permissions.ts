@@ -1,6 +1,12 @@
 export type Permission = string;
 
 const legacyPermissionImplications: Record<string, readonly string[]> = {
+  "minimarket:cash:write": ["minimarket:cash:read","minimarket:cash:open","minimarket:cash:close","minimarket:cash:movement"],
+  "minimarket:cash:open": ["minimarket:cash:read"],
+  "minimarket:cash:close": ["minimarket:cash:read"],
+  "minimarket:cash:movement": ["minimarket:cash:read"],
+  "inventory:write": ["minimarket:purchases:write","minimarket:counts:write"],
+  "minimarket:catalog:write": ["minimarket:prices:write"],
   "restaurant:kitchen:read": ["restaurant:printing:read"],
   "restaurant:kitchen:write": ["restaurant:printing:read", "restaurant:printing:write"],
   "restaurant:read": ["restaurant:menu:read", "restaurant:promotions:read", "restaurant:reports:read", "restaurant:printing:read", "restaurant:configuration:read", "restaurant:sunat:read"],

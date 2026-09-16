@@ -110,6 +110,7 @@ async function handle(request: Request, context: Context) {
     if (moduleName === "restaurant") assertRestaurantModule(session, restaurantOperationModule(resource, segments[3]));
     if (!["GET", "HEAD"].includes(request.method)) await assertTenantWriteEntitlement(session.tenantId, moduleName !== "restaurant" && consumesMonthlyOperation(moduleName, resource, request.method, id));
     const scope = await requireTenantScope(requiredPermission(moduleName, resource, request.method, segments[3]));
+    if (moduleName === "minimarket" && request.headers.has("x-retail-context") && request.headers.get("x-retail-context") !== [scope.tenantId, scope.branchId, scope.actorId].join(":")) throw new AppError("RETAIL_CONTEXT_CHANGED", 409, "Cambió el usuario o la sucursal. Vuelve al contexto original para recuperar la operación.");
     const body = await bodyOf(request);
     const result = moduleName === "barbershop"
       ? await handleBarbershopCommand(request.method, segments.slice(1), body, scope)

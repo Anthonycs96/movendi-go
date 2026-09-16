@@ -8,6 +8,8 @@ export type SaleLineSnapshot = {
   quantity: number;
   unitPriceCents: number;
   totalCents: number;
+  discountCents?: number;
+  promotionName?: string | null;
   unitCostCents?: number | null;
   taxCategory?: string;
   unitCode?: string;
@@ -39,7 +41,9 @@ export function validateCommercialSnapshot(snapshot: CommercialSnapshot) {
     ids.add(line.sourceLineId);
     if (line.fiscalQuantity !== undefined && (!Number.isFinite(line.fiscalQuantity) || line.fiscalQuantity <= 0)) invalid();
     if (![line.unitPriceCents, line.totalCents].every(validCents) || Math.round(line.quantity * line.unitPriceCents) !== line.totalCents) invalid();
+    if (line.discountCents !== undefined && (!validCents(line.discountCents) || line.discountCents > line.totalCents)) invalid();
     if (line.unitCostCents != null && !validCents(line.unitCostCents)) invalid();
   }
+  if (snapshot.lines.some((line) => line.discountCents !== undefined) && snapshot.lines.reduce((sum, line) => sum + (line.discountCents ?? 0), 0) !== snapshot.discountCents) invalid();
   if (snapshot.lines.reduce((sum, line) => sum + line.totalCents, 0) !== snapshot.subtotalCents) invalid();
 }
