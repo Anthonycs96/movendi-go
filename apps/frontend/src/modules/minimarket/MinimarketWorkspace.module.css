@@ -208,6 +208,15 @@
 .formFields input:not([type=checkbox]), .formFields select { height: 46px; max-height: 46px; }
 .formFields [hidden] { display: none; }
 .optionalFields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.workspace button[hidden] { display: none; }
+.actionList { display: grid; gap: 20px; }
+.actionList > button { order: -1; justify-self: start; }
+.productDialog .grid { grid-template-columns: minmax(0, 1fr); }
+@media print {
+  :global(.dialog-backdrop):has(.receipt) { position: absolute; inset: 0; display: block; padding: 0; background: white; backdrop-filter: none; }
+  .productDialog:has(.receipt) { width: auto; max-height: none; overflow: visible; border: 0; box-shadow: none; }
+  .productDialog:has(.receipt) :global(.dialog__content) { overflow: visible; max-height: none; padding: 0; }
+}
 .barcodeField { display: grid; gap: 10px; }
 .barcodeField > button { justify-self: start; }
 .wizardSteps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0; }
@@ -231,4 +240,14 @@
   .productDialog :global(.dialog__content) { padding: 20px 18px; }
   .productDialog > footer { padding: 14px 18px; }
   .wizardSteps li { font-size: 11px; }
+}
+.catalogFilters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; flex-basis: 100%; }
+.catalogFilters label { flex: 1 1 170px; min-width: 0; }
+.catalogFilters > span { align-self: center; }
+.categoryItem .catalogActions { display: flex; align-items: center; justify-content: flex-end; }
+.categoryItem .catalogActions > span { flex-basis: 100%; margin: 0; font-size: 12px; }
+.categoryItem button { max-width: 100%; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .categoryItem { flex-direction: column; align-items: stretch; }
+  .categoryItem .catalogActions { justify-content: flex-start; }
 }

@@ -2,6 +2,7 @@ import { compare } from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/core/database/prisma";
 import { createSession } from "@/core/auth/session";
+import { PLATFORM_ACCESS_ROLE } from "@/core/auth/tenant-switch";
 import { AppError, errorResponse } from "@/core/auth/errors";
 import { assertLoginAllowed, clearLoginFailures, loginThrottleKey } from "@/core/auth/login-throttle";
 import { isPlatformRole } from "@/core/platform/access";
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
     const verifiedHashes = new Map<string, boolean>();
     const verified = [];
     for (const candidate of candidates) {
+      if (candidate.role.key === PLATFORM_ACCESS_ROLE && candidate.user.platformRole !== "SUPER_ADMIN") continue;
       const hash = candidate.user.passwordHash;
       if (!verifiedHashes.has(hash)) verifiedHashes.set(hash, await compare(password, hash));
       if (verifiedHashes.get(hash)) verified.push(candidate);

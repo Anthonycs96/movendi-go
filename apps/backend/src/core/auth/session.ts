@@ -8,6 +8,7 @@ import { effectiveModules } from "./enabled-modules";
 import { billingConfiguration } from "@/core/billing/configuration";
 import type { AuthSession, TenantScope } from "./types";
 import type { AuthSessionView } from "@movendi/contracts";
+import { PLATFORM_ACCESS_ROLE, switchTenantForSession } from "./tenant-switch";
 
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME ?? "mbs_session";
 const TTL_HOURS = Number(process.env.SESSION_TTL_HOURS ?? 12);
@@ -52,6 +53,7 @@ export async function getOptionalSession(): Promise<AuthSession | null> {
   if (!record || record.expiresAt <= new Date() || !record.user.active || !record.membership.active || !record.branch.active || record.tenant.status !== "ACTIVE") return null;
   if (record.userId !== record.membership.userId || record.tenantId !== record.membership.tenantId || record.branch.tenantId !== record.tenantId) return null;
   if (record.membership.role.tenantId !== record.tenantId) return null;
+  if (record.membership.role.key === PLATFORM_ACCESS_ROLE && record.user.platformRole !== "SUPER_ADMIN") return null;
   if (["RESTAURANT", "MINIMARKET"].includes(record.tenant.type) && record.membership.branchId && record.membership.branchId !== record.branchId && !hasPermission(parsePermissions(record.membership.role.permissions), "settings:write")) return null;
   return {
     sessionId: record.id,
@@ -106,24 +108,7 @@ export async function switchSessionBranch(branchId: string) {
 
 export async function switchSessionTenant(tenantSlug: string) {
   const session = await requireSession();
-  const membership = await prisma.membership.findFirst({
-    where: {
-      userId: session.userId,
-      active: true,
-      tenant: { slug: tenantSlug, status: "ACTIVE" },
-    },
-    include: { branch: true, tenant: { select: { id: true, slug: true } } },
-  });
-  if (!membership) throw new AppError("TENANT_ACCESS_DENIED", 403, "No tienes acceso a este negocio.");
-  const branch = membership.branch?.active
-    ? membership.branch
-    : await prisma.branch.findFirst({ where: { tenantId: membership.tenantId, active: true }, orderBy: { createdAt: "asc" } });
-  if (!branch) throw new AppError("NO_ACTIVE_BRANCH", 403, "La empresa no tiene una sucursal activa.");
-  await prisma.session.update({
-    where: { id: session.sessionId },
-    data: { membershipId: membership.id, tenantId: membership.tenant.id, branchId: branch.id },
-  });
-  return membership.tenant.slug;
+  return switchTenantForSession(session, tenantSlug);
 }
 
 export function toSessionView(session: AuthSession): AuthSessionView {

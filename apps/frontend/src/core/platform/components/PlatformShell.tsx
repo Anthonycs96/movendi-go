@@ -54,11 +54,14 @@ export function PlatformShell({ user, currentTenantSlug, businesses, children }:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tenantSlug }),
       });
-      if (!response.ok) throw new Error();
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error?.message ?? "No pudimos abrir el negocio. Inténtalo nuevamente.");
+      }
       // A tenant switch changes server-side session scope; discard prefetched pages.
       navigateWithFreshSession(`/t/${encodeURIComponent(tenantSlug)}/dashboard`);
-    } catch {
-      setSwitchError("No pudimos abrir ese negocio. Verifica que tu acceso siga activo.");
+    } catch (error) {
+      setSwitchError(error instanceof Error ? error.message : "No pudimos conectar con el servidor. Inténtalo nuevamente.");
       setSwitchingTenant(false);
       setSelectedTenant("");
     }

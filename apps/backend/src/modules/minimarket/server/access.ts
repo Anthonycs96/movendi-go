@@ -12,14 +12,14 @@ export function minimarketPermission(resource: string, method: string, action?: 
   if (resource === "fiscal-jobs") return "minimarket:sales:write";
   if (resource === "sales") return action === "refund" ? "minimarket:refunds:write" : method === "GET" ? "minimarket:sales:read" : "minimarket:sales:write";
   if (resource === "presentations" && method === "PATCH") return "minimarket:prices:write";
-  if (["products", "presentations"].includes(resource)) return method === "GET" ? "minimarket:catalog:read" : "minimarket:catalog:write";
+  if (["products", "presentations", "categories"].includes(resource)) return method === "GET" ? "minimarket:catalog:read" : "minimarket:catalog:write";
   if (["purchases", "counts"].includes(resource)) return method === "GET" ? "inventory:read" : `minimarket:${resource}:write`;
   if (resource === "cash") return method === "GET" ? "minimarket:cash:read" : action === "close" ? "minimarket:cash:close" : action === "movement" ? "minimarket:cash:movement" : "minimarket:cash:open";
   if (resource === "customers") return method === "GET" ? "customers:read" : "customers:write";
   throw new AppError("NOT_FOUND", 404, "Operación de Minimarket no encontrada.");
 }
 export function minimarketSection(resource: string, method: string) {
-  if (["promotions", "imports"].includes(resource)) return "catalog";
+  if (["promotions", "imports", "categories"].includes(resource)) return "catalog";
   if (["suppliers", "payables"].includes(resource)) return "purchases";
   if (resource === "transfers") return "inventory";
   return ({ fiscal: "settings", "fiscal-jobs": "sales", products: "catalog", presentations: "catalog", purchases: "purchases", counts: "inventory", cash: "checkout", customers: "clients", sales: method === "GET" ? "sales" : "pos" } as Record<string, string>)[resource];

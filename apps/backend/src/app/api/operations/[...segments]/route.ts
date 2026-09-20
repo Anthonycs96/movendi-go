@@ -72,6 +72,7 @@ async function handle(request: Request, context: Context) {
     const { segments } = await context.params;
     const [moduleName, resource, id] = segments;
     if (!moduleName || !resource) throw new AppError("NOT_FOUND", 404, "Operación no encontrada.");
+    if (request.method === "DELETE" && (moduleName !== "minimarket" || resource !== "categories" || segments.length !== 3)) throw new AppError("NOT_FOUND", 404, "Operación no encontrada.");
 
     if (moduleName === "platform") {
       const session = await requireSession();
@@ -126,3 +127,4 @@ async function handle(request: Request, context: Context) {
 export const GET = handle;
 export const POST = handle;
 export const PATCH = handle;
+export const DELETE = handle;

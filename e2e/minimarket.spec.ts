@@ -133,14 +133,16 @@ test("jornada completa en pantalla: catálogo, compra con lote, caja, cobro, tic
   await page.setViewportSize({ width: 1280, height: 800 });
   const p = (await workspace(page.request, "catalog")).products.find((p) => p.sku === "LECHE-01")!;
   await page.goto(`/t/${slug}/purchases`);
+  await page.getByRole("button", { name: "Nueva compra", exact: true }).click();
   await page.getByLabel("Proveedor", { exact: true }).fill("Distribuidor local"); await page.getByRole("combobox", { name: "Producto", exact: true }).selectOption(p.id);
   await page.getByLabel(/Cantidad recibida/).fill("10"); await page.getByLabel("Costo por unidad base").fill("3"); await page.getByLabel("Código de lote").fill("LECHE-A"); await page.getByLabel("Vencimiento", { exact: true }).fill("2090-01-01");
   await page.getByRole("button", { name: "Recibir compra" }).click(); await expect(page.getByRole("status")).toContainText("registrada");
-  await page.goto(`/t/${slug}/checkout`); await page.getByLabel("Fondo inicial").fill("100"); await page.getByRole("button", { name: "Abrir caja", exact: true }).click(); await expect(page.getByRole("heading", { name: "Arqueo de caja" })).toBeVisible();
+  await page.goto(`/t/${slug}/checkout`); await page.getByRole("button", { name: "Abrir caja", exact: true }).click(); await page.getByLabel("Fondo inicial").fill("100"); await page.getByRole("button", { name: "Abrir caja", exact: true }).click(); await expect(page.getByRole("heading", { name: "Caja abierta", exact: true })).toBeVisible();
   await page.goto(`/t/${slug}/pos`); await page.getByRole("button", { name: /Leche entera.*Unidad/ }).click(); await page.getByLabel("Cantidad Leche entera · Unidad").fill("2"); await openCheckout(page); await page.getByLabel(/Efectivo recibido/).fill("20");
   await page.screenshot({ path: info.outputPath("minimarket-pos-desktop.png"), fullPage: true });
   await page.getByRole("button", { name: "Cobrar venta" }).click(); await expect(page.getByRole("status")).toContainText("registrada"); await expect(page.getByText(/Vuelto: S\/\s*10/)).toBeVisible();
   await page.goto(`/t/${slug}/sales`); await page.getByRole("button", { name: "Ver ticket" }).first().click(); await expect(page.getByText("Ticket de venta", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Registrar devolución", exact: true }).click();
   await page.getByLabel("Cantidad a devolver").fill("1"); await page.getByLabel("Importe a devolver por el primer método").fill("5"); await page.getByLabel(/Reponer mercadería/).check(); await page.getByLabel(/Motivo \(al menos/).fill("Envase devuelto intacto");
   await page.getByRole("button", { name: "Registrar devolución" }).click(); await expect(page.getByRole("status")).toContainText("registrada");
   const stock = await workspace(page.request, "inventory"); expect(stock.products.find((row) => row.id === p.id)?.stock).toBe(9); expect(stock.products.find((row) => row.id === p.id)?.lots[0].stock).toBe(9);
@@ -158,7 +160,7 @@ test("jornada completa en pantalla: catálogo, compra con lote, caja, cobro, tic
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Ir a cobrar", exact: true }).filter({ visible: true })).toBeFocused();
-  await page.setViewportSize({ width: 1280, height: 800 }); await page.goto(`/t/${slug}/checkout`); await page.getByLabel("Efectivo contado").fill("105"); await page.getByRole("button", { name: "Cerrar turno" }).click(); await expect(page.getByRole("heading", { name: "Abrir turno" })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 }); await page.goto(`/t/${slug}/checkout`); await page.getByRole("button", { name: "Cerrar turno", exact: true }).click(); await page.getByLabel("Efectivo contado").fill("105"); await page.getByRole("button", { name: "Cerrar turno" }).click(); await expect(page.getByRole("heading", { name: "Sin turno abierto", exact: true })).toBeVisible();
 });
 
 test("cajero: permisos, sede asignada y accesos indirectos protegidos", async ({ request, playwright }) => {
@@ -195,10 +197,12 @@ test("API: idempotencia y venta sin existencias no dejan efectos", async ({ requ
 test("fiscal en pantalla: configuración, clasificación, comprador y factura en cola sin cobro duplicado", async ({ page }, info) => {
   await login(page.request); await ensureProduct(page.request);
   await page.goto('/t/'+slug+'/settings');
+  await page.getByRole("button", { name: "Configurar conexión NubeFact", exact: true }).click();
   await page.getByLabel("Ruta HTTPS de NubeFact").fill("https://api.nubefact.com/api/v1/e2e-never-send");
   await page.getByLabel("Token", { exact: true }).fill("e2e-dummy-no-external-call-token");
   await page.getByRole("button", { name: "Guardar credenciales", exact: true }).click();
   await expect(page.getByText("Credenciales guardadas", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Configurar comprobantes", exact: true }).click();
   await page.getByLabel("Habilitar boletas y facturas").check();
   await page.getByRole("button", { name: "Guardar configuración fiscal" }).click();
   await expect.poll(async () => (await workspace(page.request, "settings")).fiscal.enabled).toBe(true);
@@ -210,8 +214,9 @@ test("fiscal en pantalla: configuración, clasificación, comprador y factura en
   await edit.getByRole('button', { name: 'Guardar', exact: true }).click();
   await expect.poll(async () => (await workspace(page.request, 'catalog')).products[0].taxCategory).toBe('GRAVADA');
   await page.goto('/t/'+slug+'/clients');
+  await page.getByRole('button', { name: 'Nuevo cliente', exact: true }).click();
   await page.getByLabel('Nombre o razón social').fill('Cliente con RUC'); await page.getByLabel('DNI o RUC').fill('20123456789');
-  const clientForm = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Nuevo cliente', exact: true }) });
+  const clientForm = page.getByRole('dialog', { name: 'Nuevo cliente', exact: true });
   await clientForm.getByRole('button', { name: 'Guardar', exact: true }).click();
   await expect.poll(async () => (await workspace(page.request, 'clients')).customers.some((c) => c.dni === '20123456789')).toBe(true);
   const cash = await workspace(page.request, 'checkout');
@@ -274,6 +279,7 @@ test("fiscal en pantalla: configuración, clasificación, comprador y factura en
   await expect(page.getByRole("status")).toContainText("Operación registrada");
   expect((await workspace(page.request, "inventory")).products.find((p) => p.id === created.id)?.stock).toBe(18);
   await page.goto(`/t/${slug}/inventory`);
+  await page.getByRole("button", { name: "Consultar producto por código", exact: true }).click();
   await page.getByRole("region", { name: "Consulta rápida de producto" }).getByLabel("Código manual", { exact: true }).fill(barcode);
   await page.getByRole("region", { name: "Consulta rápida de producto" }).getByRole("button", { name: "Usar código", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Conteo: Galleta cámara", exact: true })).toBeVisible();
@@ -326,11 +332,13 @@ test("operación ampliada: transferencia recibida y proveedor con pago parcial d
   await command(page.request, 'minimarket/transfers', { idempotencyKey: randomUUID(), destinationBranchId: branch.id, lines: [{ presentationId: source.presentations[0].id, quantity: 3 }] });
   await page.goto('/t/' + slug + '/inventory');
   await page.getByRole('tab', { name: 'Transferencias', exact: true }).click();
+  await page.getByRole('button', { name: 'Revisar transferencia', exact: true }).click();
   await page.getByRole('button', { name: 'Confirmar despacho', exact: true }).click();
   await expect(page.getByText('Despachada · En tránsito', { exact: false })).toBeVisible();
   expect((await page.request.post('/api/auth/branch', { data: { branchId: branch.id } })).status()).toBe(200);
   await page.reload();
   await page.getByRole('tab', { name: 'Transferencias', exact: true }).click();
+  await page.getByRole('button', { name: 'Revisar transferencia', exact: true }).click();
   await page.getByLabel('Cantidad y lote revisados', { exact: true }).check();
   await page.getByRole('button', { name: 'Confirmar recepción completa', exact: true }).click();
   await expect.poll(async () => (await workspace(page.request, 'inventory')).products[0]?.stock).toBe(3);
@@ -343,6 +351,7 @@ test("operación ampliada: transferencia recibida y proveedor con pago parcial d
   await page.getByRole('button', { name: 'Guardar proveedor', exact: true }).click();
   await expect.poll(async () => (await workspace(page.request, 'purchases')).suppliers.length).toBe(1);
   await page.getByRole('tab', { name: 'Recepciones', exact: true }).click();
+  await page.getByRole('button', { name: 'Nueva compra', exact: true }).click();
   await page.getByRole('combobox', { name: 'Proveedor registrado', exact: true }).selectOption({ label: 'Proveedor de crédito · 20123456789' });
   await page.getByLabel('Compra al crédito', { exact: true }).check();
   await page.getByLabel('Vencimiento de la compra al crédito', { exact: true }).fill('2090-01-01');
@@ -351,6 +360,7 @@ test("operación ampliada: transferencia recibida y proveedor con pago parcial d
   await page.getByRole('button', { name: 'Recibir compra', exact: true }).click();
   await page.getByRole('tab', { name: 'Proveedores y deudas', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Cuentas por pagar', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Registrar pago al proveedor', exact: true }).click();
   await page.getByLabel('Importe del pago al proveedor', { exact: true }).fill('4');
   await page.getByRole('combobox', { name: 'Medio de pago al proveedor', exact: true }).selectOption('YAPE');
   await page.getByRole('button', { name: 'Registrar pago al proveedor', exact: true }).click();
@@ -402,4 +412,115 @@ test("importación CSV con vista previa confirma producto y stock juntos", async
   await page.getByRole('button', { name: 'Confirmar importación completa', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('productos importados');
   expect((await workspace(page.request, 'catalog')).products.some((p) => p.name === 'Importado en pantalla')).toBeTruthy();
+});
+
+test("categorías y corrección de códigos desde el catálogo móvil", async ({ page }, info) => {
+  await login(page.request);
+  await ensureProduct(page.request);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/t/${slug}/catalog`);
+  await page.getByRole("tab", { name: "Categorías", exact: true }).click();
+  await page.getByRole("button", { name: "Nueva categoría", exact: true }).click();
+  await page.getByLabel("Nombre de la categoría", { exact: true }).fill("Snacks E2E");
+  await page.getByRole("button", { name: "Crear categoría", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Snacks E2E", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Productos", exact: true }).click();
+  await page.getByRole("button", { name: "Nuevo producto", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Nuevo producto", exact: true });
+  await dialog.getByLabel("Nombre", { exact: true }).fill("Snack editable");
+  await dialog.getByLabel("SKU", { exact: true }).fill("SNACK-EDIT");
+  await dialog.getByRole("combobox", { name: "Categoría", exact: true }).selectOption("Snacks E2E");
+  await dialog.getByRole("button", { name: "Continuar", exact: true }).click();
+  await dialog.getByLabel("Precio de venta", { exact: true }).fill("3.5");
+  await dialog.getByRole("button", { name: "Continuar", exact: true }).click();
+  await dialog.getByRole("button", { name: "Crear producto", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Filtrar por categoría", exact: true }).selectOption("Snacks E2E");
+  const catalog = page.getByRole("region", { name: "Productos y presentaciones" });
+  await expect(catalog.getByRole("article")).toHaveCount(1);
+  await page.getByRole("button", { name: "Editar SNACK-EDIT", exact: true }).click();
+  const edit = page.getByRole("dialog", { name: "Editar SNACK-EDIT", exact: true });
+  await edit.getByRole("tab", { name: "Presentaciones", exact: true }).click();
+  await edit.getByText("Unidad · S/ 3.50", { exact: true }).click();
+  await edit.getByLabel("Nombre de presentación", { exact: true }).fill("Bolsa");
+  await edit.getByRole("textbox", { name: "Código de barras", exact: true }).fill("SNACK-CORREGIDO");
+  await edit.getByRole("button", { name: "Guardar", exact: true }).click();
+  await expect.poll(async () => (await workspace(page.request, "catalog")).products.find((p) => p.sku === "SNACK-EDIT")?.presentations[0].barcode).toBe("SNACK-CORREGIDO");
+  await edit.getByRole("button", { name: "Cerrar", exact: true }).click();
+  await page.getByRole("button", { name: "Limpiar filtros", exact: true }).click();
+  await page.getByRole("tab", { name: "Categorías", exact: true }).click();
+  await page.getByRole("button", { name: "Editar Snacks E2E", exact: true }).click();
+  await page.getByLabel("Nombre de la categoría", { exact: true }).fill("Aperitivos E2E");
+  await page.getByRole("button", { name: "Guardar categoría", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Aperitivos E2E", exact: true })).toBeVisible();
+  expect((await workspace(page.request, "catalog")).products.find((p) => p.sku === "SNACK-EDIT")?.category).toBe("Aperitivos E2E");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("categorias-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "Nueva categoría", exact: true }).click();
+  await page.getByLabel("Nombre de la categoría", { exact: true }).fill("Categoría vacía");
+  await page.getByRole("button", { name: "Crear categoría", exact: true }).click();
+  await page.getByRole("button", { name: "Eliminar Categoría vacía", exact: true }).click();
+  const deleted = page.waitForResponse((response) => response.url().includes("/api/operations/minimarket/categories/") && response.request().method() === "DELETE");
+  await page.getByRole("button", { name: "Confirmar eliminación", exact: true }).click();
+  expect((await deleted).status()).toBe(200);
+  await expect(page.getByRole("heading", { name: "Categoría vacía", exact: true })).toHaveCount(0);
+  await login(page.request, `cashier@${slug}.local`);
+  const denied = await page.request.post("/api/operations/minimarket/categories", { data: { idempotencyKey: randomUUID(), name: "Sin permiso" } });
+  expect(denied.status()).toBe(403);
+});
+
+test("la selección de caja carga el turno elegido y conserva el aislamiento del cajero", async ({ page, browser }) => {
+  await login(page.request);
+  if (!(await workspace(page.request, "checkout")).cash) await command(page.request, "minimarket/cash", { idempotencyKey: randomUUID(), openingCents: 0 });
+  const context = await browser.newContext();
+  try {
+    const cashier = await context.newPage();
+    await login(cashier.request, `cashier@${slug}.local`);
+    const cash = await command(cashier.request, "minimarket/cash", { idempotencyKey: randomUUID(), registerName: "Caja de selección", openingCents: 777 });
+    await page.goto(`/t/${slug}/checkout`);
+    await page.locator("details").filter({ hasText: "Caja de esta operación" }).locator("summary").click();
+    await page.getByRole("combobox", { name: "Caja de esta operación", exact: true }).selectOption(cash.session.id);
+    await expect(page.getByText("Fondo: S/ 7.77", { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`cash=${cash.session.id}`));
+    const manager = await workspace(page.request, "checkout");
+    expect(manager.cash?.id).not.toBe(cash.session.id);
+    const forbidden = await cashier.request.get(`/api/data/tenant?section=checkout&cash=${manager.cash!.id}`);
+    expect((await forbidden.json()).data.cash).toBeNull();
+  } finally { await context.close(); }
+});
+
+test("abrir un negocio sin membresía como superadministrador y mostrar errores específicos", async ({ page, browser }) => {
+  await login(page.request, "superadmin@multisaas.local", "nova-studio", "Nexo2026!");
+  const email = `global-${slug}@test.local`;
+  const globalUser = await command(page.request, "platform/users", { name: "Administrador global", email, password, platformRole: "SUPER_ADMIN" });
+  const supportEmail = `support-${slug}@test.local`;
+  await command(page.request, "platform/users", { name: "Soporte limitado", email: supportEmail, password, platformRole: "SUPPORT" });
+  const context = await browser.newContext();
+  const globalPage = await context.newPage();
+  try {
+    await login(globalPage.request, supportEmail, "nova-studio");
+    expect((await globalPage.request.post("/api/auth/tenant", { data: { tenantSlug: slug } })).status()).toBe(403);
+    await login(globalPage.request, email, "nova-studio");
+    await globalPage.goto("/platform/businesses");
+    await globalPage.getByPlaceholder("Buscar por nombre, slug o correo…").fill(slug);
+    await globalPage.getByRole("button", { name: "Ver", exact: true }).click();
+    await globalPage.getByRole("button", { name: "Abrir negocio", exact: false }).click();
+    await expect(globalPage).toHaveURL(`/t/${slug}/dashboard`);
+    const session = await globalPage.request.get("/api/auth/session");
+    expect((await session.json()).session.tenantSlug).toBe(slug);
+    await command(page.request, `platform/users/${globalUser.id}`, { platformRole: "ANALYST", active: true }, "PATCH");
+    expect((await globalPage.request.get("/api/auth/session")).status()).toBe(401);
+    expect((await globalPage.request.post("/api/auth/login", { data: { email, password: changed.get(email) ?? password, businessSlug: slug } })).status()).toBe(401);
+    await login(globalPage.request, `admin@${slug}.local`);
+    expect((await globalPage.request.post("/api/auth/tenant", { data: { tenantSlug: "nova-studio" } })).status()).toBe(403);
+    await command(page.request, `platform/businesses/${tenantId}`, { status: "SUSPENDED" }, "PATCH");
+    await page.goto("/platform/businesses");
+    await page.getByPlaceholder("Buscar por nombre, slug o correo…").fill(slug);
+    await page.getByRole("button", { name: "Ver", exact: true }).click();
+    await page.getByRole("button", { name: "Abrir negocio", exact: false }).click();
+    await expect(page.getByRole("dialog").getByRole("alert")).toContainText("suspendido o cancelado");
+  } finally {
+    await command(page.request, `platform/businesses/${tenantId}`, { status: "ACTIVE" }, "PATCH");
+    await context.close();
+  }
 });

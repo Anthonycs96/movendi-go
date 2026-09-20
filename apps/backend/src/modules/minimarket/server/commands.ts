@@ -1,4 +1,5 @@
 import { savePromotion, promotionSchema } from "./promotions";
+import { categorySchema, saveRetailCategory, deleteRetailCategory, ensureRetailCategory } from "./categories";
 import { saveSupplier, paySupplier, supplierSchema, supplierPaymentSchema } from "./suppliers";
 import { commitImport, importSchema } from "./import";
 import { assertRetailCash } from "./cash-access";
@@ -22,6 +23,10 @@ import { cents, key, taxCategory, productSchema, presentationSchema, checkoutSch
 
 export async function handleMinimarketCommand(method: string, segments: string[], body: unknown, scope: TenantScope) {
   const [resource, id, action] = segments;
+  if (resource === "categories" && !action) {
+    if ((method === "POST" && !id) || (method === "PATCH" && id)) return saveRetailCategory(scope, parse(categorySchema, body), id);
+    if (method === "DELETE" && id) return deleteRetailCategory(scope, id, parse(z.object({ idempotencyKey: key }), body));
+  }
   if (resource === "promotions" && !action && (method === "POST" || (method === "PATCH" && id))) return savePromotion(scope, parse(promotionSchema, body), id);
   if (resource === "imports" && method === "POST" && !id) return commitImport(scope, parse(importSchema, body));
   if (resource === "suppliers" && !action && (method === "POST" || (method === "PATCH" && id))) return saveSupplier(scope, parse(supplierSchema, body), id);
@@ -69,7 +74,8 @@ export async function handleMinimarketCommand(method: string, segments: string[]
     return retailOperation(scope, "PRODUCT_EDIT", { ...input, id }, async (tx) => {
       const product = await tx.retailProduct.findFirst({ where: { id, ...scoped(scope) } });
       if (!product) throw new AppError("NOT_FOUND", 404, "Producto no encontrado.");
-      await tx.retailProduct.update({ where: { id }, data: { category: input.category, taxCategory: input.taxCategory, expiryAlertDays: input.expiryAlertDays } });
+      const category = input.category === product.category ? product.category : await ensureRetailCategory(tx, scope, input.category);
+      await tx.retailProduct.update({ where: { id }, data: { category, taxCategory: input.taxCategory, expiryAlertDays: input.expiryAlertDays } });
       await tx.inventoryItem.update({ where: { id: product.itemId }, data: { name: input.name, minimumStock: input.minimumStock, active: input.active } });
       return { id };
     });
@@ -86,11 +92,14 @@ export async function handleMinimarketCommand(method: string, segments: string[]
     });
   }
   if (resource === "presentations" && method === "PATCH" && id && !action) {
-    const input = parse(z.object({ idempotencyKey: key, priceCents: cents, active: z.boolean() }), body);
+    const input = parse(z.object({ idempotencyKey: key, priceCents: cents, active: z.boolean(), name: presentationSchema.shape.name.optional(), sku: presentationSchema.shape.sku, barcode: presentationSchema.shape.barcode }), body);
     return retailOperation(scope, "PRESENTATION_EDIT", { ...input, id }, async (tx) => {
       const current = await tx.retailPresentation.findFirst({ where: { id, ...scoped(scope) } });
-      if (current && current.active !== input.active && !hasPermission(scope.permissions, "minimarket:catalog:write")) throw new AppError("FORBIDDEN", 403, "Cambiar la disponibilidad requiere administrar catálogo.");
-      const result = await tx.retailPresentation.updateMany({ where: { id, ...scoped(scope) }, data: { priceCents: input.priceCents, active: input.active } });
+      if (!current) throw new AppError("NOT_FOUND", 404, "Presentación no encontrada.");
+      const metadataChanged = current.active !== input.active || (input.name !== undefined && input.name !== current.name) || (input.sku !== undefined && (input.sku || null) !== current.sku) || (input.barcode !== undefined && (input.barcode || null) !== current.barcode);
+      if (metadataChanged && !hasPermission(scope.permissions, "minimarket:catalog:write")) throw new AppError("FORBIDDEN", 403, "Editar los datos o disponibilidad requiere administrar catálogo.");
+      if (input.barcode !== undefined) await assertAvailableBarcodes(tx, scope, [input.barcode], id);
+      const result = await tx.retailPresentation.updateMany({ where: { id, ...scoped(scope) }, data: { priceCents: input.priceCents, active: input.active, name: input.name, ...(input.sku !== undefined ? { sku: input.sku || null } : {}), ...(input.barcode !== undefined ? { barcode: input.barcode || null } : {}) } });
       if (result.count !== 1) throw new AppError("NOT_FOUND", 404, "Presentación no encontrada.");
       return { id };
     });

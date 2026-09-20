@@ -2,6 +2,8 @@
 import { useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { Dialog } from "@/shared/components/ui";
+import type { MinimarketData } from "@movendi/contracts";
+import { CategoryField } from "./Categories";
 import { BarcodeField } from "./barcode";
 import { Input, n, s } from "./ui";
 import type { RetailOperation } from "./use-operation";
@@ -13,7 +15,7 @@ export function TaxClassification({ value = "UNCLASSIFIED" }: { value?: string }
   return <label>Clasificación tributaria<select name="taxCategory" defaultValue={value}><option value="UNCLASSIFIED">Pendiente de clasificar</option><option value="GRAVADA">Gravada</option><option value="EXONERADA">Exonerada</option><option value="INAFECTA">Inafecta</option></select></label>;
 }
 
-export function ProductWizard({ initialBarcode, op, onClose }: { initialBarcode: string; op: RetailOperation; onClose: () => void }) {
+export function ProductWizard({ initialBarcode, categories, op, onClose }: { initialBarcode: string; categories: MinimarketData["categories"]; op: RetailOperation; onClose: () => void }) {
   const [step, setStep] = useState(0), [expiry, setExpiry] = useState(false);
   const formRef = useRef<HTMLFormElement>(null), titleRef = useRef<HTMLHeadingElement>(null);
   function move(next: number) {
@@ -48,7 +50,7 @@ export function ProductWizard({ initialBarcode, op, onClose }: { initialBarcode:
       <h3 ref={titleRef} tabIndex={-1} className={styles.wizardTitle}>{["Identifica tu producto", "Define cómo lo vendes", "Configura su inventario"][step]}</h3>
       <form ref={formRef} id="new-retail-product" noValidate onSubmit={submit}>
         <div hidden={step !== 0} data-step="0"><div className={styles.formFields}>
-          <Input name="name" label="Nombre" /><Input name="sku" label="SKU" /><Input name="category" label="Categoría" value="General" />
+          <Input name="name" label="Nombre" /><Input name="sku" label="SKU" /><CategoryField categories={categories} />
           <label>Unidad base<select name="unit"><option value="UND">Unidad</option><option value="KG">Kilogramo</option><option value="L">Litro</option></select></label>
         </div></div>
         <div hidden={step !== 1} data-step="1"><div className={styles.formFields}>

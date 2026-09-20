@@ -5,7 +5,7 @@ import { saveSunatCredentials } from "@/modules/invoicing/server/connection";
 import { deliverFiscalJob, runFiscalBatch } from "@/modules/invoicing/server/outbox";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -60,7 +60,7 @@ beforeEach(async (testContext) => {
   context.after(() => { if (previousKey === undefined) delete process.env.INTEGRATION_ENCRYPTION_KEY; else process.env.INTEGRATION_ENCRYPTION_KEY = previousKey; });
   context.mock.method(globalThis, "fetch", async () => { throw new Error("Unexpected external request"); });
   context.mock.method(prisma, "$transaction", db.$transaction.bind(db));
-  for (const model of ["promotion", "fiscalConfiguration", "fiscalJob", "restaurantIntegrationCredential", "restaurantElectronicDocument", "tenant", "branch", "inventorySupplier", "inventoryPayable", "inventorySupplierPayment", "retailTransfer", "retailProduct", "retailPresentation", "retailSale", "retailSaleLine", "retailLot", "retailOperation", "cashSession", "cashMovement", "sale", "inventoryItem", "inventoryMovement", "inventoryPurchase", "customer"] as const) {
+  for (const model of ["category", "promotion", "fiscalConfiguration", "fiscalJob", "restaurantIntegrationCredential", "restaurantElectronicDocument", "tenant", "branch", "inventorySupplier", "inventoryPayable", "inventorySupplierPayment", "retailTransfer", "retailProduct", "retailPresentation", "retailSale", "retailSaleLine", "retailLot", "retailOperation", "cashSession", "cashMovement", "sale", "inventoryItem", "inventoryMovement", "inventoryPurchase", "customer"] as const) {
     const original = prisma[model]; Object.defineProperty(prisma, model, { value: db[model], configurable: true });
     context.after(() => Object.defineProperty(prisma, model, { value: original, configurable: true }));
   }
@@ -85,6 +85,58 @@ async function product(options: { stock?: number; expiry?: boolean; weighted?: b
   return db.retailProduct.findUniqueOrThrow({ where: { id: result.id }, include: { item: true, presentations: true, lots: true } });
 }
 function cart(presentationId: string, quantity = 1, total = 300): CheckoutInput { return { idempotencyKey: randomUUID(), cashSessionId: cashId, payments: [{ method: "CASH", amountCents: total, reference: null }], lines: [{ presentationId, quantity }] }; }
+
+test("categorías: creación, duplicados, renombrado, filtros y eliminación mantienen el aislamiento", async () => {
+  const input = { idempotencyKey: randomUUID(), name: "Bebidas" };
+  const category = await command(["categories"], input) as { id: string };
+  assert.equal((await command(["categories"], input) as { id: string }).id, category.id);
+  await assert.rejects(command(["categories"], { name: "  BEBIDAS  " }), code("DUPLICATE_CATEGORY"));
+  const otherCategory = await command(["categories"], { name: "Bebidas" }, secondScope) as { id: string };
+  await assert.rejects(command(["categories", category.id], { name: "Ajena" }, otherScope, "PATCH"), code("NOT_FOUND"));
+  await assert.rejects(command(["categories", category.id], {}, secondScope, "DELETE"), code("NOT_FOUND"));
+  const p = await product();
+  await command(["products", p.id], { name: "Agua", category: "bebidas", minimumStock: 0, active: false }, scope, "PATCH");
+  assert.equal((await db.retailProduct.findUniqueOrThrow({ where: { id: p.id } })).category, "Bebidas");
+  await command(["categories", category.id], { name: "Bebidas frías" }, scope, "PATCH");
+  const data = await getMinimarketData(scope, "catalog", new URLSearchParams({ category: "Bebidas frías", status: "inactive" }));
+  assert.equal(data.products[0]?.id, p.id);
+  assert.equal(data.categories.find((row) => row.id === category.id)?.productCount, 1);
+  assert.equal((await getMinimarketData(scope, "catalog", new URLSearchParams({ category: "Bebidas frías", status: "active" }))).totalRows, 0);
+  assert.equal((await getMinimarketData(scope, "pos", new URLSearchParams({ status: "inactive" }))).products.length, 0);
+  assert.equal((await db.category.findUniqueOrThrow({ where: { id: otherCategory.id } })).name, "Bebidas");
+  await assert.rejects(command(["categories", category.id], {}, scope, "DELETE"), code("CATEGORY_IN_USE"));
+  await command(["products", p.id], { name: "Agua", category: "General", minimumStock: 0, active: true }, scope, "PATCH");
+  await command(["categories", category.id], {}, scope, "DELETE");
+  assert.equal(await db.category.findUnique({ where: { id: category.id } }), null);
+  assert.equal(minimarketPermission("categories", "POST"), "minimarket:catalog:write");
+});
+
+test("presentaciones: corregir código conserva ventas históricas, rechaza duplicados y exige catálogo", async () => {
+  const p = await product({ stock: 5 });
+  const presentation = p.presentations[0];
+  await checkoutRetail(scope, cart(presentation.id));
+  const update = { name: "Unidad corregida", sku: "PRESENTACION-1", barcode: "775000000001", priceCents: 400, active: true };
+  await command(["presentations", presentation.id], update, scope, "PATCH");
+  const found = await lookupBarcode(scope, update.barcode);
+  assert.equal(found.presentationId, presentation.id);
+  assert.equal((await db.retailSaleLine.findFirstOrThrow({ where: { presentationId: presentation.id } })).unitPriceCents, 300);
+  const second = await product();
+  await assert.rejects(command(["presentations", second.presentations[0].id], update, scope, "PATCH"), code("DUPLICATE_PRODUCT"));
+  await assert.rejects(command(["presentations", presentation.id], { ...update, barcode: "OTRO" }, { ...scope, permissions: ["minimarket:prices:write"] }, "PATCH"), code("FORBIDDEN"));
+  await command(["presentations", presentation.id], { priceCents: 450, active: true }, { ...scope, permissions: ["minimarket:prices:write"] }, "PATCH");
+  await command(["presentations", presentation.id], { ...update, barcode: "", sku: "" }, scope, "PATCH");
+  assert.equal((await db.retailPresentation.findUniqueOrThrow({ where: { id: presentation.id } })).barcode, null);
+});
+
+test("la migración registra categorías históricas sin duplicarlas ni modificar productos", async () => {
+  const p = await product();
+  await db.category.deleteMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId } });
+  const sql = await readFile(new URL("../../../../prisma/migrations/20260920010000_retail_categories/migration.sql", import.meta.url), "utf8");
+  await db.$executeRawUnsafe(sql);
+  await db.$executeRawUnsafe(sql);
+  assert.equal(await db.category.count({ where: { tenantId: scope.tenantId, branchId: scope.branchId, name: "General" } }), 1);
+  assert.equal((await db.retailProduct.findUniqueOrThrow({ where: { id: p.id } })).category, "General");
+});
 
 test("importación reutiliza catálogo e inventario, crea presentaciones juntas y revierte cualquier error", async () => {
   const row = { sku: "IM-01", barcode: "0775123456789", name: "Importado", category: "General", presentation: "Unidad", unit: "UND", factor: 1, costCents: 100, priceCents: 200, stock: 12, minimumStock: 2, trackExpiry: false, lotCode: "", expiresOn: "", weighted: false };

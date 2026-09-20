@@ -20,7 +20,7 @@ import { LazyBusinessSetupWizard as BusinessSetupWizard } from "./LazyBusinessSe
 const businessStatus: Record<string, { label: string; tone: BadgeTone }> = { ACTIVE: { label: "Activo", tone: "success" }, SUSPENDED: { label: "Suspendido", tone: "warning" }, CANCELLED: { label: "Cancelado", tone: "danger" } };
 const subscriptionStatus: Record<string, { label: string; tone: BadgeTone }> = { ACTIVE: { label: "Activa", tone: "success" }, TRIAL: { label: "Prueba", tone: "info" }, PAST_DUE: { label: "Pago pendiente", tone: "warning" }, CANCELLED: { label: "Cancelada", tone: "danger" } };
 const roleLabels: Record<string, string> = { SUPER_ADMIN: "Super Admin", SUPPORT: "Soporte", FINANCE: "Finanzas", ANALYST: "Analista" };
-const actionLabels: Record<string, string> = { PLATFORM_TENANT_CREATE: "Creó una empresa", PLATFORM_TENANT_UPDATE: "Actualizó una empresa", PLATFORM_PLAN_CREATE: "Creó un plan", PLATFORM_PLAN_UPDATE: "Actualizó un plan", PLATFORM_SUBSCRIPTION_UPDATE: "Actualizó una suscripción", PLATFORM_USER_CREATE: "Creó un acceso global", PLATFORM_USER_UPDATE: "Actualizó un acceso", SEED: "Inicializó datos" };
+const actionLabels: Record<string, string> = { TENANT_SWITCH: "Abrió un negocio", PLATFORM_TENANT_CREATE: "Creó una empresa", PLATFORM_TENANT_UPDATE: "Actualizó una empresa", PLATFORM_PLAN_CREATE: "Creó un plan", PLATFORM_PLAN_UPDATE: "Actualizó un plan", PLATFORM_SUBSCRIPTION_UPDATE: "Actualizó una suscripción", PLATFORM_USER_CREATE: "Creó un acceso global", PLATFORM_USER_UPDATE: "Actualizó un acceso", SEED: "Inicializó datos" };
 
 function statusBadge(status: string, subscription = false) {
   const item = (subscription ? subscriptionStatus : businessStatus)[status] ?? { label: status, tone: "neutral" as BadgeTone };
@@ -100,11 +100,14 @@ function BusinessTable({ businesses, templates, compact = false, canManage = fal
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tenantSlug }),
       });
-      if (!response.ok) throw new Error();
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error?.message ?? "No pudimos abrir el negocio. Inténtalo nuevamente.");
+      }
       // Enter with a fresh router cache after changing the session scope.
       navigateWithFreshSession(`/t/${encodeURIComponent(tenantSlug)}/dashboard`);
-    } catch {
-      setOpenError("No pudimos cambiar a este negocio. Actualiza la página e inténtalo nuevamente.");
+    } catch (error) {
+      setOpenError(error instanceof Error ? error.message : "No pudimos conectar con el servidor. Inténtalo nuevamente.");
       setOpening(false);
     }
   }

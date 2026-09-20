@@ -18,7 +18,7 @@ export default async function TenantSectionPage({ params, searchParams }: Tenant
   const requestedFilters = await searchParams;
   const requestedSection = parts?.[0];
   const filter = (key: string) => typeof requestedFilters[key] === "string" ? requestedFilters[key] as string : undefined;
-  const workspace = await getTenantWorkspace(requestedSection, { page: filter("page"), pageSize: filter("pageSize"), q: filter("q"), status: filter("status"), period: filter("period") }).catch((error: unknown) => {
+  const workspace = await getTenantWorkspace(requestedSection, { page: filter("page"), pageSize: filter("pageSize"), q: filter("q"), status: filter("status"), period: filter("period"), category: filter("category"), cash: filter("cash") }).catch((error: unknown) => {
     if (error instanceof ApiClientError && error.status === 403) notFound();
     throw error;
   });

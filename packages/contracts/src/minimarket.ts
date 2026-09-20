@@ -17,6 +17,7 @@ export interface MinimarketReport {
   purchases: { count: number; totalCents: number; currencyVerified: boolean }; payables: Array<{ currency: string; count: number; balanceCents: number }>;
 }
 export interface MinimarketData {
+  categories: Array<{ id: string; name: string; active: boolean; productCount: number }>;
   report: MinimarketReport | null;
   promotions: MinimarketPromotion[];
   suppliers: Array<{ id: string; documentType: string; documentNumber: string; name: string; phone: string | null; email: string | null; address: string | null; contact: string | null; active: boolean; purchases: Array<{ code: string; totalCents: number; createdAt: string }> }>;
