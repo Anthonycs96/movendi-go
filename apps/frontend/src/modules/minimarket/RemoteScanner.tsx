@@ -8,17 +8,17 @@ import { Dialog } from "@/shared/components/ui";
 import { BarcodeLookupError, findBarcode } from "./barcode";
 import type { CartLine } from "./use-cart";
 import { scopeKey } from "./use-operation";
-import { scannerRequest, scannerSecret, ScannerError, type ScannerState } from "./scanner-client";
+import { scannerRequest, scannerSecret, ScannerError, type ScannerState, type ScannerCartSummary } from "./scanner-client";
 import styles from "./MinimarketWorkspace.module.css";
 
 type Credentials = { connectionId: string; receiverToken: string; pairingToken: string };
-type Props = { data: MinimarketData; intentId: string; paused: boolean; receive: (connectionId: string, sequence: number, intentId: string, line: CartLine) => Promise<boolean>; scanStatus: (connectionId: string, sequence: number, intentId: string) => Promise<string> };
-export function RemoteScanner({ data, intentId, paused, receive, scanStatus }: Props) {
+type Props = { data: MinimarketData; intentId: string; paused: boolean; cartSummary: ScannerCartSummary | null; receive: (connectionId: string, sequence: number, intentId: string, line: CartLine) => Promise<boolean>; scanStatus: (connectionId: string, sequence: number, intentId: string) => Promise<string> };
+export function RemoteScanner({ data, intentId, paused, cartSummary, receive, scanStatus }: Props) {
   const context = scopeKey(data.scope), storageKey = `retail-scanner:${context}:${data.cash?.id}`;
   const [credentials, setCredentials] = useState<Credentials | null>(null), [state, setState] = useState<ScannerState | null>(null);
   const [open, setOpen] = useState(false), [qr, setQr] = useState(""), [link, setLink] = useState(""), [error, setError] = useState(""), [busy, setBusy] = useState(false), [conflict, setConflict] = useState(false);
-  const latest = useRef({ intentId, paused, receive, scanStatus });
-  useEffect(() => { latest.current = { intentId, paused, receive, scanStatus }; });
+  const latest = useRef({ intentId, paused, cartSummary, receive, scanStatus });
+  useEffect(() => { latest.current = { intentId, paused, cartSummary, receive, scanStatus }; });
   useEffect(() => { try { const saved = sessionStorage.getItem(storageKey); if (saved) queueMicrotask(() => setCredentials(JSON.parse(saved))); } catch { /* A fresh link is still available. */ } }, [storageKey]);
   useEffect(() => {
     if (!credentials) return;
@@ -28,7 +28,7 @@ export function RemoteScanner({ data, intentId, paused, receive, scanStatus }: P
     void QRCode.toDataURL(url, { width: 280, margin: 2 }).then((image) => { if (!stopped) { setQr(image); setLink(url); } });
     async function poll() {
       try {
-        const result = await scannerRequest({ action: "poll", ...auth, cartIntentId: latest.current.intentId, accepting: !latest.current.paused && !document.hidden }, context);
+        const result = await scannerRequest({ action: "poll", ...auth, cartIntentId: latest.current.intentId, accepting: !latest.current.paused && !document.hidden, cartSummary: latest.current.cartSummary }, context);
         if (stopped) return;
         setState(result); setError("");
         for (const event of result.events ?? []) {

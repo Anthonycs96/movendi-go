@@ -1,16 +1,50 @@
-.scanner { display: grid; gap: 12px; min-width: 0; }
-.preview { position: relative; background: #102c32; border-radius: 12px; overflow: hidden; aspect-ratio: 4 / 3; max-height: 320px; }
-.preview video { width: 100%; height: 100%; object-fit: cover; }
-.guide { position: absolute; inset: 30% 9%; border: 3px solid #e4fff8; border-radius: 8px; pointer-events: none; }
-.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.manual { display: flex; gap: 8px; }
-.manual label { flex: 1; min-width: 0; }
+.scanner { display: grid; gap: 14px; min-width: 0; color: #182a46; }
+.scanHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.scanHeading > span:first-child { color: #52647f; }
+.status { display: inline-flex; align-items: center; gap: 6px; color: #64748b; font-size: 11px; font-weight: 650; }
+.status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.status.ready { color: #087f65; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.scanner button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 1px solid #dce4ef; border-radius: 12px; background: #fff; color: #193657; font-size: 12px; font-weight: 600; }
+.scanner button:disabled { cursor: default; opacity: .5; }
 .scanner button, .scanner input, .scanner select { min-height: 44px; }
-.message { margin: 0; padding: 10px; border-radius: 8px; background: #eff8f5; color: #175446; overflow-wrap: anywhere; }
-.error { color: #922f26; background: #fff0ef; }
-.compact .preview { aspect-ratio: 16 / 10; max-height: min(260px, 32dvh); border-radius: 16px; }
-.compact .guide { border-color: #d9eaff; border-width: 2px; }
-.compact .manual { padding-top: 10px; border-top: 1px solid #e1e7ef; }
-.compact .controls { gap: 10px; }
-.compact .controls label { font-size: 12px; }
-.compact .controls > label:has(select) { flex: 1; min-width: 130px; }
+.scanner button:focus-visible, .scanner select:focus-visible, .scanner input:focus-visible { outline: 3px solid #8cbaff; outline-offset: 2px; }
+.scanner .cameraSelect { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 135px; padding-left: 10px; border: 1px solid #dce4ef; border-radius: 12px; background: #fff; }
+.scanner .cameraSelect select { flex: 1; width: 0; min-width: 0; border: 0; padding: 0 4px; background: transparent; color: #193657; font-size: 12px; }
+.cameraSelect svg, .message > svg { flex-shrink: 0; }
+.scanner .torch { width: 44px; padding: 0; }
+.scanner .torch[aria-pressed="true"] { background: #e8f0ff; border-color: #6a9ded; color: #1261ce; }
+.preview { position: relative; isolation: isolate; background: #08111f; border: 1px solid #739be3; border-radius: 22px; overflow: hidden; aspect-ratio: 16 / 10; max-height: 320px; box-shadow: 0 7px 18px #0c244d18; }
+.preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.previewEmpty { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: 12px; color: #a6bbd7; font-size: 12px; padding: 16px; text-align: center; }
+.previewEmpty svg { color: #81aaff; }
+.previewBadge { position: absolute; left: 12px; top: 12px; display: inline-flex; align-items: center; gap: 6px; background: #071422d9; color: #d7e6fc; border: 1px solid #ffffff30; border-radius: 6px; padding: 5px 7px; font-size: 10px; }
+.previewReady .previewBadge { color: #8cebd0; }
+.guide { position: absolute; inset: 26% 8% 18%; border: 2px solid #e0ecffa6; border-radius: 16px; box-shadow: 0 0 0 999px #00000018, inset 0 0 12px #91b5fc18; pointer-events: none; overflow: hidden; }
+.guide > span { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: #071422d9; color: #fff; padding: 4px 8px; border-radius: 10px; font-size: 10px; }
+.scanBeam { position: absolute; top: 12%; left: 8%; right: 8%; height: 2px; background: #66c7ff; box-shadow: 0 0 12px 3px #479aeb9e; opacity: .25; }
+.previewReady .scanBeam { opacity: 1; animation: scan 2.5s ease-in-out infinite alternate; }
+.hint { color: #52647f; font-size: 11px; text-align: center; line-height: 1.6; margin-top: -4px; }
+.preferences { display: flex; justify-content: center; gap: 16px; }
+.scanner .preferences label { display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; min-height: 44px; border: 1px solid #e2e9f3; border-radius: 10px; font-size: 12px; background: #f8faff; cursor: pointer; }
+.scanner .preferences input { width: 14px; height: 14px; min-height: 0; margin: 0; padding: 0; align-self: center; accent-color: #2563eb; }
+.manual { display: flex; align-items: end; gap: 8px; }
+.manual > label { display: grid; flex: 1; gap: 6px; min-width: 0; font-size: 12px; font-weight: 600; }
+.manualField { position: relative; display: flex; align-items: center; }
+.manualField svg { position: absolute; left: 12px; color: #697b94; }
+.scanner .manualField input { width: 100%; min-width: 0; padding: 0 10px 0 38px; border: 1px solid #bcc9db; border-radius: 12px; background: #fff; font-size: 16px; }
+.manualField input::placeholder { color: #8190a7; font-size: 12px; }
+.scanner .manual > button { background: #eaf2ff; border-color: #dae8ff; color: #175ab6; }
+.message { display: flex; align-items: center; gap: 10px; margin: 0; padding: 13px 12px; border: 1px solid #bfeadd; border-radius: 14px; background: #f1fbf7; color: #0b705a; overflow-wrap: anywhere; font-size: 12px; }
+.message > div { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.message strong { font-size: 13px; }
+.message small { font-size: 11px; font-weight: 400; }
+.message > b { white-space: nowrap; font-size: 13px; }
+.error { color: #9b342b; border-color: #f4d1cb; background: #fff3f1; }
+.compact { gap: 12px; }
+.compact .preview { aspect-ratio: 16 / 9; max-height: min(260px, 32dvh); }
+.spin { animation: spin 1s linear infinite; }
+@keyframes scan { to { top: 70%; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .scanBeam, .spin { animation: none !important; } }
+@media (max-width: 359px) { .toolbar { gap: 5px; } .scanner .toolbar > button { padding: 0 9px; } .scanner .cameraSelect { min-width: 100px; } .message { flex-wrap: wrap; } }

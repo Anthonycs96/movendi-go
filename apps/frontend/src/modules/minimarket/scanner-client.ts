@@ -1,5 +1,6 @@
 export type ScannerEvent = { sequence: number; barcode: string; cartIntentId: string };
-export type ScannerState = { connectionId: string; registerName: string; cashierName: string; branchName: string; tenantName: string; accepting: boolean; paired: boolean; phoneOnline: boolean; pairExpiresAt: string; events?: ScannerEvent[]; event?: { status: string; message: string | null } | null };
+export type ScannerCartSummary = { units: number; totalCents: number; currency: string; verified: boolean };
+export type ScannerState = { connectionId: string; registerName: string; cashierName: string; branchName: string; tenantName: string; accepting: boolean; cartSummary: ScannerCartSummary | null; paired: boolean; phoneOnline: boolean; pairExpiresAt: string; events?: ScannerEvent[]; event?: { status: string; message: string | null } | null };
 export class ScannerError extends Error { constructor(message: string, public readonly status: number, public readonly code: string) { super(message); } }
 export const scannerSecret = () => Array.from(crypto.getRandomValues(new Uint8Array(32)), (n) => n.toString(16).padStart(2, "0")).join("");
 export async function scannerRequest(body: Record<string, unknown>, context?: string): Promise<ScannerState> {

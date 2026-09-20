@@ -2804,6 +2804,7 @@ model RetailScannerConnection {
   senderSeenAt DateTime?
   accepting Boolean @default(false)
   cartIntentId String
+  cartSummary String?
   createdAt DateTime @default(now())
   cashSession CashSession @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
   events RetailScanEvent[]

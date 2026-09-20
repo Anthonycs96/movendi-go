@@ -9,10 +9,18 @@
 5. Revisa cantidades y cobra en la PC. Mientras está abierta la ventana de cobro, el escáner queda en pausa.
 6. Al terminar, cierra el turno. Se invalida el vínculo y el siguiente turno requiere una nueva vinculación.
 
+### Vista del escáner
+
+El visor tiene guía de encuadre, estado de lectura, pausa, selector de cámara, linterna cuando el equipo la admite y opciones de sonido y vibración. Estos avisos ocurren después de confirmar la lectura. Mantener un código frente a la cámara no lo agrega de nuevo: hay que retirarlo antes de repetirlo. El ingreso manual permite escribir el código de barras del producto.
+
+En el celular se mantienen visibles negocio, sucursal, caja y cajero. El pie muestra cantidad y total del carrito enviado por esa PC, actualizado aproximadamente cada dos segundos. El importe aparece como estimado mientras se verifican precios y promociones. Al cobrar se refleja el nuevo carrito vacío; si falta la comunicación con la PC se oculta el importe en lugar de mantener un total desactualizado. El celular sigue dedicado a escanear; el cobro se realiza desde la PC.
+
+El resumen viaja por el vínculo autenticado de la caja y se guarda junto a la identidad de la venta. Solo sirve para mostrar información: precios, existencias y cobros siguen siendo validados por el servidor al registrar la venta. No se transfieren carritos entre cajas.
+
 ## Separación entre cajas
 
 - Los carritos se guardan por negocio, sucursal, usuario y turno. Cambiar de turno no traslada el carrito al otro turno.
-- Cada conexión pertenece a una sola PC y un solo turno; sus secretos se guardan como hashes en el servidor. El celular solo puede enviar lecturas y consultar su resultado.
+- Cada conexión pertenece a una sola PC y un solo turno; sus secretos se guardan como hashes en el servidor. El celular puede enviar lecturas, consultar su resultado y ver el resumen de la venta de su caja.
 - Los eventos incluyen la identidad de la venta. Una lectura pendiente de otra venta se rechaza, salvo que el cursor persistido de la PC confirme que ya fue agregada. Los reintentos conservan la misma identidad y no vuelven a agregarla.
 - Una segunda PC no toma un vínculo existente automáticamente. El cajero autorizado puede desconectarlo expresamente para crear otro.
 - Cambiar de sucursal, revocar la sesión o cerrar la caja impide seguir enviando lecturas. Si la PC deja de responder, el celular muestra pausa o falta de conexión. No se confirma una lectura sin respuesta de la PC.
@@ -35,6 +43,8 @@ Yape, Plin, tarjeta y transferencias no incrementan el efectivo esperado del caj
 
 Aplicar la migración `20260920150000_retail_scanner_qr` correspondiente a SQLite o PostgreSQL antes de ejecutar esta versión. Agrega conexiones, lecturas y QR; no elimina productos ni ventas. Los vínculos y lecturas se eliminan al cerrar el turno o desconectar el escáner.
 
+La mejora visual y el resumen compartido requieren también `20260920180000_scanner_cart_summary`, disponible para ambos motores; agrega una columna opcional a la conexión del escáner.
+
 Las pruebas cubren cinco cajas con cajeros distintos, permisos y sucursales, reintentos, pausa, cambio de venta, cierre de turno, revocación de sesión, imágenes inválidas y cobros digitales sin modificar el efectivo. Las pruebas en navegador incluyen dos PC con dos celulares, pérdida de respuesta, recuperación del carrito y carga de QR.
 
-Verificación del 20 de septiembre de 2026: 47 pruebas aprobadas en PostgreSQL; 37 aprobadas en SQLite (10 casos exclusivos de PostgreSQL omitidos); 14 pruebas de navegador aprobadas, incluidos Yape y pago dividido con efectivo. Compilación de producción, TypeScript, ESLint y correspondencia de migraciones con el esquema aprobados. Migración aplicada a la base local de desarrollo.
+Verificación del 20 de septiembre de 2026: 48 pruebas aprobadas en PostgreSQL; 38 aprobadas en SQLite (10 casos exclusivos de PostgreSQL omitidos); 14 pruebas de navegador aprobadas, incluidos controles de cámara, totales entre celulares, recuperación de lecturas rechazadas, Yape y pago dividido con efectivo; dos pruebas de prevención de lecturas repetidas aprobadas. Compilación de producción, TypeScript, ESLint y correspondencia de migraciones con el esquema aprobados. Migración aplicada a la base local de desarrollo.

@@ -30,7 +30,7 @@ async function enterCode(page: Page, code: string) {
   await page.getByRole("button", { name: "Ingresar código", exact: true }).click();
   await page.getByLabel("Código manual", { exact: true }).fill(code);
   await page.getByRole("button", { name: "Usar código", exact: true }).click();
-  await expect(page.getByRole("dialog").getByText(/agregado/)).toBeVisible();
+  await expect(page.getByRole("dialog").getByText(/Añadido × 1 ·/)).toBeVisible();
   await page.getByRole("button", { name: /Revisar venta ·/ }).click();
 }
 async function ensureProduct(api: APIRequestContext) {
@@ -266,6 +266,10 @@ test("fiscal en pantalla: configuración, clasificación, comprador y factura en
   await page.waitForTimeout(800);
   await page.evaluate(() => { (window as unknown as { scannerCode: string }).scannerCode = "7751234567894"; });
   await expect(page.getByLabel("Cantidad Galleta cámara · Pack seis")).toHaveValue("2");
+  await expect(page.getByText("Listo para leer", { exact: true })).toBeVisible();
+  await expect(page.getByText(`Añadido × 1 · Pack seis · ${barcode}`, { exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Cámara", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Linterna", exact: true })).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Escanear productos" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Ir a cobrar", exact: true }).filter({ visible: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Revisar venta ·/ })).toBeInViewport();
@@ -537,6 +541,21 @@ test("celulares remotos: dos cajas, reintento sin duplicados, carrito por turno 
   const contexts = await Promise.all([browser.newContext(), browser.newContext({ viewport: { width: 390, height: 844 } }), browser.newContext({ viewport: { width: 390, height: 844 } })]);
   try {
     const pc2 = await contexts[0].newPage(), phone = await contexts[1].newPage(), phone2 = await contexts[2].newPage();
+    await phone.addInitScript(() => {
+      const state = window as unknown as { BarcodeDetector: unknown; torchEnabled: boolean };
+      state.BarcodeDetector = class {
+        static async getSupportedFormats() { return ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]; }
+        async detect() { return []; }
+      };
+      Object.defineProperty(navigator.mediaDevices, "getUserMedia", { value: async () => {
+        const canvas = document.createElement("canvas"); canvas.width = 640; canvas.height = 480;
+        const ctx = canvas.getContext("2d")!; ctx.fillStyle = "#08111f"; ctx.fillRect(0, 0, 640, 480);
+        const stream = canvas.captureStream(5), track = stream.getVideoTracks()[0];
+        Object.defineProperty(track, "getCapabilities", { value: () => ({ torch: true }) });
+        Object.defineProperty(track, "applyConstraints", { value: async (constraints: MediaTrackConstraints) => { state.torchEnabled = Boolean((constraints.advanced?.[0] as MediaTrackConstraintSet & { torch?: boolean })?.torch); } });
+        setInterval(() => ctx.fillRect(0, 0, 1, 1), 120); return stream;
+      } });
+    });
     await login(pc2.request, `cashier@${slug}.local`);
     const other = (await workspace(pc2.request, "pos")).cash ?? (await command(pc2.request, "minimarket/cash", { idempotencyKey: randomUUID(), registerName: "Caja remota 2", openingCents: 777 })).session;
     async function pair(pc: Page, mobile: Page, cash: string) {
@@ -568,8 +587,34 @@ test("celulares remotos: dos cajas, reintento sin duplicados, carrito por turno 
     await phone2.getByRole("button", { name: "Usar código", exact: true }).click();
     await expect(pc2.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("2");
     await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("1");
+    const summary1 = phone.getByLabel("Resumen de la venta en la PC"), summary2 = phone2.getByLabel("Resumen de la venta en la PC");
+    await expect(summary1).toContainText("1 artículos en venta");
+    await expect(summary1).toContainText(/2[.,]00/);
+    await expect(summary2).toContainText("2 artículos en venta");
+    await expect(summary2).toContainText(/4[.,]00/);
+    await expect(summary1).toBeInViewport();
+    await phone.getByRole("button", { name: "Escanear con cámara", exact: true }).click();
+    await expect(phone.getByText("Listo para leer", { exact: true })).toBeVisible();
+    await phone.getByRole("button", { name: "Linterna", exact: true }).click();
+    await expect(phone.getByRole("button", { name: "Apagar linterna", exact: true })).toHaveAttribute("aria-pressed", "true");
+    expect(await phone.evaluate(() => (window as unknown as { torchEnabled: boolean }).torchEnabled)).toBe(true);
+    await phone.getByRole("button", { name: "Detener cámara", exact: true }).click();
+    await expect(phone.getByLabel("Vista de la cámara para escanear")).toHaveCount(0);
+    await phone.getByRole("button", { name: "Escanear con cámara", exact: true }).click();
+    await expect(phone.getByText("Listo para leer", { exact: true })).toBeVisible();
     await phone.screenshot({ path: info.outputPath("remote-scanner-phone.png"), fullPage: true });
     await expect.poll(() => phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    // A recovered rejection is an error, never a green product confirmation.
+    await phone.route("**/api/minimarket/scanner", async (route) => {
+      if (route.request().postDataJSON().action !== "scan") return route.continue();
+      await route.fetch(); await route.abort("failed"); await phone.unroute("**/api/minimarket/scanner");
+    });
+    await phone.getByLabel("Código manual", { exact: true }).fill("UNKNOWN-" + code);
+    await phone.getByRole("button", { name: "Usar código", exact: true }).click();
+    await phone.getByRole("button", { name: "Revisar lectura pendiente", exact: true }).click();
+    await expect(phone.getByRole("alert").filter({ hasText: "No existe un producto" })).toBeVisible();
+    await expect(phone.getByText(/Lectura pendiente:/)).toHaveCount(0);
+    await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("1");
     await page.goto(`/t/${slug}/pos?cash=${other.id}`);
     await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveCount(0);
     await page.goto(`/t/${slug}/pos?cash=${own.id}`);
@@ -587,9 +632,13 @@ test("celulares remotos: dos cajas, reintento sin duplicados, carrito por turno 
     blockAck = false;
     await expect(phone.getByText(/Lectura pendiente:/)).toHaveCount(0);
     await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveCount(0);
+    await expect(summary1).toContainText("0 artículos en venta");
+    await expect(summary1).toContainText(/0[.,]00/);
+    await expect(summary2).toContainText("2 artículos en venta");
     const current = (await workspace(page.request, "checkout")).cash!;
     await command(page.request, `minimarket/cash/${own.id}/close`, { idempotencyKey: randomUUID(), expectedCents: current.expectedCents, countedCents: current.expectedCents });
     await expect(phone.getByRole("alert").filter({ hasText: /vínculo terminó/ })).toBeVisible();
+    await expect(summary1).toContainText("— artículos en venta");
   } finally { await Promise.all(contexts.map((context) => context.close())); }
 });
 

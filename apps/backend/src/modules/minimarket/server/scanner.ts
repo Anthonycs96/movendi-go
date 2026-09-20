@@ -13,9 +13,10 @@ import { scoped } from "./service";
 const secret = z.string().regex(/^[a-zA-Z0-9_-]{32,100}$/);
 const id = z.string().min(1).max(120);
 const credentials = { connectionId: id, receiverToken: secret };
+const cartSummarySchema = z.object({ units: z.number().finite().min(0).max(1e9), totalCents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), currency: z.string().regex(/^[A-Z]{3}$/), verified: z.boolean() });
 export const scannerReceiverSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("connect"), cashSessionId: id, receiverToken: secret, pairingToken: secret, cartIntentId: id }),
-  z.object({ action: z.literal("poll"), ...credentials, cartIntentId: id, accepting: z.boolean() }),
+  z.object({ action: z.literal("poll"), ...credentials, cartIntentId: id, accepting: z.boolean(), cartSummary: cartSummarySchema.nullable().optional() }),
   z.object({ action: z.literal("ack"), ...credentials, sequence: z.number().int().positive(), status: z.enum(["ADDED", "REJECTED"]), message: z.string().max(200) }),
   z.object({ action: z.literal("disconnect"), ...credentials }),
   z.object({ action: z.literal("reset"), cashSessionId: id }),
@@ -39,7 +40,10 @@ async function active(tx: Prisma.TransactionClient, connection: RetailScannerCon
 }
 function ready(connection: RetailScannerConnection) { return connection.accepting && connection.receiverSeenAt.getTime() > Date.now() - 10_000; }
 function view(connection: RetailScannerConnection, cash: { registerName: string }, owner: AuthSession) {
-  return { connectionId: connection.id, registerName: cash.registerName, cashierName: owner.userName, branchName: owner.branchName, tenantName: owner.tenantName, accepting: ready(connection), paired: !!connection.senderHash, phoneOnline: !!connection.senderSeenAt && connection.senderSeenAt.getTime() > Date.now() - 15_000, expiresAt: connection.expiresAt.toISOString(), pairExpiresAt: connection.pairExpiresAt.toISOString() };
+  const pcOnline = connection.receiverSeenAt.getTime() > Date.now() - 10_000;
+  // Never use this display snapshot to authorize or price a sale, or expose stale totals.
+  const cartSummary = pcOnline && connection.cartSummary ? cartSummarySchema.parse(JSON.parse(connection.cartSummary)) : null;
+  return { connectionId: connection.id, registerName: cash.registerName, cashierName: owner.userName, branchName: owner.branchName, tenantName: owner.tenantName, accepting: ready(connection), cartSummary, paired: !!connection.senderHash, phoneOnline: !!connection.senderSeenAt && connection.senderSeenAt.getTime() > Date.now() - 15_000, expiresAt: connection.expiresAt.toISOString(), pairExpiresAt: connection.pairExpiresAt.toISOString() };
 }
 
 export async function receiverScanner(session: AuthSession, input: z.infer<typeof scannerReceiverSchema>) {
@@ -70,7 +74,7 @@ export async function receiverScanner(session: AuthSession, input: z.infer<typeo
       await tx.retailScanEvent.updateMany({ where: { connectionId: current.id, sequence: input.sequence, status: "PENDING" }, data: { status: input.status, message: input.message } });
       return { acknowledged: true };
     }
-    const connection = await tx.retailScannerConnection.update({ where: { id: current.id }, data: { receiverSeenAt: new Date(), accepting: input.accepting, cartIntentId: input.cartIntentId } });
+    const connection = await tx.retailScannerConnection.update({ where: { id: current.id }, data: { receiverSeenAt: new Date(), accepting: input.accepting, cartIntentId: input.cartIntentId, cartSummary: input.cartSummary ? JSON.stringify(input.cartSummary) : null } });
     // The PC's durable cursor distinguishes an already added scan from a stale, unconsumed scan.
     const events = input.accepting ? await tx.retailScanEvent.findMany({ where: { connectionId: current.id, status: "PENDING" }, orderBy: { sequence: "asc" }, take: 20 }) : [];
     return { ...view(connection, cash, session), events: events.map(({ sequence, barcode, cartIntentId }) => ({ sequence, barcode, cartIntentId })) };

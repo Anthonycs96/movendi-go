@@ -24,7 +24,7 @@ export function useCart(scope: string) {
       return next;
     } catch { setError("No se pudo guardar el carrito en este dispositivo."); throw new Error("No se pudo guardar la lectura en este dispositivo."); }
   }
-  const setCart = (change: CartLine[] | ((lines: CartLine[]) => CartLine[])) => { void update((value) => ({ ...value, lines: typeof change === "function" ? change(value.lines) : change })).catch(() => {}); };
+  const setCart = (change: CartLine[] | ((lines: CartLine[]) => CartLine[])) => update((value) => ({ ...value, lines: typeof change === "function" ? change(value.lines) : change })).then(() => true, () => false);
   async function receiveScan(connectionId: string, sequence: number, intentId: string, line: CartLine) {
     let accepted = true;
     await update((value) => {

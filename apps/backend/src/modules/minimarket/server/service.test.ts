@@ -1,4 +1,4 @@
-import { receiverScanner, senderScanner } from "./scanner";
+import { receiverScanner, scannerReceiverSchema, senderScanner } from "./scanner";
 import { savePaymentQr } from "./payment-qr";
 import { getSessionById } from "@/core/auth/session";
 import sharp from "sharp";
@@ -112,12 +112,14 @@ test("cinco cajas: lecturas, ventas y medios de pago permanecen aislados por tur
     const cash = index === 0 ? cashId : ((await command(["cash"], { openingCents: index * 100, registerName: `Caja ${index + 1}` }, cashierScope)) as { session: { id: string } }).session.id;
     const session = await scannerSession(cashierScope), link = await connectScanner(session, cash);
     await senderScanner({ action: "pair", ...link });
-    await receiverScanner(session, { action: "poll", ...link, accepting: true });
+    await receiverScanner(session, { action: "poll", ...link, accepting: true, cartSummary: { units: index + 1, totalCents: (index + 1) * 300, currency: "PEN", verified: true } });
     sessions.push({ session, cash, link });
   }
   const scans = sessions.map((row, index) => ({ action: "scan" as const, ...row.link, requestId: randomUUID(), barcode: `code-${index}` }));
   if (process.env.INVENTORY_TEST_DATABASE_URL) await Promise.all(scans.map((scan) => senderScanner(scan)));
   for (const [index, row] of sessions.entries()) {
+    const phoneState = await senderScanner({ action: "status", ...row.link });
+    assert.deepEqual(phoneState.cartSummary, { units: index + 1, totalCents: (index + 1) * 300, currency: "PEN", verified: true });
     const scan = scans[index];
     await senderScanner(scan); await senderScanner(scan);
     const received = await receiverScanner(row.session, { action: "poll", ...row.link, accepting: true });
@@ -153,6 +155,25 @@ test("escáner: vínculo de un solo celular, pausa, reintento, nueva venta y cie
   await assert.rejects(senderScanner({ ...scan, requestId: randomUUID() }), code("SCANNER_PAUSED"));
   await command(["cash", cashId, "close"], { expectedCents: 10000, countedCents: 10000 });
   await assert.rejects(senderScanner({ action: "status", ...link }), code("SCANNER_DISCONNECTED"));
+});
+
+test("escáner: resumen validado, nueva venta y totales ocultos al perder la PC", async () => {
+  const session = await scannerSession(), link = await connectScanner(session, cashId);
+  await senderScanner({ action: "pair", ...link });
+  const poll = { action: "poll" as const, ...link, accepting: true, cartSummary: { units: 2.5, totalCents: 1234, currency: "PEN", verified: false } };
+  assert.equal(scannerReceiverSchema.safeParse({ ...poll, cartSummary: { ...poll.cartSummary, totalCents: -1 } }).success, false);
+  assert.equal(scannerReceiverSchema.safeParse({ ...poll, cartSummary: { ...poll.cartSummary, units: Infinity } }).success, false);
+  await receiverScanner(session, poll);
+  assert.deepEqual((await senderScanner({ action: "status", ...link })).cartSummary, poll.cartSummary);
+  await receiverScanner(session, { ...poll, accepting: false });
+  const checkout = await senderScanner({ action: "status", ...link });
+  assert.equal(checkout.accepting, false); assert.deepEqual(checkout.cartSummary, poll.cartSummary);
+  await db.retailScannerConnection.update({ where: { id: link.connectionId }, data: { receiverSeenAt: new Date(Date.now() - 11000) } });
+  assert.equal((await senderScanner({ action: "status", ...link })).cartSummary, null);
+  await receiverScanner(session, { ...poll, cartIntentId: randomUUID(), cartSummary: undefined });
+  assert.equal((await senderScanner({ action: "status", ...link })).cartSummary, null);
+  await receiverScanner(session, { ...poll, cartIntentId: randomUUID(), cartSummary: { ...poll.cartSummary, units: 0, totalCents: 0, verified: true } });
+  assert.equal((await senderScanner({ action: "status", ...link })).cartSummary?.totalCents, 0);
 });
 
 test("escáner: no delega acceso a otra sucursal, sesión revocada o cajero ajeno", async () => {

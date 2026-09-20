@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Smartphone } from "lucide-react";
+import { CheckCircle2, Monitor, ShoppingBag, ScanLine, Store } from "lucide-react";
 import { BarcodeScanner } from "@/shared/barcode/BarcodeScanner";
 import { scannerRequest, scannerSecret, ScannerError, type ScannerState } from "./scanner-client";
-import styles from "./MinimarketWorkspace.module.css";
+import styles from "./ScannerPhone.module.css";
 
 type PhoneLink = { connectionId: string; pairingToken: string; senderToken: string };
 type PendingScan = { requestId: string; barcode: string };
@@ -11,6 +11,7 @@ export function ScannerPhone() {
   const [link, setLink] = useState<PhoneLink | null>(null), [state, setState] = useState<ScannerState | null>(null);
   const [error, setError] = useState(""), [message, setMessage] = useState(""), [pending, setPending] = useState<PendingScan | null>(null), [busy, setBusy] = useState(false);
   const [scannerVersion, setScannerVersion] = useState(0);
+  const [messageIsError, setMessageIsError] = useState(false);
   const running = useRef(false), alive = useRef(true);
   const pendingKey = link ? `retail-phone-pending:${link.connectionId}` : "";
   useEffect(() => {
@@ -53,7 +54,7 @@ export function ScannerPhone() {
         result = await scannerRequest({ action: "status", ...auth, requestId: scan.requestId });
       }
       if (!alive.current) return;
-      if (result.event?.status === "ADDED") { clear(); const text = result.event.message ?? "Producto agregado en la PC."; setMessage(text); return text; }
+      if (result.event?.status === "ADDED") { clear(); const text = result.event.message ?? "Producto agregado en la PC."; return { title: text, detail: `Código: ${scan.barcode}` }; }
       if (result.event?.status === "REJECTED") { clear(); throw new Error(result.event.message ?? "La PC rechazó esta lectura."); }
       throw new Error("La PC aún no confirmó. Usa «Revisar lectura pendiente» para consultar sin duplicar el producto.");
     } catch (cause) {
@@ -62,16 +63,28 @@ export function ScannerPhone() {
       throw cause;
     } finally { running.current = false; if (alive.current) setBusy(false); }
   }
-  return <main className={`${styles.workspace} ${styles.phoneScanner}`}>
-    <header><Smartphone size={30} /><h1>Escáner de caja</h1><p>Usa este celular para enviar productos a la PC.</p></header>
-    {state ? <section className={styles.panel}><strong>{state.tenantName} · {state.branchName}</strong><h2>{state.registerName}</h2><p>Cajero: {state.cashierName}</p><p role="status">{state.accepting ? "PC lista para recibir productos" : "PC en pausa o sin conexión. Vuelve a la venta en la PC."}</p></section> : null}
-    {error ? <p className={styles.error} role="alert">{error}</p> : null}
-    {pending ? <section className={styles.notice}><p>Lectura pendiente: {pending.barcode}. No vuelvas a escanear este artículo hasta conocer el resultado.</p><button disabled={busy} type="button" onClick={() => void send(pending).then(() => setScannerVersion((value) => value + 1)).catch((cause) => setMessage(cause instanceof Error ? cause.message : "No se pudo confirmar."))}>{busy ? "Esperando confirmación…" : "Revisar lectura pendiente"}</button></section> : null}
-    {link ? <BarcodeScanner key={scannerVersion} disabled={!state?.accepting} onScan={async (barcode) => {
-      if (pending) throw new Error("Revisa primero la lectura pendiente para evitar duplicados.");
-      return send({ requestId: crypto.randomUUID(), barcode });
-    }} /> : null}
-    {message ? <p role="status">{message}</p> : null}
-    <p className={styles.muted}>Los cobros y las cantidades se revisan en la PC. Este vínculo no permite cobrar ni cambiar de caja.</p>
+  const summary = state?.cartSummary;
+  const units = summary ? new Intl.NumberFormat("es-PE", { maximumFractionDigits: 3 }).format(summary.units) : "—";
+  const total = summary ? new Intl.NumberFormat("es-PE", { style: "currency", currency: summary.currency }).format(summary.totalCents / 100) : "—";
+  return <main className={styles.phone}>
+    <header className={styles.header}>
+      <div className={styles.brand}><span className={styles.logo}><Store size={23} /></span><div><strong>{state?.tenantName ?? "Escáner de caja"}</strong><small>{state?.branchName ?? "Vinculando con tu negocio"}</small></div><span className={styles.mode}><Monitor size={12} />POS en PC</span></div>
+      {state ? <div className={styles.cash}><strong>{state.registerName}</strong><span>Turno de {state.cashierName}</span></div> : null}
+    </header>
+    <section className={styles.content} aria-label="Escáner de productos">
+      <div className={styles.title}><h1><ScanLine size={20} />Escanear productos</h1><span className={state?.accepting ? styles.online : styles.paused}>{state?.accepting ? "En línea" : "En espera"}</span></div>
+      <p className={styles.connection} role="status">{state?.accepting ? "PC lista para recibir productos" : "PC en pausa o sin conexión. Vuelve a la venta en la PC."}</p>
+      {error ? <p className={styles.error} role="alert">{error}</p> : null}
+      {pending ? <section className={styles.pending}><p>Lectura pendiente: {pending.barcode}. No vuelvas a escanear este artículo hasta conocer el resultado.</p><button disabled={busy} type="button" onClick={() => void send(pending).then((result) => { setMessageIsError(false); setMessage(result?.title ?? ""); setScannerVersion((value) => value + 1); }).catch((cause) => { setMessageIsError(true); setMessage(cause instanceof Error ? cause.message : "No se pudo confirmar."); })}>{busy ? "Esperando confirmación…" : "Revisar lectura pendiente"}</button></section> : null}
+      {link ? <BarcodeScanner key={scannerVersion} compact disabled={!state?.accepting} onScan={async (barcode) => {
+        if (pending) throw new Error("Revisa primero la lectura pendiente para evitar duplicados.");
+        return send({ requestId: crypto.randomUUID(), barcode });
+      }} /> : null}
+      {message ? <p className={messageIsError ? styles.error : styles.recovered} role={messageIsError ? "alert" : "status"}>{!messageIsError ? <CheckCircle2 size={20} /> : null}{message}</p> : null}
+    </section>
+    <footer className={styles.footer}>
+      <div className={styles.summary} aria-label="Resumen de la venta en la PC" aria-live="polite"><ShoppingBag size={20} /><span>{units} artículos en venta</span><div><small>{summary?.verified ? "Total" : "Total estimado"}</small><strong>{total}</strong></div></div>
+      <p><Monitor size={15} />Revisa los productos y cobra en la PC</p>
+    </footer>
   </main>;
 }
