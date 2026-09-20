@@ -428,6 +428,7 @@ model EmailOutbox {
 }
 
 model Branch {
+  retailPaymentQrs RetailPaymentQr[]
   inventorySuppliers InventorySupplier[]
   inventoryPayables InventoryPayable[]
   retailTransfersOut RetailTransfer[] @relation("RetailTransferSource")
@@ -1078,6 +1079,7 @@ model KitchenTicket {
 }
 
 model CashSession {
+  scannerConnection RetailScannerConnection?
   balanceBasis String    @default("CASH_ONLY")
   registerName  String    @default("Caja principal")
   openingNote   String?
@@ -2786,6 +2788,55 @@ model RetailSaleLine {
   @@index([retailSaleId])
 }
 // Durable request result for checkout, purchases, counts and partial refunds.
+model RetailScannerConnection {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  actorId String
+  ownerSessionId String
+  cashSessionId String @unique
+  receiverHash String
+  pairingHash String
+  senderHash String?
+  pairExpiresAt DateTime
+  expiresAt DateTime
+  receiverSeenAt DateTime
+  senderSeenAt DateTime?
+  accepting Boolean @default(false)
+  cartIntentId String
+  createdAt DateTime @default(now())
+  cashSession CashSession @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
+  events RetailScanEvent[]
+  @@index([tenantId, branchId])
+}
+
+model RetailScanEvent {
+  sequence Int @id @default(autoincrement())
+  connectionId String
+  requestId String
+  barcode String
+  cartIntentId String
+  status String @default("PENDING")
+  message String?
+  createdAt DateTime @default(now())
+  connection RetailScannerConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  @@unique([connectionId, requestId])
+  @@index([connectionId, status, sequence])
+}
+
+model RetailPaymentQr {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  method String
+  payee String
+  imageBase64 String
+  updatedAt DateTime @updatedAt
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  @@unique([branchId, method])
+  @@index([tenantId, branchId])
+}
+
 model RetailOperation {
   id String @id
   tenantId String

@@ -1,6 +1,6 @@
 import { lineAmounts, money, RetailError, type Allocation } from "../domain/retail";
 
-export type CheckoutInput = { idempotencyKey: string; documentKind?: "TICKET" | "BOLETA" | "FACTURA"; cashSessionId: string; customerId?: string; cashReceivedCents?: number; payments: Array<{ method: string; amountCents: number; reference: string | null }>; lines: Array<{ presentationId: string; quantity: number }> };
+export type CheckoutInput = { idempotencyKey: string; digitalPaymentConfirmed?: boolean; documentKind?: "TICKET" | "BOLETA" | "FACTURA"; cashSessionId: string; customerId?: string; cashReceivedCents?: number; payments: Array<{ method: string; amountCents: number; reference: string | null }>; lines: Array<{ presentationId: string; quantity: number }> };
 export type Presentation = { id: string; productId: string; itemId: string; name: string; factor: number; weighted: boolean; priceCents: number; unitCostCents: number; trackExpiry: boolean; taxCategory?: string; unitCode?: string };
 export type CheckoutLine = Presentation & { quantity: number; baseQuantity: number; totalCents: number; discountCents?: number; promotionName?: string | null; allocations: Allocation[] };
 export interface CheckoutPort {

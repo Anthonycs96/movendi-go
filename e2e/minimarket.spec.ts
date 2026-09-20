@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
+import QRCode from "qrcode";
 import type { MinimarketData } from "@movendi/contracts";
 
 const password = "Retail-local-2026!";
@@ -275,6 +276,7 @@ test("fiscal en pantalla: configuración, clasificación, comprador y factura en
   await page.getByRole("button", { name: /Revisar venta ·/ }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { capturedStream: MediaStream }).capturedStream.getTracks().every((track) => track.readyState === "ended"))).toBeTruthy();
   await page.getByRole("combobox", { name: "Medio de pago", exact: true }).selectOption("YAPE");
+  await page.getByRole("checkbox", { name: "Confirmé en mi cuenta que recibí el pago digital" }).check();
   await page.getByRole("button", { name: "Cobrar venta", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("Operación registrada");
   expect((await workspace(page.request, "inventory")).products.find((p) => p.id === created.id)?.stock).toBe(18);
@@ -523,4 +525,123 @@ test("abrir un negocio sin membresía como superadministrador y mostrar errores 
     await command(page.request, `platform/businesses/${tenantId}`, { status: "ACTIVE" }, "PATCH");
     await context.close();
   }
+});
+
+test("celulares remotos: dos cajas, reintento sin duplicados, carrito por turno y cierre", async ({ page, browser }, info) => {
+  test.setTimeout(150_000);
+  await login(page.request);
+  const code = `REMOTE-${Date.now()}`;
+  const p = await command(page.request, "minimarket/products", { idempotencyKey: randomUUID(), name: "Producto remoto", sku: code, presentations: [{ name: "Unidad", factor: 1, barcode: code, priceCents: 200 }] });
+  await command(page.request, "minimarket/purchases", { idempotencyKey: randomUUID(), supplierName: "Prueba", lines: [{ productId: p.id, quantity: 20, unitCostCents: 50 }] });
+  const own = (await workspace(page.request, "pos")).cash ?? (await command(page.request, "minimarket/cash", { idempotencyKey: randomUUID(), registerName: "Caja remota 1", openingCents: 0 })).session;
+  const contexts = await Promise.all([browser.newContext(), browser.newContext({ viewport: { width: 390, height: 844 } }), browser.newContext({ viewport: { width: 390, height: 844 } })]);
+  try {
+    const pc2 = await contexts[0].newPage(), phone = await contexts[1].newPage(), phone2 = await contexts[2].newPage();
+    await login(pc2.request, `cashier@${slug}.local`);
+    const other = (await workspace(pc2.request, "pos")).cash ?? (await command(pc2.request, "minimarket/cash", { idempotencyKey: randomUUID(), registerName: "Caja remota 2", openingCents: 777 })).session;
+    async function pair(pc: Page, mobile: Page, cash: string) {
+      await pc.goto(`/t/${slug}/pos?cash=${cash}`);
+      await pc.getByRole("button", { name: "Vincular celular", exact: true }).click();
+      await expect(pc.getByLabel("Enlace para el celular", { exact: true })).toHaveValue(/\/scanner#/);
+      const link = await pc.getByLabel("Enlace para el celular", { exact: true }).inputValue();
+      expect(link).toContain("/scanner#");
+      await mobile.goto(link);
+      await expect(mobile.getByRole("status").filter({ hasText: "PC lista" })).toBeVisible();
+      await pc.getByRole("button", { name: "Volver a vender", exact: true }).click();
+    }
+    await pair(page, phone, own.id); await pair(pc2, phone2, other.id);
+    await phone.route("**/api/minimarket/scanner", async (route) => {
+      if (route.request().postDataJSON().action !== "scan") return route.continue();
+      await route.fetch(); await route.abort("failed"); await phone.unroute("**/api/minimarket/scanner");
+    });
+    await phone.getByLabel("Código manual", { exact: true }).fill(code);
+    await phone.getByRole("button", { name: "Usar código", exact: true }).click();
+    await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("1");
+    await expect(pc2.getByLabel("Cantidad Producto remoto · Unidad")).toHaveCount(0);
+    await phone.getByRole("button", { name: "Revisar lectura pendiente", exact: true }).click();
+    await expect(phone.getByRole("button", { name: "Revisar lectura pendiente", exact: true })).toHaveCount(0);
+    await page.reload(); await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("1");
+    await phone2.getByLabel("Código manual", { exact: true }).fill(code);
+    await phone2.getByRole("button", { name: "Usar código", exact: true }).click();
+    await expect(pc2.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("1");
+    await expect(phone2.getByText(/Lectura pendiente:/)).toHaveCount(0);
+    await phone2.getByRole("button", { name: "Usar código", exact: true }).click();
+    await expect(pc2.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("2");
+    await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("1");
+    await phone.screenshot({ path: info.outputPath("remote-scanner-phone.png"), fullPage: true });
+    await expect.poll(() => phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await page.goto(`/t/${slug}/pos?cash=${other.id}`);
+    await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveCount(0);
+    await page.goto(`/t/${slug}/pos?cash=${own.id}`);
+    await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("1");
+    let blockAck = true;
+    await page.route("**/api/minimarket/scanner", (route) => route.request().postDataJSON().action === "ack" && blockAck ? route.abort("failed") : route.continue());
+    await expect(phone.getByRole("status").filter({ hasText: "PC lista" })).toBeVisible();
+    await phone.getByLabel("Código manual", { exact: true }).fill(code);
+    await phone.getByRole("button", { name: "Usar código", exact: true }).click();
+    await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("2");
+    await openCheckout(page);
+    await page.getByRole("button", { name: "Cobrar venta", exact: true }).click();
+    await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveCount(0);
+    await expect(pc2.getByLabel("Cantidad Producto remoto · Unidad")).toHaveValue("2");
+    blockAck = false;
+    await expect(phone.getByText(/Lectura pendiente:/)).toHaveCount(0);
+    await expect(page.getByLabel("Cantidad Producto remoto · Unidad")).toHaveCount(0);
+    const current = (await workspace(page.request, "checkout")).cash!;
+    await command(page.request, `minimarket/cash/${own.id}/close`, { idempotencyKey: randomUUID(), expectedCents: current.expectedCents, countedCents: current.expectedCents });
+    await expect(phone.getByRole("alert").filter({ hasText: /vínculo terminó/ })).toBeVisible();
+  } finally { await Promise.all(contexts.map((context) => context.close())); }
+});
+
+test("subir QR de Yape, confirmar el abono y separar el efectivo del turno", async ({ page }, info) => {
+  await login(page.request);
+  const code = `YAPE-${Date.now()}`;
+  const p = await command(page.request, "minimarket/products", { idempotencyKey: randomUUID(), name: "Producto QR", sku: code, presentations: [{ name: "Unidad", factor: 1, barcode: code, priceCents: 650 }] });
+  await command(page.request, "minimarket/purchases", { idempotencyKey: randomUUID(), supplierName: "Prueba", lines: [{ productId: p.id, quantity: 10, unitCostCents: 200 }] });
+  if (!(await workspace(page.request, "pos")).cash) await command(page.request, "minimarket/cash", { idempotencyKey: randomUUID(), registerName: "Caja QR", openingCents: 5000 });
+  const before = (await workspace(page.request, "checkout")).cash!;
+  await page.goto(`/t/${slug}/settings`);
+  await page.getByRole("button", { name: "Configurar medios de pago", exact: true }).click();
+  await page.getByRole("dialog", { name: "Medios de pago del negocio", exact: true }).getByRole("checkbox", { name: "Plin", exact: true }).check();
+  await page.getByRole("button", { name: "Guardar medios de pago", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Medios de pago del negocio", exact: true })).toHaveCount(0);
+  expect((await workspace(page.request, "pos")).paymentMethods).toContain("PLIN");
+  await page.getByRole("button", { name: "Subir QR de Yape", exact: true }).click();
+  await page.getByLabel("Titular de la cuenta", { exact: true }).fill("Minimarket de prueba");
+  await page.getByLabel("Imagen de tu QR", { exact: true }).setInputFiles({ name: "qr-prueba.png", mimeType: "image/png", buffer: await QRCode.toBuffer("QR DE PRUEBA SIN CUENTA REAL") });
+  await page.getByRole("button", { name: "Guardar QR", exact: true }).click();
+  await expect(page.getByText("QR guardado para esta sucursal.", { exact: true })).toBeVisible();
+  await expect(page.getByAltText("QR guardado Yape")).toBeVisible();
+  await page.goto(`/t/${slug}/pos`); await enterCode(page, code);
+  await page.getByRole("combobox", { name: "Medio de pago", exact: true }).selectOption("YAPE");
+  await expect(page.getByAltText("QR de cobro Yape")).toBeVisible();
+  await expect(page.getByText("Titular: Minimarket de prueba", { exact: true })).toBeVisible();
+  const count = (await workspace(page.request, "sales")).totalRows;
+  await page.getByRole("button", { name: "Cobrar venta", exact: true }).click();
+  expect((await workspace(page.request, "sales")).totalRows).toBe(count);
+  await page.getByLabel("Referencia de pago (opcional)", { exact: true }).fill("YAPE-QR-123");
+  await page.getByRole("checkbox", { name: "Confirmé en mi cuenta que recibí el pago digital" }).check();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.screenshot({ path: info.outputPath("yape-checkout-mobile.png"), fullPage: false });
+  await page.getByRole("button", { name: "Cobrar venta", exact: true }).click();
+  await expect(page.getByLabel("Cantidad Producto QR · Unidad")).toHaveCount(0);
+  expect((await workspace(page.request, "checkout")).cash?.expectedCents).toBe(before.expectedCents);
+  const sale = (await workspace(page.request, "sales")).sales[0];
+  expect(sale.payments).toEqual([{ method: "YAPE", amountCents: 650, reference: "YAPE-QR-123" }]);
+  expect(sale.registerName).toBe("Caja QR");
+  await enterCode(page, code);
+  await page.getByRole("combobox", { name: "Medio de pago", exact: true }).selectOption("YAPE");
+  await page.getByText("Pago dividido y referencia", { exact: true }).click();
+  await page.getByRole("checkbox", { name: "Dividir en dos métodos", exact: true }).check();
+  await page.getByLabel("Importe del primer método", { exact: true }).fill("4");
+  await page.getByRole("combobox", { name: "Segundo método", exact: true }).selectOption("CASH");
+  await page.getByLabel("Efectivo recibido (opcional)", { exact: true }).fill("3");
+  await expect(page.getByRole("heading", { name: /Yape · S\/\s*4\.00/ })).toBeVisible();
+  await page.getByRole("checkbox", { name: "Confirmé en mi cuenta que recibí el pago digital" }).check();
+  await page.getByRole("button", { name: "Cobrar venta", exact: true }).click();
+  await expect(page.getByLabel("Cantidad Producto QR · Unidad")).toHaveCount(0);
+  expect((await workspace(page.request, "checkout")).cash?.expectedCents).toBe(before.expectedCents + 250);
+  await page.goto(`/t/${slug}/checkout`);
+  await expect(page.getByRole("heading", { name: "Cobros por medio de pago de este turno" })).toBeVisible();
 });

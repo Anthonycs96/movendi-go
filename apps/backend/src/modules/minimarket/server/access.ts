@@ -3,6 +3,7 @@ import { hasPermission } from "@/core/auth/permissions";
 import type { AuthSession } from "@/core/auth/types";
 export const minimarketSections: Record<string, string> = { dashboard: "minimarket:reports:read", pos: "minimarket:sales:write", catalog: "minimarket:catalog:read", inventory: "inventory:read", purchases: "inventory:read", sales: "minimarket:sales:read", checkout: "minimarket:cash:read", clients: "customers:read", reports: "minimarket:reports:read", settings: "settings:write" };
 export function minimarketPermission(resource: string, method: string, action?: string) {
+  if (resource === "payment-methods") return "settings:write";
   if (resource === "promotions") return "minimarket:promotions:write";
   if (resource === "imports") return "minimarket:catalog:write";
   if (resource === "suppliers") return method === "GET" ? "inventory:read" : "minimarket:suppliers:write";
@@ -19,6 +20,7 @@ export function minimarketPermission(resource: string, method: string, action?: 
   throw new AppError("NOT_FOUND", 404, "Operación de Minimarket no encontrada.");
 }
 export function minimarketSection(resource: string, method: string) {
+  if (resource === "payment-methods") return "settings";
   if (["promotions", "imports", "categories"].includes(resource)) return "catalog";
   if (["suppliers", "payables"].includes(resource)) return "purchases";
   if (resource === "transfers") return "inventory";

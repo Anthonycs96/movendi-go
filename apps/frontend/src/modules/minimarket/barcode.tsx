@@ -10,9 +10,9 @@ export type BarcodeMatch = {
   product: MinimarketProduct; presentationId: string; branch: { id: string; name: string };
   movements: Array<{ id: string; type: string; quantity: number; direction: string; stockBefore: number; stockAfter: number; createdAt: string; reference: string | null; originId: string | null; actor: { name: string } | null }>;
 };
-class BarcodeLookupError extends Error { constructor(message: string, public readonly status: number) { super(message); } }
-export async function findBarcode(code: string, section: string): Promise<BarcodeMatch> {
-  const response = await fetch(`/api/minimarket/lookup?${new URLSearchParams({ code, section })}`, { cache: "no-store" });
+export class BarcodeLookupError extends Error { constructor(message: string, public readonly status: number) { super(message); } }
+export async function findBarcode(code: string, section: string, context?: string): Promise<BarcodeMatch> {
+  const response = await fetch(`/api/minimarket/lookup?${new URLSearchParams({ code, section })}`, { cache: "no-store", headers: context ? { "X-Retail-Context": context } : undefined, signal: AbortSignal.timeout(8000) });
   const value = await response.json();
   if (!response.ok) throw new BarcodeLookupError(value.error?.message ?? "No se pudo consultar el producto.", response.status);
   return value as BarcodeMatch;

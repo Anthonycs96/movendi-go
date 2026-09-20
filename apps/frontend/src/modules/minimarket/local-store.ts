@@ -17,6 +17,17 @@ export async function localWrite(key: string, value: unknown) {
   const db = await database();
   await new Promise<void>((resolve, reject) => { const tx = db.transaction("state", "readwrite"); const store = tx.objectStore("state"); if (value === undefined) store.delete(key); else store.put(value, key); tx.oncomplete = () => resolve(); tx.onabort = tx.onerror = () => reject(tx.error); });
 }
+/** Read and write together so another tab cannot duplicate a scan. */
+export async function localUpdate<T>(key: string, update: (value: T | undefined) => T): Promise<T> {
+  const db = await database();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("state", "readwrite"), store = tx.objectStore("state");
+    let value: T;
+    const request = store.get(key);
+    request.onsuccess = () => { value = update(request.result as T | undefined); store.put(value, key); };
+    tx.oncomplete = () => resolve(value); tx.onabort = tx.onerror = () => reject(tx.error);
+  });
+}
 /** Atomic claim serializes tabs; a different unresolved intention cannot replace the first. */
 export async function claimOperation(scope: string, proposed: PendingOperation) {
   const db = await database();
@@ -27,11 +38,14 @@ export async function claimOperation(scope: string, proposed: PendingOperation) 
     tx.oncomplete = () => resolve(chosen); tx.onabort = tx.onerror = () => reject(new Error("Existe una operación pendiente. Recupera su resultado antes de guardar otra."));
   });
 }
-export async function completeOperation(scope: string, key: string, sale: boolean) {
+export async function completeOperation(scope: string, key: string, sale: boolean, cartScope = scope) {
   const db = await database();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction("state", "readwrite"), store = tx.objectStore("state"); const request = store.get(`pending:${scope}`);
-    request.onsuccess = () => { if ((request.result as PendingOperation | undefined)?.key === key) { store.delete(`pending:${scope}`); if (sale) store.delete(`cart:${scope}`); } };
-    tx.oncomplete = () => { if (sale && typeof BroadcastChannel !== "undefined") { const channel = new BroadcastChannel("movendi-retail"); channel.postMessage({ type: "sale-complete", scope }); channel.close(); } resolve(); }; tx.onabort = tx.onerror = () => reject(tx.error);
+    request.onsuccess = () => { if ((request.result as PendingOperation | undefined)?.key === key) {
+      store.delete(`pending:${scope}`);
+      if (sale) { const cart = store.get(`cart:${cartScope}`); cart.onsuccess = () => { const saved = cart.result as { intentId: string; lines: unknown[] } | undefined; if (saved?.intentId === key) store.put({ ...saved, intentId: crypto.randomUUID(), lines: [] }, `cart:${cartScope}`); }; }
+    } };
+    tx.oncomplete = () => { if (sale && typeof BroadcastChannel !== "undefined") { const channel = new BroadcastChannel("movendi-retail"); channel.postMessage({ type: "sale-complete", scope, cartScope }); channel.close(); } resolve(); }; tx.onabort = tx.onerror = () => reject(tx.error);
   });
 }

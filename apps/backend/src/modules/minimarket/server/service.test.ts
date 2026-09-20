@@ -1,3 +1,7 @@
+import { receiverScanner, senderScanner } from "./scanner";
+import { savePaymentQr } from "./payment-qr";
+import { getSessionById } from "@/core/auth/session";
+import sharp from "sharp";
 import { hasPermission } from "@/core/auth/permissions";
 import { quoteRetail } from "./promotions";
 import { commercialFiscalSource } from "@/modules/invoicing/domain/commercial-source";
@@ -60,7 +64,7 @@ beforeEach(async (testContext) => {
   context.after(() => { if (previousKey === undefined) delete process.env.INTEGRATION_ENCRYPTION_KEY; else process.env.INTEGRATION_ENCRYPTION_KEY = previousKey; });
   context.mock.method(globalThis, "fetch", async () => { throw new Error("Unexpected external request"); });
   context.mock.method(prisma, "$transaction", db.$transaction.bind(db));
-  for (const model of ["category", "promotion", "fiscalConfiguration", "fiscalJob", "restaurantIntegrationCredential", "restaurantElectronicDocument", "tenant", "branch", "inventorySupplier", "inventoryPayable", "inventorySupplierPayment", "retailTransfer", "retailProduct", "retailPresentation", "retailSale", "retailSaleLine", "retailLot", "retailOperation", "cashSession", "cashMovement", "sale", "inventoryItem", "inventoryMovement", "inventoryPurchase", "customer"] as const) {
+  for (const model of ["session", "retailScannerConnection", "retailScanEvent", "retailPaymentQr", "salePayment", "category", "promotion", "fiscalConfiguration", "fiscalJob", "restaurantIntegrationCredential", "restaurantElectronicDocument", "tenant", "branch", "inventorySupplier", "inventoryPayable", "inventorySupplierPayment", "retailTransfer", "retailProduct", "retailPresentation", "retailSale", "retailSaleLine", "retailLot", "retailOperation", "cashSession", "cashMovement", "sale", "inventoryItem", "inventoryMovement", "inventoryPurchase", "customer"] as const) {
     const original = prisma[model]; Object.defineProperty(prisma, model, { value: db[model], configurable: true });
     context.after(() => Object.defineProperty(prisma, model, { value: original, configurable: true }));
   }
@@ -85,6 +89,119 @@ async function product(options: { stock?: number; expiry?: boolean; weighted?: b
   return db.retailProduct.findUniqueOrThrow({ where: { id: result.id }, include: { item: true, presentations: true, lots: true } });
 }
 function cart(presentationId: string, quantity = 1, total = 300): CheckoutInput { return { idempotencyKey: randomUUID(), cashSessionId: cashId, payments: [{ method: "CASH", amountCents: total, reference: null }], lines: [{ presentationId, quantity }] }; }
+
+async function scannerSession(executionScope = scope) {
+  const role = await db.role.create({ data: { tenantId: executionScope.tenantId, key: randomUUID(), name: "Cajero", permissions: JSON.stringify(executionScope.permissions) } });
+  const membership = await db.membership.create({ data: { tenantId: executionScope.tenantId, branchId: executionScope.branchId, userId: executionScope.actorId, roleId: role.id } });
+  const record = await db.session.create({ data: { tenantId: executionScope.tenantId, branchId: executionScope.branchId, userId: executionScope.actorId, membershipId: membership.id, tokenHash: randomUUID(), expiresAt: new Date(Date.now() + 3600_000) } });
+  return (await getSessionById(record.id))!;
+}
+async function connectScanner(session: AuthSession, cashSessionId: string) {
+  const receiverToken = randomUUID().replaceAll("-", ""), pairingToken = randomUUID().replaceAll("-", ""), senderToken = randomUUID().replaceAll("-", ""), cartIntentId = randomUUID();
+  const result = await receiverScanner(session, { action: "connect", cashSessionId, receiverToken, pairingToken, cartIntentId });
+  assert.ok("connectionId" in result);
+  return { connectionId: result.connectionId, receiverToken, pairingToken, senderToken, cartIntentId };
+}
+
+test("cinco cajas: lecturas, ventas y medios de pago permanecen aislados por turno", async () => {
+  const p = await product({ stock: 20 });
+  const sessions: Array<{ session: AuthSession; cash: string; link: Awaited<ReturnType<typeof connectScanner>> }> = [];
+  for (let index = 0; index < 5; index++) {
+    const actor = index === 0 ? { id: scope.actorId } : await db.user.create({ data: { name: `Cajero ${index}`, email: `${randomUUID()}@test.local`, passwordHash: "not-a-login" } });
+    const cashierScope = { ...scope, actorId: actor.id, permissions: ["minimarket:sales:write", "minimarket:cash:read", "minimarket:cash:open"] };
+    const cash = index === 0 ? cashId : ((await command(["cash"], { openingCents: index * 100, registerName: `Caja ${index + 1}` }, cashierScope)) as { session: { id: string } }).session.id;
+    const session = await scannerSession(cashierScope), link = await connectScanner(session, cash);
+    await senderScanner({ action: "pair", ...link });
+    await receiverScanner(session, { action: "poll", ...link, accepting: true });
+    sessions.push({ session, cash, link });
+  }
+  const scans = sessions.map((row, index) => ({ action: "scan" as const, ...row.link, requestId: randomUUID(), barcode: `code-${index}` }));
+  if (process.env.INVENTORY_TEST_DATABASE_URL) await Promise.all(scans.map((scan) => senderScanner(scan)));
+  for (const [index, row] of sessions.entries()) {
+    const scan = scans[index];
+    await senderScanner(scan); await senderScanner(scan);
+    const received = await receiverScanner(row.session, { action: "poll", ...row.link, accepting: true });
+    assert.ok("events" in received); assert.deepEqual(received.events.map((event) => event.barcode), [`code-${index}`]);
+    const other = sessions[(index + 1) % 5];
+    await assert.rejects(receiverScanner(other.session, { action: "poll", ...row.link, accepting: true }), code("SCANNER_DISCONNECTED"));
+    await assert.rejects(senderScanner({ ...scan, senderToken: other.link.senderToken }), code("SCANNER_DISCONNECTED"));
+    const sale = await checkoutRetail({ ...scope, actorId: row.session.userId, permissions: row.session.permissions }, { ...cart(p.presentations[0].id), cashSessionId: row.cash, digitalPaymentConfirmed: true, payments: [{ method: index % 2 ? "YAPE" : "CASH", amountCents: 300, reference: `ref-${index}` }] });
+    const stored = await db.sale.findUniqueOrThrow({ where: { id: sale.id } }); assert.equal(stored.cashSessionId, row.cash); assert.equal(stored.cashierId, row.session.userId);
+    assert.equal((await db.cashSession.findUniqueOrThrow({ where: { id: row.cash } })).expectedCents, (index === 0 ? 10000 : index * 100) + (index % 2 ? 0 : 300));
+  }
+  const data = await getMinimarketData(scope, "checkout", new URLSearchParams()); assert.equal(data.cashSessions.length, 5); assert.equal(data.cashSessions[0].cashierName.startsWith("Cajero"), true);
+  assert.deepEqual(data.cashPayments, [{ method: "CASH", amountCents: 300 }]);
+});
+
+test("escáner: vínculo de un solo celular, pausa, reintento, nueva venta y cierre de turno", async () => {
+  const session = await scannerSession(), link = await connectScanner(session, cashId);
+  const paired = await senderScanner({ action: "pair", ...link }); assert.equal(paired.registerName, "Caja principal");
+  await assert.rejects(senderScanner({ action: "pair", ...link, senderToken: "b".repeat(32) }), code("PAIRING_EXPIRED"));
+  await assert.rejects(connectScanner(session, cashId), code("SCANNER_IN_USE"));
+  const scan = { action: "scan" as const, ...link, requestId: randomUUID(), barcode: "77500001" };
+  await assert.rejects(senderScanner(scan), code("SCANNER_PAUSED"));
+  await receiverScanner(session, { action: "poll", ...link, accepting: true }); await senderScanner(scan);
+  const poll = await receiverScanner(session, { action: "poll", ...link, accepting: true }); assert.ok("events" in poll); assert.equal(poll.events.length, 1);
+  await receiverScanner(session, { action: "ack", ...link, sequence: poll.events[0].sequence, status: "ADDED", message: "Producto agregado" });
+  assert.equal((await senderScanner(scan)).event?.status, "ADDED");
+  const next = { ...scan, requestId: randomUUID() }; await senderScanner(next);
+  const changedCart = await receiverScanner(session, { action: "poll", ...link, accepting: true, cartIntentId: randomUUID() });
+  assert.ok("events" in changedCart); assert.equal(changedCart.events[0].cartIntentId, link.cartIntentId);
+  await receiverScanner(session, { action: "ack", ...link, sequence: changedCart.events[0].sequence, status: "REJECTED", message: "La venta cambió" });
+  assert.equal((await senderScanner({ action: "status", ...link, requestId: next.requestId })).event?.status, "REJECTED");
+  await db.retailScannerConnection.update({ where: { id: link.connectionId }, data: { receiverSeenAt: new Date(Date.now() - 11000) } });
+  await assert.rejects(senderScanner({ ...scan, requestId: randomUUID() }), code("SCANNER_PAUSED"));
+  await command(["cash", cashId, "close"], { expectedCents: 10000, countedCents: 10000 });
+  await assert.rejects(senderScanner({ action: "status", ...link }), code("SCANNER_DISCONNECTED"));
+});
+
+test("escáner: no delega acceso a otra sucursal, sesión revocada o cajero ajeno", async () => {
+  const session = await scannerSession(), link = await connectScanner(session, cashId);
+  await senderScanner({ action: "pair", ...link });
+  await assert.rejects(receiverScanner({ ...session, branchId: secondScope.branchId }, { action: "poll", ...link, accepting: true }), code("SCANNER_DISCONNECTED"));
+  await assert.rejects(receiverScanner({ ...session, userId: "otro", permissions: ["minimarket:sales:write"] }, { action: "reset", cashSessionId: cashId }), code("FORBIDDEN"));
+  await db.session.update({ where: { id: session.sessionId }, data: { branchId: secondScope.branchId } });
+  await assert.rejects(senderScanner({ action: "status", ...link }), code("SCANNER_DISCONNECTED"));
+  await db.session.delete({ where: { id: session.sessionId } });
+  await assert.rejects(senderScanner({ action: "status", ...link }), code("SCANNER_DISCONNECTED"));
+});
+
+test("escáner: QR vencido no se vincula y restablecer una caja invalida sus secretos", async () => {
+  const session = await scannerSession(), link = await connectScanner(session, cashId);
+  await db.retailScannerConnection.update({ where: { id: link.connectionId }, data: { pairExpiresAt: new Date(Date.now() - 1) } });
+  await assert.rejects(senderScanner({ action: "pair", ...link }), code("PAIRING_EXPIRED"));
+  await receiverScanner(session, { action: "reset", cashSessionId: cashId });
+  const renewed = await connectScanner(session, cashId); assert.notEqual(renewed.connectionId, link.connectionId);
+  await assert.rejects(senderScanner({ action: "pair", ...link }), code("SCANNER_DISCONNECTED"));
+});
+
+test("PostgreSQL: lecturas concurrentes con la misma identidad no se duplican", async (context) => {
+  if (!process.env.INVENTORY_TEST_DATABASE_URL) { context.skip("Requiere PostgreSQL real."); return; }
+  const session = await scannerSession(), link = await connectScanner(session, cashId);
+  await senderScanner({ action: "pair", ...link }); await receiverScanner(session, { action: "poll", ...link, accepting: true });
+  const input = { action: "scan" as const, ...link, requestId: randomUUID(), barcode: "775000001" };
+  await Promise.all([senderScanner(input), senderScanner(input)]);
+  assert.equal(await db.retailScanEvent.count({ where: { connectionId: link.connectionId } }), 1);
+});
+
+test("QR: imagen validada por sucursal y pago digital confirmado sin inflar efectivo", async () => {
+  await command(["payment-methods"], { methods: ["CASH", "YAPE", "PLIN"] });
+  assert.deepEqual((await getMinimarketData(secondScope, "pos", new URLSearchParams())).paymentMethods, ["CASH", "YAPE", "PLIN"]);
+  await assert.rejects(command(["payment-methods"], { methods: ["CARD"] }, { ...scope, permissions: ["minimarket:sales:write"] }), code("FORBIDDEN"));
+  const image = await sharp({ create: { width: 50, height: 50, channels: 3, background: "white" } }).png().toBuffer();
+  await savePaymentQr(scope, "YAPE", "Cuenta de prueba", image);
+  await savePaymentQr(secondScope, "YAPE", "Otra sucursal", image);
+  const data = await getMinimarketData(scope, "pos", new URLSearchParams()); assert.equal(data.paymentQrs.length, 1); assert.equal(data.paymentQrs[0].payee, "Cuenta de prueba");
+  await assert.rejects(savePaymentQr({ ...scope, permissions: ["minimarket:sales:write"] }, "YAPE", "No autorizado", image), code("FORBIDDEN"));
+  await assert.rejects(savePaymentQr(scope, "YAPE", "Inválido", Buffer.from("<svg><script/></svg>")), code("INVALID_QR_IMAGE"));
+  const p = await product({ stock: 5 }), input = { ...cart(p.presentations[0].id), payments: [{ method: "YAPE", amountCents: 300, reference: "YAPE-1234" }] };
+  await assert.rejects(checkoutRetail(scope, input), code("PAYMENT_NOT_CONFIRMED"));
+  assert.equal(await db.sale.count({ where: { tenantId: scope.tenantId } }), 0);
+  await checkoutRetail(scope, { ...input, digitalPaymentConfirmed: true });
+  assert.equal((await db.cashSession.findUniqueOrThrow({ where: { id: cashId } })).expectedCents, 10000);
+  assert.equal((await getMinimarketData(scope, "sales", new URLSearchParams())).sales[0].payments[0].reference, "YAPE-1234");
+  await savePaymentQr(scope, "YAPE", "", null); assert.equal((await getMinimarketData(secondScope, "pos", new URLSearchParams())).paymentQrs.length, 1);
+});
 
 test("categorías: creación, duplicados, renombrado, filtros y eliminación mantienen el aislamiento", async () => {
   const input = { idempotencyKey: randomUUID(), name: "Bebidas" };
@@ -269,7 +386,7 @@ async function refund(saleId: string, lineId: string, quantity: number, total: n
 
 test("unidad/paquete/peso: compra, cobro mixto, snapshot inmutable e idempotencia", async () => {
   const p = await product({ stock: 20, factor: 6, price: 1500 });
-  const input = cart(p.presentations[0].id, 2, 3000); input.payments = [{ method: "CASH", amountCents: 1000, reference: null }, { method: "YAPE", amountCents: 2000, reference: "Y-001" }]; input.cashReceivedCents = 2000;
+  const input = cart(p.presentations[0].id, 2, 3000); input.payments = [{ method: "CASH", amountCents: 1000, reference: null }, { method: "YAPE", amountCents: 2000, reference: "Y-001" }]; input.cashReceivedCents = 2000; input.digitalPaymentConfirmed = true;
   const sale = await checkoutRetail(scope, input);
   assert.deepEqual(await checkoutRetail(scope, input), sale);
   assert.equal(sale.changeCents, 1000);

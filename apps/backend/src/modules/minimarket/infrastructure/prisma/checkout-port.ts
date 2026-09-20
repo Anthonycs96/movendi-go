@@ -40,6 +40,7 @@ export class PrismaCheckoutPort implements CheckoutPort {
     const tenant = await this.tx.tenant.findUniqueOrThrow({ where: { id: this.scope.tenantId }, select: { paymentMethods: true } });
     const allowed = JSON.parse(tenant.paymentMethods) as string[];
     if (input.payments.some((payment) => !allowed.includes(payment.method))) throw new AppError("PAYMENT_METHOD_DISABLED", 409, "Uno de los métodos de pago está deshabilitado.");
+    if (input.payments.some((p) => ["YAPE", "PLIN", "TRANSFER", "OTHER"].includes(p.method) && p.amountCents > 0) && !input.digitalPaymentConfirmed) throw new AppError("PAYMENT_NOT_CONFIRMED", 409, "Confirma que recibiste el pago digital antes de cobrar.");
     return validateSalePayments(totalCents, input.payments, input.cashReceivedCents);
   }
   async record(lines: CheckoutLine[], input: CheckoutInput, totalCents: number, payment: Awaited<ReturnType<CheckoutPort["validatePayments"]>>) {

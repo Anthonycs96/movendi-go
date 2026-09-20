@@ -5,6 +5,7 @@ import type { MinimarketData } from "@movendi/contracts";
 import { claimOperation, completeOperation, localRead, type PendingOperation } from "./local-store";
 type Result = { id?: string; code?: string; totalCents?: number; changeCents?: number | null; error?: { code?: string; message?: string } };
 export const scopeKey = (scope: MinimarketData["scope"]) => [scope.tenantId, scope.branchId, scope.actorId].join(":");
+export const cartScopeKey = (data: Pick<MinimarketData, "scope" | "cash">) => `${scopeKey(data.scope)}:cash:${data.cash?.id ?? "draft"}`;
 export function useRetailOperation(scope: MinimarketData["scope"]) {
   const router = useRouter(), context = scopeKey(scope);
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(""), [error, setError] = useState("");
@@ -36,7 +37,7 @@ export function useRetailOperation(scope: MinimarketData["scope"]) {
         if (durable && response.status >= 400 && response.status < 500 && ![401, 403, 408, 429].includes(response.status) && !["RETAIL_CONTEXT_CHANGED", "IDEMPOTENCY_CONFLICT"].includes(result.error?.code ?? "")) { await completeOperation(context, request.key, false); setPending(null); }
         throw new Error(result.error?.message ?? "No se pudo guardar la operación.");
       }
-      if (durable) { await completeOperation(context, request.key, path === "sales"); setPending(null); }
+      if (durable) { await completeOperation(context, request.key, path === "sales", `${context}:cash:${body.cashSessionId ?? "draft"}`); setPending(null); }
       if (recovery && path === "sales") setRecoveredSale(result.id ?? request.key);
       setMessage(result.code ? "Operación registrada: " + result.code : "Cambios guardados."); router.refresh(); return result;
     } catch (e) { setError(e instanceof Error ? e.message : "Error de conexión. Recupera la operación con la misma clave."); return null; }

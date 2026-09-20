@@ -12,6 +12,7 @@ export async function GET(request: Request) {
     const session = await requireSession();
     assertMinimarketAccess(session, section);
     const scope = await requireTenantScope();
+    if (request.headers.has("x-retail-context") && request.headers.get("x-retail-context") !== [scope.tenantId, scope.branchId, scope.actorId].join(":")) throw new AppError("RETAIL_CONTEXT_CHANGED", 409, "Cambió la sucursal. Vuelve a vincular el escáner en la caja correcta.");
     const result = await lookupBarcode(scope, params.get("code") ?? "");
     return Response.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) { return errorResponse(error); }

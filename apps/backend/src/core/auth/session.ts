@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { cookies } from "next/headers";
 import { prisma } from "@/core/database/prisma";
 import { AppError } from "./errors";
@@ -41,8 +42,15 @@ export async function destroySession() {
 export async function getOptionalSession(): Promise<AuthSession | null> {
   const token = (await cookies()).get(COOKIE_NAME)?.value;
   if (!token) return null;
+  return readSession({ tokenHash: hashToken(token) });
+}
+
+/** Revalidate the PC session before accepting a delegated scanner request. */
+export function getSessionById(id: string) { return readSession({ id }); }
+
+async function readSession(where: Prisma.SessionWhereUniqueInput): Promise<AuthSession | null> {
   const record = await prisma.session.findUnique({
-    where: { tokenHash: hashToken(token) },
+    where,
     include: {
       user: true,
       tenant: true,

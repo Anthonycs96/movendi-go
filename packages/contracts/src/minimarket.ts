@@ -4,9 +4,10 @@ export interface MinimarketProduct {
   lots: Array<{ id: string; code: string; expiresOn: string; stock: number }>;
 }
 export interface MinimarketSale {
+  registerName: string; cashierName: string;
   id: string; code: string; currency: string; status: string; totalCents: number; refundedCents: number; createdAt: string; paymentMethod: string;
   lines: Array<{ id: string; name: string; quantity: number; returnedQuantity: number; unitPriceCents: number; totalCents: number; discountCents: number; promotionName: string | null; refundedCents: number }>;
-  payments: Array<{ method: string; amountCents: number }>;
+  payments: Array<{ method: string; amountCents: number; reference: string | null }>;
   fiscalJobs: Array<{ id: string; kind: string; series: string; number: number; status: string; environment: string; lastError: string | null; pdfUrl: string | null; xmlUrl: string | null; cdrUrl: string | null }>;
 }
 export interface MinimarketPromotion { id: string; name: string; kind: string; value: number; retailProductId: string | null; retailPresentationId: string | null; priority: number; minQuantity: number; startsAt: string | null; endsAt: string | null; active: boolean }
@@ -17,6 +18,8 @@ export interface MinimarketReport {
   purchases: { count: number; totalCents: number; currencyVerified: boolean }; payables: Array<{ currency: string; count: number; balanceCents: number }>;
 }
 export interface MinimarketData {
+  paymentQrs: Array<{ id: string; method: string; payee: string; updatedAt: string }>;
+  cashPayments: Array<{ method: string; amountCents: number }>;
   categories: Array<{ id: string; name: string; active: boolean; productCount: number }>;
   report: MinimarketReport | null;
   promotions: MinimarketPromotion[];
@@ -25,7 +28,7 @@ export interface MinimarketData {
   transfers: MinimarketTransfer[];
   transferBranches: Array<{ id: string; name: string }>;
   scope: { tenantId: string; branchId: string; actorId: string };
-  cashSessions: Array<{ id: string; registerName: string; openedById: string; openingCents: number; expectedCents: number; openedAt: string }>;
+  cashSessions: Array<{ id: string; registerName: string; openedById: string; cashierName: string; openingCents: number; expectedCents: number; openedAt: string; scannerOnline: boolean }>;
   fiscal: { enabled: boolean; environment: "BETA" | "PRODUCTION"; taxRatePct: number; invoiceSeries: string; receiptSeries: string };
   fiscalConnection: { configured: boolean; status: string; tokenHint: string; apiUrl: string } | null;
   today: string; currency: string; paymentMethods: string[]; products: MinimarketProduct[]; sales: MinimarketSale[];
@@ -33,7 +36,7 @@ export interface MinimarketData {
   movements: Array<{ id: string; name: string; type: string; direction: string; quantity: number; stockBefore: number; actorName: string; reference: string | null; stockAfter: number; notes: string | null; createdAt: string }>;
   customers: Array<{ id: string; name: string; dni: string | null; phone: string | null; email: string | null }>;
   cash: { id: string; openingCents: number; expectedCents: number; openedAt: string } | null;
-  cashHistory: Array<{ id: string; registerName: string; status: string; openingCents: number; expectedCents: number; countedCents: number | null; openedAt: string }>;
+  cashHistory: Array<{ id: string; registerName: string; cashierName: string; status: string; openingCents: number; expectedCents: number; countedCents: number | null; openedAt: string; closedAt: string | null }>;
   cashMovements: Array<{ id: string; type: string; amountCents: number; reason: string; createdAt: string }>;
   page: number; pages: number; totalRows: number;
   summary: { salesCents: number; refundedCents: number; count: number; lowStock: number; expiringLots: number } | null;

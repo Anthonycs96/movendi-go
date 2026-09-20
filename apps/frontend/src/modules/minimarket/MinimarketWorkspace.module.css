@@ -247,6 +247,25 @@
 .categoryItem .catalogActions { display: flex; align-items: center; justify-content: flex-end; }
 .categoryItem .catalogActions > span { flex-basis: 100%; margin: 0; font-size: 12px; }
 .categoryItem button { max-width: 100%; overflow-wrap: anywhere; }
+.cashIdentity { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-left: 4px solid #1769d3; border-radius: 14px; padding: 16px; background: var(--surface-solid); }
+.cashIdentity p { margin: 6px 0 0; font-size: 13px; color: var(--text-muted); }
+.cashBoard, .qrSettings { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; }
+.cashBoard article, .qrSettings article { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 18px; border: 1px solid var(--border); border-radius: 14px; min-width: 0; }
+.cashBoard h3, .qrSettings h3 { margin: 0; }
+.cashBoard p, .qrSettings p { margin: 0; overflow-wrap: anywhere; }
+.cashBoard a { margin-top: auto; padding-top: 10px; }
+.qrSettings img { width: 130px; height: 130px; object-fit: contain; background: white; }
+.qrSettings button { margin-top: auto; }
+.qrImage { display: block; width: min(100%, 280px); height: auto; object-fit: contain; background: white; border-radius: 10px; align-self: center; margin: 8px auto; }
+.paymentQr { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid var(--border); border-radius: 14px; text-align: center; }
+.paymentQr h3 { margin: 0; }
+.remoteScanner { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.remoteScanner > button { display: flex; align-items: center; gap: 8px; }
+.remoteScanner > p { flex-basis: 100%; margin: 0; }
+.phoneScanner { max-width: 600px; margin: 0 auto; padding: 24px 16px; min-height: 100dvh; }
+.phoneScanner > header { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 12px 0; }
+.phoneScanner h1 { font-size: 26px; margin: 0; }
+.phoneScanner > header p { margin: 0; }
 @media (max-width: 600px) {
   .categoryItem { flex-direction: column; align-items: stretch; }
   .categoryItem .catalogActions { justify-content: flex-start; }

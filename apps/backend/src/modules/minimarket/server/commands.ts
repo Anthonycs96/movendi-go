@@ -23,6 +23,14 @@ import { cents, key, taxCategory, productSchema, presentationSchema, checkoutSch
 
 export async function handleMinimarketCommand(method: string, segments: string[], body: unknown, scope: TenantScope) {
   const [resource, id, action] = segments;
+  if (resource === "payment-methods" && method === "POST" && !id) {
+    if (!hasPermission(scope.permissions, "settings:write")) throw new AppError("FORBIDDEN", 403, "Solo un administrador puede configurar los medios de pago.");
+    const input = parse(z.object({ idempotencyKey: key, methods: z.array(z.enum(["CASH", "CARD", "TRANSFER", "YAPE", "PLIN", "OTHER"])).min(1).max(6) }), body);
+    return retailOperation(scope, "PAYMENT_METHODS", input, async (tx) => {
+      await tx.tenant.update({ where: { id: scope.tenantId }, data: { paymentMethods: JSON.stringify([...new Set(input.methods)]) } });
+      return { id: scope.tenantId };
+    });
+  }
   if (resource === "categories" && !action) {
     if ((method === "POST" && !id) || (method === "PATCH" && id)) return saveRetailCategory(scope, parse(categorySchema, body), id);
     if (method === "DELETE" && id) return deleteRetailCategory(scope, id, parse(z.object({ idempotencyKey: key }), body));
@@ -110,12 +118,12 @@ export async function handleMinimarketCommand(method: string, segments: string[]
       return retailOperation(scope, "CASH_OPEN", input, async (tx) => {
         const own = await tx.cashSession.findFirst({ where: { ...scoped(scope), openedById: scope.actorId, status: "OPEN" } });
         if (own) throw new AppError("CASH_ALREADY_OPEN", 409, "Cierra tu turno actual antes de abrir otra caja.");
-        return openCashSession(tx, scope, { ...input, registerSlot: `REGISTER:${input.registerName.normalize("NFKC").trim().toLocaleLowerCase("es-PE")}` });
+        return openCashSession(tx, scope, { ...input, registerSlot: `REGISTER:${input.registerName.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("es-PE")}` });
       });
     }
     if (action === "close") {
       const input = parse(z.object({ idempotencyKey: key, countedCents: cents, expectedCents: cents, notes: z.string().trim().max(500).optional() }), body);
-      return retailOperation(scope, "CASH_CLOSE", { ...input, id }, async (tx) => { await assertRetailCash(tx, scope, id); return closeCashSession(tx, scope, { ...input, id, policy: { toleranceCents: 0, canApprove: hasPermission(scope.permissions, "minimarket:cash:approve") } }); });
+      return retailOperation(scope, "CASH_CLOSE", { ...input, id }, async (tx) => { await assertRetailCash(tx, scope, id); await tx.retailScannerConnection.deleteMany({ where: { cashSessionId: id, ...scoped(scope) } }); return closeCashSession(tx, scope, { ...input, id, policy: { toleranceCents: 0, canApprove: hasPermission(scope.permissions, "minimarket:cash:approve") } }); });
     }
     if (action === "movement") {
       const input = parse(z.object({ idempotencyKey: key, type: z.enum(["IN", "OUT"]), amountCents: cents.refine((n) => n > 0), reason: z.string().trim().min(5).max(200) }), body);
