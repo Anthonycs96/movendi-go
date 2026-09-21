@@ -31,11 +31,26 @@ export async function consumeRestaurantSaleInventory(transaction: Prisma.Transac
   return totals.size;
 }
 
-export async function reverseRestaurantSaleInventory(transaction: Prisma.TransactionClient, scope: TenantScope, saleId: string, reason: string) {
+export async function reverseRestaurantSaleInventory(transaction: Prisma.TransactionClient, scope: TenantScope, saleId: string, reason: string, partial?: { movementId: string; quantity: number; idempotencyKey: string }) {
   const movements = await transaction.inventoryMovement.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, saleId, type: "SALE_CONSUMPTION", direction: "OUT" } });
   if (!movements.length) throw new AppError("SALE_WITHOUT_INVENTORY", 409, "La venta no tiene consumos de inventario para devolver.");
-  for (const movement of movements) {
-    await applyInventoryMovement(transaction, scope, { itemId: movement.itemId, type: "SALE_RETURN", direction: "IN", quantity: movement.quantity, unitCostCents: movement.unitCostCents, originType: "SALE_RETURN", originId: saleId, idempotencyKey: `SALE_RETURN:${saleId}:${movement.id}`, orderId: movement.orderId, saleId, reference: movement.reference, notes: reason });
+  if (partial && !movements.some(m => m.id === partial.movementId)) throw new AppError("INVALID_RETURN", 400, "El consumo no pertenece a esta venta.");
+  if (partial) {
+    const replay = await transaction.inventoryMovement.findFirst({ where: { tenantId: scope.tenantId, idempotencyKey: `PARTIAL_RETURN:${partial.idempotencyKey}` } });
+    if (replay) {
+      if (replay.saleId !== saleId || replay.originId !== partial.movementId || replay.quantity !== partial.quantity) throw new AppError("IDEMPOTENCY_CONFLICT", 409, "La solicitud corresponde a otra devolución.");
+      return 1;
+    }
+  }
+  for (const movement of movements.filter(m => !partial || m.id === partial.movementId)) {
+    const legacyFull = await transaction.inventoryMovement.findFirst({ where: { tenantId: scope.tenantId, idempotencyKey: `SALE_RETURN:${saleId}:${movement.id}` } });
+    if (legacyFull) { if (partial) throw new AppError("ALREADY_RETURNED", 409, "Este consumo ya fue devuelto."); else continue; }
+    const returned = await transaction.inventoryMovement.aggregate({ where: { tenantId: scope.tenantId, saleId, type: "SALE_RETURN", originId: movement.id }, _sum: { quantity: true } });
+    const remaining = Math.round((movement.quantity - (returned._sum.quantity ?? 0)) * 1e6) / 1e6;
+    const quantity = partial?.quantity ?? remaining;
+    if (partial && (quantity <= 0 || quantity > remaining)) throw new AppError("INVALID_RETURN", 409, "La cantidad supera el consumo pendiente de devolución.");
+    if (quantity <= 0) continue;
+    await applyInventoryMovement(transaction, scope, { itemId: movement.itemId, type: "SALE_RETURN", direction: "IN", quantity, unitCostCents: movement.unitCostCents, originType: "SALE_RETURN", originId: movement.id, idempotencyKey: partial ? `PARTIAL_RETURN:${partial.idempotencyKey}` : `SALE_RETURN:${saleId}:${movement.id}`, orderId: movement.orderId, saleId, reference: movement.reference, notes: reason });
   }
   return movements.length;
 }

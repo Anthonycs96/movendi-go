@@ -47,7 +47,6 @@ async function clearDatabase() {
   await prisma.retailPresentation.deleteMany();
   await prisma.retailLot.deleteMany();
   await prisma.retailProduct.deleteMany();
-  await prisma.inventoryItem.deleteMany();
   await prisma.transportMaintenanceOrder.deleteMany();
   await prisma.transportFuelLog.deleteMany();
   await prisma.transportPayment.deleteMany();
@@ -78,6 +77,7 @@ async function clearDatabase() {
   await prisma.retailSale.deleteMany();
   await prisma.retailOperation.deleteMany();
   await prisma.cashSession.deleteMany();
+  await prisma.cashRegister.deleteMany();
   await prisma.kitchenTicket.deleteMany();
   await prisma.orderItem.deleteMany();
   await prisma.restaurantOrder.deleteMany();
@@ -85,6 +85,7 @@ async function clearDatabase() {
   await prisma.diningTable.deleteMany();
   await prisma.diningArea.deleteMany();
   await prisma.product.deleteMany();
+  await prisma.inventoryItem.deleteMany();
   await prisma.category.deleteMany();
   await prisma.appointment.deleteMany();
   await prisma.staffSchedule.deleteMany();
@@ -378,9 +379,10 @@ async function main() {
     { id: "tire-event-stock", tenantId: andes.id, tireId: tireB.id, type: "INSPECTION", treadMm: 18, occurredAt: atLocalDay(-30, 12) },
   ] });
 
+  await prisma.cashRegister.create({ data: { id: "register-brasa-principal", tenantId: brasa.id, branchId: brasaPrincipal.id, name: "Caja principal", nameKey: "caja principal" } });
   const [novaCash, brasaCash] = await Promise.all([
     prisma.cashSession.create({ data: { id: "cash-nova-open", tenantId: nova.id, branchId: novaCentral.id, openedById: novaAdmin.id, openingCents: 15000, expectedCents: 15000 } }),
-    prisma.cashSession.create({ data: { id: "cash-brasa-open", tenantId: brasa.id, branchId: brasaPrincipal.id, openedById: brasaAdmin.id, openingCents: 25000, expectedCents: 25000 } }),
+    prisma.cashSession.create({ data: { id: "cash-brasa-open", cashRegisterId: "register-brasa-principal", activeSlot: "REGISTER_ID:register-brasa-principal", tenantId: brasa.id, branchId: brasaPrincipal.id, openedById: brasaAdmin.id, openingCents: 25000, expectedCents: 25000 } }),
   ]);
 
   await prisma.sale.create({ data: { id: "sale-nova-initial", tenantId: nova.id, branchId: novaCentral.id, customerId: marco.id, cashSessionId: novaCash.id, code: "VTA-N-1001", paymentMethod: "YAPE", totalCents: 4500, createdAt: atLocalDay(-1, 17) } });

@@ -2,7 +2,7 @@ import type { AuthSession } from "@/core/auth/types";
 import { AppError } from "@/core/auth/errors";
 
 const resourceModules: Record<string, string> = {
-  configuration: "settings", sunat: "settings", sales: "checkout", cash: "checkout",
+  "cash-registers": "settings", configuration: "settings", sunat: "settings", sales: "checkout", cash: "checkout",
   "preparation-areas": "settings", "print-devices": "settings", "area-printers": "settings", "print-settings": "settings", "print-routes": "settings",
   tables: "floor", areas: "floor", orders: "orders", kitchen: "kitchen",
   customers: "clients", categories: "menu", products: "menu", promotions: "promotions",

@@ -1,4 +1,5 @@
 import { consumeRestaurantSaleInventory, reverseRestaurantSaleInventory } from "@/modules/restaurant/server/sale-inventory";
+import { reserveOrderIngredients, cancelOrderIngredients } from "@/modules/restaurant/server/preparation";
 import { TransactionConflictError, withSerializableTransaction } from "@/core/database/transactions";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -610,4 +611,41 @@ test("PostgreSQL: compras simultáneas con la misma clave registran una sola ent
   assert.equal((await db.inventoryItem.findUniqueOrThrow({ where: { id: article.id } })).stock, 2);
   assert.equal(await db.inventoryMovement.count({ where: { itemId: article.id } }), 1);
   assert.equal(await db.inventoryPurchaseLine.count({ where: { itemId: article.id } }), 1);
+});
+
+
+test("reventa convierte packs sin receta, congela costo, reserva una vez y devuelve parcialmente", async () => {
+  const article = await item({ stock: 0, unitCostCents: 0 });
+  const purchase = { supplierName: "Distribuidora packs", idempotencyKey: "resale-pack-purchase", lines: [{ itemId: article.id, quantity: 2, unitCost: 2640, presentationFactor: 12, presentationName: "Pack x 12" }] };
+  for (let i = 0; i < 2; i++) await db.$transaction(tx => registerInventoryPurchase(tx, scope, purchase));
+  assert.equal((await db.inventoryItem.findUniqueOrThrow({ where: { id: article.id } })).stock, 24);
+  const category = await db.category.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, name: `Reventa ${++sequence}` } });
+  const product = await db.product.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, categoryId: category.id, name: `Botella ${sequence}`, priceCents: 500, stockMode: "RESALE", inventoryItemId: article.id } });
+  const order = await db.restaurantOrder.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, createdById: scope.actorId, code: `REVENTA-${sequence}`, items: { create: { tenantId: scope.tenantId, productId: product.id, name: product.name, quantity: 2, unitPriceCents: 500, totalCents: 1000 } } } });
+  // Direct stock control applies even if automatic recipe consumption is disabled.
+  for (let i = 0; i < 2; i++) await db.$transaction(tx => reserveOrderIngredients(tx, scope, order.id, false, true));
+  assert.equal((await db.inventoryItem.findUniqueOrThrow({ where: { id: article.id } })).stock, 22);
+  assert.equal((await db.orderItem.findFirstOrThrow({ where: { orderId: order.id } })).unitCostCents, 220);
+  const sale = await db.sale.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, orderId: order.id, code: `REVENTA-V-${sequence}`, paymentMethod: "CASH", totalCents: 1000 } });
+  await db.$transaction(tx => consumeRestaurantSaleInventory(tx, scope, order.id, sale.id));
+  const movement = await db.inventoryMovement.findFirstOrThrow({ where: { saleId: sale.id, type: "SALE_CONSUMPTION" } });
+  for (let i = 0; i < 2; i++) await db.$transaction(tx => reverseRestaurantSaleInventory(tx, scope, sale.id, "Botella recuperada", { movementId: movement.id, quantity: 1, idempotencyKey: "partial-bottle-return" }));
+  assert.equal((await db.inventoryItem.findUniqueOrThrow({ where: { id: article.id } })).stock, 23);
+  await db.$transaction(tx => reverseRestaurantSaleInventory(tx, scope, sale.id, "Resto recuperado"));
+  assert.equal((await db.inventoryItem.findUniqueOrThrow({ where: { id: article.id } })).stock, 24);
+});
+
+test("reventa pendiente cancela su reserva; sin stock no consume receta", async () => {
+  const { article, order } = await restaurantSale(null);
+  const line = await db.orderItem.findFirstOrThrow({ where: { orderId: order.id } });
+  await db.product.update({ where: { id: line.productId }, data: { stockMode: "RESALE", inventoryItemId: article.id } });
+  await db.$transaction(tx => reserveOrderIngredients(tx, scope, order.id, true, true));
+  assert.equal((await db.inventoryItem.findUniqueOrThrow({ where: { id: article.id } })).stock, 8);
+  await db.$transaction(tx => cancelOrderIngredients(tx, scope, order.id, "Pedido duplicado"));
+  assert.equal((await db.inventoryItem.findUniqueOrThrow({ where: { id: article.id } })).stock, 10);
+  const other = await restaurantSale(null);
+  const otherLine = await db.orderItem.findFirstOrThrow({ where: { orderId: other.order.id } });
+  await db.product.update({ where: { id: otherLine.productId }, data: { stockMode: "NONE" } });
+  await db.$transaction(tx => reserveOrderIngredients(tx, scope, other.order.id, true, true));
+  assert.equal((await db.inventoryItem.findUniqueOrThrow({ where: { id: other.article.id } })).stock, 10);
 });

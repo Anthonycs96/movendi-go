@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     if (!parsed.success) throw new AppError("VALIDATION_ERROR", 400, "Revisa las fechas y los filtros del historial.");
     const { kind, page, q, from, to, cashId } = parsed.data;
     if (from && to && from > to) throw new AppError("INVALID_RANGE", 400, "La fecha inicial debe ser anterior a la final.");
-    const permission = kind === "orders" ? "restaurant:orders:read" : ["cash", "movements"].includes(kind) ? "restaurant:reports:read" : "restaurant:cash:write";
+    const permission = kind === "orders" ? "restaurant:orders:read" : ["cash", "movements"].includes(kind) ? "restaurant:reports:read" : "restaurant:cash:read";
     const session = await requireSession(permission);
     if (session.tenantType !== "RESTAURANT") throw new AppError("MODULE_ACCESS_DENIED", 403, "Este historial pertenece a Restaurante.");
     assertRestaurantModule(session, kind === "orders" ? "orders" : "checkout");

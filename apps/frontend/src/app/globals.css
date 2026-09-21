@@ -1307,3 +1307,22 @@ a:has(> .navigation-hint) { position: relative; }
 .growth-facts small { grid-column:1/-1; color:var(--text-soft); font-size:11px; line-height:1.6; }
 @media (max-width:900px) { .growth-priorities,.growth-report__grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:560px) { .growth-report__tabs button { flex:1 1 130px; } .growth-facts dd { font-size:17px; } }
+
+/* Per-item preparation and service actions remain touch friendly on tablets. */
+.kitchen-ticket li > .operation-action { grid-column: 2 / -1; justify-self: stretch; }
+.kitchen-ticket li .operation-action .button, .item-service .button { min-height: 44px; white-space: normal; text-align: left; }
+.kitchen-ticket li .operation-action .button { width: 100%; }
+.item-service { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 6px; }
+.item-service small { color: var(--text-soft); }
+.attention-items { max-height: 360px; }
+.attention-items li { flex-wrap: wrap; }
+.attention-items li > .item-service { width: 100%; }
+.attention-checkout > .editor-section, .attention-checkout > .editor-preview { grid-column: 1 / -1; }
+@media (max-width: 600px) { .attention-checkout { grid-template-columns: minmax(0, 1fr); } }
+
+/* Purchase quantities and presentation equivalents stay together on narrow screens. */
+.inventory-line:has(select[aria-label="Presentación de compra"]) { grid-template-columns: minmax(0, 2fr) minmax(72px, .7fr) minmax(0, 1.4fr) minmax(90px, 1fr) auto; }
+.inventory-line > * { min-width: 0; }
+.inventory-line small { display: block; padding: 6px 0; color: var(--muted); }
+@media (max-width: 960px) { .inventory-line:has(select[aria-label="Presentación de compra"]) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .inventory-line > select:first-child { grid-column: 1 / -1; } }
+@media (max-width: 620px) { .inventory-line:has(select[aria-label="Presentación de compra"]) { grid-template-columns: minmax(0, 1fr); } }

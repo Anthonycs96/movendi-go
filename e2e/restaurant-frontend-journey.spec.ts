@@ -157,7 +157,7 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
     await dialog.getByLabel("Proveedor", { exact: true }).fill("Proveedor UI");
     await dialog.getByLabel("Artículo", { exact: true }).selectOption({ label: `UI-INSUMO · ${ingredient} · 100 KG` });
     await dialog.getByLabel("Cantidad", { exact: true }).fill("10");
-    await dialog.getByLabel("Costo unitario", { exact: true }).fill("8");
+    await dialog.getByLabel("Costo por presentación", { exact: true }).fill("8");
     await dialog.getByRole("button", { name: "Registrar compra", exact: true }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page.getByRole("row").filter({ hasText: ingredient })).toContainText("110 KG");
@@ -194,12 +194,14 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
       await navigate(kitchen, "kitchen");
       const ticket = kitchen.locator(".kitchen-ticket").filter({ hasText: "Mesa UI 1" });
       await expect(ticket).toContainText("Sin sal, pedido UI");
-      await ticket.getByRole("button", { name: "Iniciar preparación" }).click();
-      await ticket.getByRole("button", { name: "Marcar listo" }).click();
-      await expect(ticket.getByRole("button", { name: "Entregado", exact: true })).toBeVisible();
+      await ticket.getByRole("button", { name: `Preparar · ${product}` }).click();
+      await ticket.getByRole("button", { name: `Marcar listo · ${product}` }).click();
+      await expect(ticket.getByText("Listo para servir", { exact: true }).first()).toBeVisible();
+      await expect(ticket.getByRole("button", { name: "Entregado", exact: true })).toHaveCount(0);
       await capture(kitchen, info, "04-cocina-lista");
-      await ticket.getByRole("button", { name: "Entregado", exact: true }).click();
-      await expect(ticket).not.toBeVisible();
+      await navigate(page, "orders");
+      await page.getByRole("button", { name: `Servir ${product}`, exact: true }).click();
+      await expect(page.getByText("Servido", { exact: true }).first()).toBeVisible();
 
       await login(cashier, "cashier");
       await expect(cashier.getByRole("link", { name: "Nuevo pedido" })).toHaveCount(0);

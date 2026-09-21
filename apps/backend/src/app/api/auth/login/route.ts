@@ -30,7 +30,7 @@ const tenantDestinations: Record<string, Array<{ path: string; permission: strin
     { path: "orders", permission: "restaurant:orders:read" }, { path: "kitchen", permission: "restaurant:kitchen:read" },
     { path: "clients", permission: "customers:read" }, { path: "menu", permission: "restaurant:menu:read" },
     { path: "promotions", permission: "restaurant:promotions:read" },
-    { path: "checkout", permission: "restaurant:cash:write" }, { path: "reports", permission: "restaurant:reports:read" },
+    { path: "checkout", permission: "restaurant:cash:read" }, { path: "reports", permission: "restaurant:reports:read" },
     { path: "settings", permission: "settings:write" },
   ],
   TRANSPORT: [

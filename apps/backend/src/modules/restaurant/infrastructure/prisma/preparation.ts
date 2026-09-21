@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/core/database/prisma";
-import { withSerializableTransaction } from "@/core/database/transactions";
+import { hasPermission } from "@/core/auth/permissions";
+import { TransactionConflictError, withSerializableTransaction } from "@/core/database/transactions";
 import { AppError } from "@/core/auth/errors";
 import type { TenantScope } from "@/core/auth/types";
 import { getRestaurantConfiguration, hasStoredRestaurantConfiguration } from "../../server/configuration";
@@ -9,36 +10,57 @@ import { cancelOrderIngredients, aggregatePreparationStatus } from "../../server
 import { createRoutedPrintJobs } from "../../server/printing";
 import { changePreparation, changeOrderState } from "../../application/change-preparation";
 import { required } from "../../server/owned";
-export async function updateKitchen(scope: TenantScope, id: string, input: { status: string; itemIds?: string[] }) {
+export async function updateKitchen(scope: TenantScope, id: string, input: { status: string; itemIds?: string[]; confirmed?: boolean }) {
+  const permission = input.status === "SERVED" ? "restaurant:orders:serve" : input.status === "CANCELLED" ? "restaurant:orders:cancel" : "restaurant:kitchen:write";
+  if (!hasPermission(scope.permissions, permission)) throw new AppError("FORBIDDEN", 403, "No tienes permiso para esta operación.");
   const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
-  const ticket = await required(prisma.kitchenTicket.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true, orderId: true, status: true, order: { select: { id: true, version: true, tableId: true, source: true, status: true, sale: { select: { id: true } } } } } }), "La comanda");
-  if (["SERVED", "CANCELLED", "HELD"].includes(ticket.status) || ticket.order.status === "CANCELLED") throw new AppError("TICKET_CLOSED", 409, "La comanda ya está cerrada y no admite cambios.");
-  await withSerializableTransaction((tx) => changePreparation({
-    claim: async () => {
-      if (ticket.order.sale && input.status === "CANCELLED") throw new AppError("REFUND_REQUIRED", 409, "Este pedido está pagado. Registra la devolución desde la venta.");
-      await claimOrder(tx, scope, ticket.order, true);
-    },
-    lines: () => tx.orderItem.findMany({ where: { orderId: ticket.orderId, tenantId: scope.tenantId, status: { not: "CANCELLED" } } }),
-    cancelIngredients: () => cancelOrderIngredients(tx, scope, ticket.orderId, "Comanda anulada desde cocina").then(() => { }),
-    updateLines: async (ids) => {
-      await tx.orderItem.updateMany({ where: { id: { in: ids }, tenantId: scope.tenantId, orderId: ticket.orderId }, data: { status: input.status } });
-    },
-    finish: async () => {
-      const remaining = await tx.orderItem.findMany({ where: { orderId: ticket.orderId }, select: { status: true } });
-      const aggregate = aggregatePreparationStatus(remaining.map((line) => line.status));
-      await tx.kitchenTicket.update({ where: { id: ticket.id }, data: { status: aggregate } });
-      await tx.restaurantOrder.update({ where: { id: ticket.orderId }, data: { status: ticket.order.sale ? "COMPLETED" : aggregate === "QUEUED" ? "PLACED" : aggregate, completedAt: aggregate === "CANCELLED" ? new Date() : undefined, ...(ticket.order.source === "DELIVERY" && ["READY", "CANCELLED"].includes(aggregate) ? { deliveryStatus: aggregate } : {}) } });
-      if (aggregate === "SERVED" && ticket.order.sale && ticket.order.tableId) await tx.diningTable.update({ where: { id: ticket.order.tableId }, data: { status: configuration.floor.cleaningRequired ? "CLEANING" : "AVAILABLE" } });
-      if (aggregate === "CANCELLED" && ticket.order.tableId) await tx.diningTable.update({ where: { id: ticket.order.tableId }, data: { status: "AVAILABLE" } });
-      if (aggregate === "CANCELLED") await createRoutedPrintJobs(tx, scope, { orderId: ticket.orderId, type: "CANCELLATION", lines: [], orderNotes: "COMANDA ANULADA DESDE COCINA" });
-    },
-    audit: async () => { await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "STATUS_CHANGE", entityType: "KitchenTicket", entityId: ticket.id, metadata: JSON.stringify({ status: input.status }) } }); },
-  }, input, { allowCancellation: configuration.kitchen.allowKitchenCancellation, statuses: configuration.kitchen.ticketStatuses }));
+  await withSerializableTransaction(async (tx) => {
+    const ticket = await required(tx.kitchenTicket.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true, orderId: true, status: true, order: { select: { id: true, version: true, tableId: true, source: true, status: true, sale: { select: { id: true } } } } } }), "La comanda");
+    if (["SERVED", "CANCELLED", "HELD"].includes(ticket.status) || ticket.order.status === "CANCELLED") throw new AppError("TICKET_CLOSED", 409, "La comanda ya está cerrada y no admite cambios.");
+    let changedItemIds: string[] = [];
+    await changePreparation({
+      claim: async () => {
+        if (ticket.order.sale && input.status === "CANCELLED") throw new AppError("REFUND_REQUIRED", 409, "Este pedido está pagado. Registra la devolución desde la venta.");
+        try { await claimOrder(tx, scope, ticket.order, true); }
+        catch (error) { if (error instanceof AppError && error.code === "ORDER_CHANGED") throw new TransactionConflictError(error.message); throw error; }
+      },
+      lines: async () => {
+        const route = { kitchenArea: true, areaAssignmentMode: true, preparationAreaId: true, category: { select: { preparationAreaId: true } } } as const;
+        const lines = await tx.orderItem.findMany({ where: { orderId: ticket.orderId, tenantId: scope.tenantId, status: { not: "CANCELLED" } }, include: { product: { select: route }, parentProduct: { select: route } } });
+        return lines.map(line => {
+          const product = line.product.areaAssignmentMode === "INHERIT_FROM_PRODUCT" && line.parentProduct ? line.parentProduct : line.product;
+          return { ...line, preparationAreaKey: line.recipeSnapshot === null && line.preparationAreaKey === "GENERAL" ? product.preparationAreaId ?? product.category.preparationAreaId ?? product.kitchenArea : line.preparationAreaKey };
+        });
+      },
+      cancelIngredients: () => cancelOrderIngredients(tx, scope, ticket.orderId, "Comanda anulada desde cocina").then(() => { }),
+      updateLines: async (ids) => {
+        changedItemIds = ids;
+        await tx.orderItem.updateMany({ where: { id: { in: ids }, tenantId: scope.tenantId, orderId: ticket.orderId, status: { not: input.status } }, data: { status: input.status,
+          ...(input.status === "PREPARING" ? { startedAt: new Date(), startedByUserId: scope.actorId } : {}),
+          ...(input.status === "READY" ? { readyAt: new Date(), readyByUserId: scope.actorId } : {}),
+          ...(input.status === "SERVED" ? { servedAt: new Date(), servedByUserId: scope.actorId } : {}),
+        } });
+      },
+      finish: async () => {
+        const remaining = await tx.orderItem.findMany({ where: { orderId: ticket.orderId }, select: { status: true } });
+        const aggregate = aggregatePreparationStatus(remaining.map((line) => line.status));
+        await tx.kitchenTicket.update({ where: { id: ticket.id }, data: { status: aggregate } });
+        await tx.restaurantOrder.update({ where: { id: ticket.orderId }, data: { status: ticket.order.sale ? "COMPLETED" : aggregate === "QUEUED" ? "PLACED" : aggregate === "PARTIALLY_READY" ? "PREPARING" : aggregate, completedAt: aggregate === "CANCELLED" ? new Date() : undefined, ...(ticket.order.source === "DELIVERY" && ["READY", "CANCELLED"].includes(aggregate) ? { deliveryStatus: aggregate } : {}) } });
+        if (aggregate === "SERVED" && ticket.order.sale && ticket.order.tableId) await tx.diningTable.update({ where: { id: ticket.order.tableId }, data: { status: configuration.floor.cleaningRequired ? "CLEANING" : "AVAILABLE" } });
+        if (aggregate === "CANCELLED" && ticket.order.tableId) await tx.diningTable.update({ where: { id: ticket.order.tableId }, data: { status: "AVAILABLE" } });
+        if (aggregate === "CANCELLED") await createRoutedPrintJobs(tx, scope, { orderId: ticket.orderId, type: "CANCELLATION", lines: [], orderNotes: "COMANDA ANULADA DESDE COCINA" });
+      },
+      audit: async () => { await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "STATUS_CHANGE", entityType: "KitchenTicket", entityId: ticket.id, metadata: JSON.stringify({ status: input.status, itemIds: changedItemIds, confirmed: input.confirmed }) } }); },
+    }, input, { allowCancellation: configuration.kitchen.allowKitchenCancellation, statuses: configuration.kitchen.ticketStatuses });
+  });
   return { ok: true, message: "Comanda actualizada." };
 }
 
 export async function updateOrderState(scope: TenantScope, id: string, input: { status: string; reason?: string }) {
+  if (["PREPARING", "READY", "SERVED", "PARTIALLY_READY"].includes(input.status)) throw new AppError("USE_ITEM_ACTIONS", 409, "Actualiza los productos desde Cocina o Servir para conservar su avance.");
   if (input.status === "COMPLETED") throw new AppError("CHECKOUT_REQUIRED", 409, "Completa el cobro para cerrar el pedido y registrar su venta.");
+  const permission = input.status === "CANCELLED" ? "restaurant:orders:cancel" : "restaurant:orders:write";
+  if (!hasPermission(scope.permissions, permission)) throw new AppError("FORBIDDEN", 403, "No tienes permiso para esta operación.");
   const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
   const storedConfiguration = await hasStoredRestaurantConfiguration(scope.tenantId);
   const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true, version: true, tableId: true, status: true, sale: { select: { id: true } } } }), "El pedido");
@@ -58,12 +80,6 @@ export async function updateOrderState(scope: TenantScope, id: string, input: { 
     },
     update: async () => {
       await tx.restaurantOrder.update({ where: { id: order.id }, data: { status: input.status } });
-      if (["PREPARING", "READY", "SERVED"].includes(input.status)) {
-        const areas = await tx.orderItem.findMany({ where: { orderId: order.id, status: { notIn: ["CANCELLED", "SERVED"] } }, select: { preparationAreaKey: true } });
-        if (new Set(areas.map((line) => line.preparationAreaKey)).size > 1) throw new AppError("USE_KITCHEN_STATIONS", 409, "Actualiza cada área desde Cocina para conservar su avance independiente.");
-        await tx.kitchenTicket.updateMany({ where: { orderId: order.id }, data: { status: input.status } });
-        await tx.orderItem.updateMany({ where: { orderId: order.id, status: { not: "CANCELLED" } }, data: { status: input.status } });
-      }
     },
     audit: async () => { await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "STATUS_CHANGE", entityType: "RestaurantOrder", entityId: order.id, metadata: JSON.stringify({ status: input.status }) } }); },
   }, input.status));

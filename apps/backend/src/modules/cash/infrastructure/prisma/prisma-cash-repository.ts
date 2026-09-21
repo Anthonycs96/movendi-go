@@ -13,7 +13,7 @@ export class PrismaCashRepository implements CashRepository {
   }
   async createSession(input: OpenCashInput) {
     if (!await this.tx.branch.findFirst({ where: { id: this.scope.branchId, tenantId: this.scope.tenantId }, select: { id: true } })) throw new CashError("NOT_FOUND", "La sucursal no pertenece a esta empresa.");
-    try { return await this.tx.cashSession.create({ data: { ...this.scope, id: input.requestId, openedById: this.actor.actorId, openingCents: input.openingCents, expectedCents: input.openingCents, registerName: input.registerName, openingNote: input.notes || null, activeSlot: input.registerSlot ?? "OPEN" } }); }
+    try { return await this.tx.cashSession.create({ data: { ...this.scope, id: input.requestId, cashRegisterId: input.cashRegisterId, openedById: this.actor.actorId, openingCents: input.openingCents, expectedCents: input.openingCents, registerName: input.registerName, openingNote: input.notes || null, activeSlot: input.registerSlot ?? "OPEN" } }); }
     catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new CashConcurrencyError("Otra apertura ocupó la caja durante la operación.");
       throw error;

@@ -8,18 +8,23 @@ import { parseInput as parse } from "@/core/validation/parse-input";
 import { openCashSession, closeCashSession, registerCashMovement } from "@/modules/cash/server/service";
 import { getRestaurantConfiguration } from "./configuration";
 
-// The HTTP schemas retain their existing names, defaults and limits.
-const cashOpenSchema = z.object({ openingAmount: z.coerce.number().nonnegative().max(1000000), registerName: z.string().trim().min(2).max(80).default("Caja principal"), notes: z.string().trim().max(500).optional(), idempotencyKey: z.string().trim().min(8).max(120).optional() });
-const cashCloseSchema = z.object({ countedAmount: z.coerce.number().nonnegative().max(1000000), expectedCents: z.coerce.number().int().optional(), notes: z.string().trim().max(500).optional() });
+// Reject invalid decimal input rather than silently rounding an opening balance.
+const amount = z.union([z.number(), z.string().regex(/^\d+(?:[.,]\d{1,2})?$/, "Ingresa un monto con hasta dos decimales.")]).transform(value => Number(String(value).replace(",", "."))).pipe(z.number().finite().nonnegative().max(1000000)).refine(value => Math.abs(value * 100 - Math.round(value * 100)) < 0.000001, "Usa como máximo dos decimales.");
+const cashOpenSchema = z.object({ openingAmount: amount, cashRegisterId: z.string().min(1, "Selecciona una caja."), notes: z.string().trim().max(500).optional(), idempotencyKey: z.string().trim().min(8).max(120).optional() });
+const cashCloseSchema = z.object({ countedAmount: amount, expectedCents: z.coerce.number().int().optional(), notes: z.string().trim().max(500).optional() });
 const cashMovementSchema = z.object({ type: z.enum(["IN", "OUT"]), amount: z.coerce.number().positive().max(1_000_000), reason: z.string().trim().min(3).max(200), notes: z.string().trim().max(500).optional(), idempotencyKey: z.string().trim().min(8).max(120).optional() });
 
 export async function handleRestaurantCashCommand(id: string | undefined, action: string | undefined, body: unknown, scope: TenantScope) {
+  const permission = !id ? "restaurant:cash:open" : action === "close" ? "restaurant:cash:close" : "restaurant:cash:movement";
+  if (!hasPermission(scope.permissions, permission)) throw new AppError("FORBIDDEN", 403, "No tienes permiso para esta operación de caja.");
   if (!id) {
     const input = parse(cashOpenSchema, body);
     const openingCents = Math.round(input.openingAmount * 100);
     const entity = await withSerializableTransaction(async (tx) => {
-      const result = await openCashSession(tx, scope, { openingCents, registerName: input.registerName, notes: input.notes, idempotencyKey: input.idempotencyKey });
-      if (!result.replayed) await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "OPEN", entityType: "CashSession", entityId: result.session.id, metadata: JSON.stringify({ openingCents, registerName: input.registerName, notes: input.notes }) } });
+      const register = await tx.cashRegister.findFirst({ where: { id: input.cashRegisterId, tenantId: scope.tenantId, branchId: scope.branchId, active: true } });
+      if (!register) throw new AppError("INVALID_CASH_REGISTER", 400, "Selecciona una caja activa de esta sucursal.");
+      const result = await openCashSession(tx, scope, { openingCents, cashRegisterId: register.id, registerSlot: `REGISTER_ID:${register.id}`, registerName: register.name, notes: input.notes, idempotencyKey: input.idempotencyKey });
+      if (!result.replayed) await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: "OPEN", entityType: "CashSession", entityId: result.session.id, metadata: JSON.stringify({ openingCents, cashRegisterId: register.id, registerName: register.name, notes: input.notes }) } });
       return result.session;
     });
     return { ok: true, id: entity.id, message: "Caja abierta correctamente." };

@@ -14,10 +14,12 @@ import { handleBarbershopCommand } from "@/modules/barbershop/server/commands";
 import { handleRestaurantCommand } from "@/modules/restaurant/server/commands";
 import { PrismaCashRepository } from "../infrastructure/prisma/prisma-cash-repository";
 import { openCashSession, closeCashSession, registerCashMovement, applyCashEffect } from "./service";
+import { updateKitchen } from "@/modules/restaurant/server/order-state";
 
 const require = createRequire(import.meta.url);
 let directory: string;
 let db: PrismaClient;
+let registerId: string;
 let scope: TenantScope;
 let secondScope: TenantScope;
 let otherScope: TenantScope;
@@ -45,6 +47,7 @@ before(async () => {
   const branch = await db.branch.create({ data: { tenantId: tenant.id, name: "Principal" } });
   const second = await db.branch.create({ data: { tenantId: tenant.id, name: "Segunda" } });
   const foreign = await db.branch.create({ data: { tenantId: other.id, name: "Ajena" } });
+  registerId = (await db.cashRegister.create({ data: { tenantId: tenant.id, branchId: branch.id, name: "Caja prueba", nameKey: "caja prueba" } })).id;
   const actor = await db.user.create({ data: { name: "Prueba", email: "cash@test.local", passwordHash: "not-a-login" } });
   scope = { tenantId: tenant.id, branchId: branch.id, actorId: actor.id, permissions: ["*"] };
   secondScope = { ...scope, branchId: second.id };
@@ -79,7 +82,7 @@ async function restaurant(segments: string[], body: unknown, executionScope = sc
 
 test("caracterización: apertura, ingreso, retiro y cierre conservan saldo, auditoría e idempotencia histórica", async (context) => {
   useDatabase(context);
-  const opening = { openingAmount: 100, registerName: "Caja prueba", notes: "Inicio", idempotencyKey: "open-cash-test" };
+  const opening = { cashRegisterId: registerId, openingAmount: 100, registerName: "Caja prueba", notes: "Inicio", idempotencyKey: "open-cash-test" };
   const id = await restaurant([], opening);
   assert.equal(await restaurant([], opening), id);
   const input = { type: "OUT", amount: 25, reason: "Compra menor", idempotencyKey: "cash-out-test" };
@@ -94,15 +97,15 @@ test("caracterización: apertura, ingreso, retiro y cierre conservan saldo, audi
   assert.equal(await db.cashMovement.count({ where: { cashSessionId: id } }), 2);
   assert.equal(await db.auditLog.count({ where: { entityId: id, action: "OPEN" } }), 1);
   assert.equal(await db.auditLog.count({ where: { entityId: id, action: "CLOSE" } }), 1);
-  await assert.rejects(restaurant([], { ...opening, openingAmount: 101 }), hasCode("IDEMPOTENCY_CONFLICT"));
+  await assert.rejects(restaurant([], { ...opening, cashRegisterId: registerId, openingAmount: 101 }), hasCode("IDEMPOTENCY_CONFLICT"));
 });
 
 test("caracterización: Caja aplica permisos, tolerancia, efectivo disponible y aislamiento", async (context) => {
   useDatabase(context);
-  const id = await restaurant([], { openingAmount: 20 });
+  const id = await restaurant([], { cashRegisterId: registerId, openingAmount: 20 });
   await assert.rejects(restaurant([id, "movement"], { type: "OUT", amount: 21, reason: "Retiro" }), hasCode("CASH_UNAVAILABLE"));
-  await assert.rejects(restaurant([id, "movement"], { type: "OUT", amount: 1, reason: "Retiro" }, { ...scope, permissions: [] }), hasCode("CASH_OUT_APPROVAL_REQUIRED"));
-  await assert.rejects(restaurant([id, "close"], { countedAmount: 0 }, { ...scope, permissions: [] }), hasCode("CASH_DIFFERENCE_APPROVAL_REQUIRED"));
+  await assert.rejects(restaurant([id, "movement"], { type: "OUT", amount: 1, reason: "Retiro" }, { ...scope, permissions: ["restaurant:cash:movement"] }), hasCode("CASH_OUT_APPROVAL_REQUIRED"));
+  await assert.rejects(restaurant([id, "close"], { countedAmount: 0 }, { ...scope, permissions: ["restaurant:cash:close"] }), hasCode("CASH_DIFFERENCE_APPROVAL_REQUIRED"));
   await assert.rejects(restaurant([id, "close"], { countedAmount: 0 }), hasCode("CASH_DIFFERENCE_REASON_REQUIRED"));
   await assert.rejects(restaurant([id, "close"], { countedAmount: 20, expectedCents: 1999 }), hasCode("CASH_CHANGED"));
   for (const foreign of [secondScope, otherScope]) {
@@ -115,9 +118,9 @@ test("caracterización: Caja aplica permisos, tolerancia, efectivo disponible y 
 
 test("caracterización: Barbería conserva apertura y diferencia de cierre sin políticas de Restaurante", async (context) => {
   useDatabase(context);
-  const result = await handleBarbershopCommand("POST", ["cash"], { openingAmount: 100 }, scope);
+  const result = await handleBarbershopCommand("POST", ["cash"], { cashRegisterId: registerId, openingAmount: 100 }, scope);
   assert.ok(result.id);
-  await assert.rejects(handleBarbershopCommand("POST", ["cash"], { openingAmount: 100 }, scope), hasCode("CASH_ALREADY_OPEN"));
+  await assert.rejects(handleBarbershopCommand("POST", ["cash"], { cashRegisterId: registerId, openingAmount: 100 }, scope), hasCode("CASH_ALREADY_OPEN"));
   const closed = await handleBarbershopCommand("POST", ["cash", result.id, "close"], { countedAmount: 0 }, scope);
   assert.match(closed.message, /-100.00/);
   assert.equal((await db.cashSession.findUniqueOrThrow({ where: { id: result.id } })).countedCents, 0);
@@ -125,7 +128,7 @@ test("caracterización: Barbería conserva apertura y diferencia de cierre sin p
 
 test("caracterización: fallar antes del commit revierte saldo, documento y auditoría de movimiento", async (context) => {
   useDatabase(context);
-  const id = await restaurant([], { openingAmount: 10 });
+  const id = await restaurant([], { cashRegisterId: registerId, openingAmount: 10 });
   context.mock.method(prisma, "$transaction", (operation: (tx: Prisma.TransactionClient) => Promise<unknown>) => db.$transaction(async (tx) => { await operation(tx); throw new Error("Fallo antes del commit"); }));
   await assert.rejects(restaurant([id, "movement"], { type: "OUT", amount: 5, reason: "Prueba rollback" }), /Fallo antes del commit/);
   assert.equal((await db.cashSession.findUniqueOrThrow({ where: { id } })).expectedCents, 1000);
@@ -162,7 +165,7 @@ test("Barbería revierte apertura y cierre cuando falla su auditoría dentro de 
   await assert.rejects(handleBarbershopCommand("POST", ["cash", session.id, "close"], { countedAmount: 10 }, scope), /Auditoría no disponible/);
   assert.equal((await db.cashSession.findUniqueOrThrow({ where: { id: session.id } })).status, "OPEN");
   await resetCash();
-  await assert.rejects(handleBarbershopCommand("POST", ["cash"], { openingAmount: 10 }, scope), /Auditoría no disponible/);
+  await assert.rejects(handleBarbershopCommand("POST", ["cash"], { cashRegisterId: registerId, openingAmount: 10 }, scope), /Auditoría no disponible/);
   assert.equal(await db.cashSession.count({ where: { tenantId: scope.tenantId, status: "OPEN" } }), 0);
 });
 
@@ -197,7 +200,7 @@ function synchronizeReads(context: TestContext, method: "findSession" | "findOpe
 test("PostgreSQL: aperturas simultáneas de Barbería reservan una sola caja", { skip: !process.env.INVENTORY_TEST_DATABASE_URL }, async (context) => {
   useDatabase(context); await resetCash();
   const synchronized = synchronizeReads(context, "findOpenSession");
-  const results = await Promise.allSettled([1, 2].map(() => handleBarbershopCommand("POST", ["cash"], { openingAmount: 10 }, scope)));
+  const results = await Promise.allSettled([1, 2].map(() => handleBarbershopCommand("POST", ["cash"], { cashRegisterId: registerId, openingAmount: 10 }, scope)));
   synchronized();
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.ok(results.some((result) => result.status === "rejected" && hasCode("CASH_ALREADY_OPEN")(result.reason)));
@@ -207,14 +210,14 @@ test("PostgreSQL: aperturas simultáneas de Barbería reservan una sola caja", {
 test("PostgreSQL: apertura con misma clave devuelve una caja y una auditoría", { skip: !process.env.INVENTORY_TEST_DATABASE_URL }, async (context) => {
   useDatabase(context); await resetCash();
   const synchronized = synchronizeReads(context, "findOpenSession");
-  const ids = await Promise.all([1, 2].map(() => restaurant([], { openingAmount: 100, idempotencyKey: "parallel-open" })));
+  const ids = await Promise.all([1, 2].map(() => restaurant([], { cashRegisterId: registerId, openingAmount: 100, idempotencyKey: "parallel-open" })));
   synchronized(); assert.equal(ids[0], ids[1]);
   assert.equal(await db.auditLog.count({ where: { entityId: ids[0], action: "OPEN" } }), 1);
 });
 
 test("PostgreSQL: retiros simultáneos no gastan dos veces el efectivo disponible", { skip: !process.env.INVENTORY_TEST_DATABASE_URL }, async (context) => {
   useDatabase(context); await resetCash();
-  const id = await restaurant([], { openingAmount: 100 });
+  const id = await restaurant([], { cashRegisterId: registerId, openingAmount: 100 });
   const synchronized = synchronizeReads(context, "findSession");
   const results = await Promise.allSettled([1, 2].map(() => restaurant([id, "movement"], { type: "OUT", amount: 70, reason: "Retiro simultáneo" })));
   synchronized();
@@ -226,7 +229,7 @@ test("PostgreSQL: retiros simultáneos no gastan dos veces el efectivo disponibl
 
 test("PostgreSQL: movimiento repetido concurrente se confirma una sola vez", { skip: !process.env.INVENTORY_TEST_DATABASE_URL }, async (context) => {
   useDatabase(context); await resetCash();
-  const id = await restaurant([], { openingAmount: 100 });
+  const id = await restaurant([], { cashRegisterId: registerId, openingAmount: 100 });
   const synchronized = synchronizeReads(context, "findSession");
   const ids = await Promise.all([1, 2].map(() => restaurant([id, "movement"], { type: "OUT", amount: 20, reason: "Idempotente", idempotencyKey: "parallel-move" })));
   synchronized(); assert.equal(ids[0], ids[1]);
@@ -236,7 +239,7 @@ test("PostgreSQL: movimiento repetido concurrente se confirma una sola vez", { s
 
 test("PostgreSQL: cierre y movimiento concurrentes no confirman un saldo desactualizado", { skip: !process.env.INVENTORY_TEST_DATABASE_URL }, async (context) => {
   useDatabase(context); await resetCash();
-  const id = await restaurant([], { openingAmount: 100 });
+  const id = await restaurant([], { cashRegisterId: registerId, openingAmount: 100 });
   const synchronized = synchronizeReads(context, "findSession");
   const results = await Promise.allSettled([
     restaurant([id, "close"], { countedAmount: 100, expectedCents: 10000 }),
@@ -247,4 +250,24 @@ test("PostgreSQL: cierre y movimiento concurrentes no confirman un saldo desactu
   const cash = await db.cashSession.findUniqueOrThrow({ where: { id } });
   if (cash.status === "CLOSED") { assert.equal(cash.expectedCents, 10000); assert.equal(await db.cashMovement.count({ where: { cashSessionId: id } }), 0); }
   else { assert.equal(cash.expectedCents, 11000); assert.equal(cash.countedCents, null); }
+});
+
+test("PostgreSQL: Cocina, Bar y servicio avanzan productos distintos sin sobrescribirlos", { skip: !process.env.INVENTORY_TEST_DATABASE_URL }, async (context) => {
+  useDatabase(context);
+  const category = await db.category.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, name: "Producción concurrente" } });
+  const product = await db.product.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, categoryId: category.id, name: "Preparación", priceCents: 100 } });
+  const order = await db.restaurantOrder.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, createdById: scope.actorId, code: "CONCURRENT-PREP", status: "PREPARING", source: "TAKEAWAY",
+    items: { create: ["READY", "PREPARING", "PENDING"].map((status, index) => ({ tenantId: scope.tenantId, productId: product.id, name: `Producto ${index}`, status, unitPriceCents: 100, totalCents: 100, preparationAreaKey: index === 2 ? "BAR" : "KITCHEN" })) },
+    kitchenTicket: { create: { tenantId: scope.tenantId, branchId: scope.branchId, status: "PARTIALLY_READY" } },
+  }, include: { items: { orderBy: { name: "asc" } }, kitchenTicket: true } });
+  await Promise.all([
+    updateKitchen(scope, order.kitchenTicket!.id, { status: "SERVED", itemIds: [order.items[0].id] }),
+    updateKitchen(scope, order.kitchenTicket!.id, { status: "READY", itemIds: [order.items[1].id] }),
+    updateKitchen(scope, order.kitchenTicket!.id, { status: "PREPARING", itemIds: [order.items[2].id] }),
+  ]);
+  const saved = await db.restaurantOrder.findUniqueOrThrow({ where: { id: order.id }, include: { items: { orderBy: { name: "asc" } }, kitchenTicket: true } });
+  assert.deepEqual(saved.items.map(item => item.status), ["SERVED", "READY", "PREPARING"]);
+  assert.equal(saved.kitchenTicket!.status, "PARTIALLY_READY");
+  assert.equal(saved.version, 3);
+  assert.ok(saved.items[0].servedAt); assert.ok(saved.items[1].readyAt); assert.ok(saved.items[2].startedAt);
 });

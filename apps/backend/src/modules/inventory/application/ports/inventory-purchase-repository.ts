@@ -1,4 +1,4 @@
-export type InventoryPurchaseLine = { itemId: string; quantity: number; unitCostCents: number; totalCents: number };
+export type InventoryPurchaseLine = { presentationName?: string; presentationFactor?: number; purchasedQuantity?: number | null; presentationCostCents?: number | null; itemId: string; quantity: number; unitCostCents: number; totalCents: number };
 
 export type InventoryPurchaseDraft = {
   supplierId?: string | null;

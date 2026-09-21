@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { aggregatePreparationStatus, assertDiscountLimit } from "./preparation";
 
 test("el estado agregado conserva trabajo pendiente de otra estación o de una adición retenida", () => {
-  assert.equal(aggregatePreparationStatus(["READY", "PENDING"]), "PREPARING");
-  assert.equal(aggregatePreparationStatus(["SERVED", "HELD"]), "PREPARING");
+  assert.equal(aggregatePreparationStatus(["READY", "PENDING"]), "PARTIALLY_READY");
+  assert.equal(aggregatePreparationStatus(["SERVED", "HELD"]), "PARTIALLY_READY");
   assert.equal(aggregatePreparationStatus(["READY", "SERVED", "CANCELLED"]), "READY");
   assert.equal(aggregatePreparationStatus(["HELD", "CANCELLED"]), "HELD");
   assert.equal(aggregatePreparationStatus(["SERVED", "SERVED"]), "SERVED");

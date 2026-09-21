@@ -21,9 +21,9 @@ export async function getRestaurantData(scope: TenantScope, reportPeriod?: Resta
   const canPrinting = needed("kitchen", "menu", "settings", "checkout", "floor", "orders") && (hasPermission(scope.permissions, "restaurant:printing:read"));
   const canFloor = needed("floor", "orders", "settings", "dashboard") && (hasPermission(scope.permissions, "restaurant:floor:read"));
   const canCustomers = needed("clients", "orders", "floor") && (hasPermission(scope.permissions, "customers:read"));
-  const canOrders = needed("floor", "orders", "kitchen", "checkout", "settings", "dashboard") && (hasPermission(scope.permissions, "restaurant:floor:read") || hasPermission(scope.permissions, "restaurant:orders:read") || hasPermission(scope.permissions, "restaurant:kitchen:read") || hasPermission(scope.permissions, "restaurant:cash:write"));
-  const canSales = needed("checkout") && (hasPermission(scope.permissions, "restaurant:cash:write") || hasPermission(scope.permissions, "restaurant:reports:read"));
-  const canCash = needed("checkout", "floor", "orders") && (hasPermission(scope.permissions, "restaurant:cash:write"));
+  const canOrders = needed("floor", "orders", "kitchen", "checkout", "settings", "dashboard") && (hasPermission(scope.permissions, "restaurant:floor:read") || hasPermission(scope.permissions, "restaurant:orders:read") || hasPermission(scope.permissions, "restaurant:kitchen:read") || hasPermission(scope.permissions, "restaurant:cash:read"));
+  const canSales = needed("checkout") && (hasPermission(scope.permissions, "restaurant:cash:read") || hasPermission(scope.permissions, "restaurant:reports:read"));
+  const canCash = needed("checkout", "floor", "orders") && (hasPermission(scope.permissions, "restaurant:cash:read"));
   const canReports = needed("reports") && (hasPermission(scope.permissions, "restaurant:reports:read"));
   const canConfiguration = hasPermission(scope.permissions, "restaurant:configuration:read");
   const canDashboard = needed("dashboard") && (hasPermission(scope.permissions, "dashboard:read"));
@@ -33,14 +33,14 @@ export async function getRestaurantData(scope: TenantScope, reportPeriod?: Resta
     table: { select: { id: true, name: true } },
     customer: { select: { id: true, name: true, loyaltyPoints: canCash, active: canCash } },
     createdBy: { select: { id: true, name: true } },
-    items: { select: { recipeSnapshot: true, preparationAreaKey: true, preparationAreaName: true, id: true, productId: true, parentProductId: true, name: true, quantity: true, totalCents: true, status: true, notes: true, product: { select: preparationProductSelect }, parentProduct: { select: preparationProductSelect } } },
+    items: { select: { stockModeSnapshot: true, recipeSnapshot: true, preparationAreaKey: true, preparationAreaName: true, id: true, productId: true, parentProductId: true, name: true, quantity: true, totalCents: true, status: true, notes: true, startedAt: true, readyAt: true, servedAt: true, startedByUserId: true, readyByUserId: true, servedByUserId: true, product: { select: preparationProductSelect }, parentProduct: { select: preparationProductSelect } } },
     kitchenTicket: { select: { id: true, status: true, createdAt: true } },
     sale: { select: { id: true } },
   } as const;
 
   const [categories, products, promotions, preparationAreas, printDevices, printSettings, areas, tables, customers, orders, sales, checkoutAudits, cashSession, reports, dailySales] = await Promise.all([
     canMenu ? prisma.category.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId }, orderBy: { name: "asc" }, select: { id: true, name: true, active: true, preparationArea: { select: { id: true, name: true } } } }) : Promise.resolve([]),
-    canMenu ? prisma.product.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId }, orderBy: [{ active: "desc" }, { name: "asc" }], include: { category: { select: { id: true, name: true } }, preparationArea: { select: { id: true, name: true } } } }) : Promise.resolve([]),
+    canMenu ? prisma.product.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId }, orderBy: [{ sortOrder: "asc" }, { active: "desc" }, { name: "asc" }], include: { inventoryItem: true, category: { select: { id: true, name: true } }, preparationArea: { select: { id: true, name: true } } } }) : Promise.resolve([]),
     canPromotions ? prisma.promotion.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId }, orderBy: [{ active: "desc" }, { createdAt: "desc" }] }) : Promise.resolve([]),
     (canMenu || canPrinting) ? prisma.preparationArea.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId }, orderBy: [{ active: "desc" }, { name: "asc" }], include: { printerLinks: { include: { printer: { select: { id: true, name: true } } }, orderBy: { createdAt: "asc" } } } }) : Promise.resolve([]),
     canPrinting ? prisma.printDevice.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId }, orderBy: [{ active: "desc" }, { name: "asc" }] }) : Promise.resolve([]),
@@ -64,20 +64,22 @@ export async function getRestaurantData(scope: TenantScope, reportPeriod?: Resta
       // Active orders created before area snapshots use current routing, without inventing historical recipes.
       const routed = product.areaAssignmentMode === "INHERIT_FROM_PRODUCT" && parentProduct ? parentProduct : product;
       const area = routed.preparationArea ?? routed.category.preparationArea;
-      const legacyActive = recipeSnapshot === null && line.preparationAreaKey === "GENERAL" && !["COMPLETED", "CANCELLED"].includes(item.status);
-      return { ...line, productType: product.productType, ...(legacyActive ? { preparationAreaKey: area?.id ?? routed.kitchenArea ?? "GENERAL", preparationAreaName: area?.name ?? routed.kitchenArea ?? "General" } : {}) };
+      const legacyActive = recipeSnapshot === null && line.preparationAreaKey === "GENERAL" && item.status !== "CANCELLED" && (item.status !== "COMPLETED" || (item.kitchenTicket && !["SERVED", "CANCELLED"].includes(item.kitchenTicket.status)));
+      return { ...line, startedAt: line.startedAt?.toISOString() ?? null, readyAt: line.readyAt?.toISOString() ?? null, servedAt: line.servedAt?.toISOString() ?? null, productType: product.productType, ...(legacyActive ? { preparationAreaKey: area?.id ?? routed.kitchenArea ?? "GENERAL", preparationAreaName: area?.name ?? routed.kitchenArea ?? "General" } : {}) };
     }),
     kitchenTicket: item.kitchenTicket ? { ...item.kitchenTicket, createdAt: item.kitchenTicket.createdAt.toISOString() } : null,
     paid: Boolean(item.sale),
   });
   const orderDtos = orders.map(toOrderDto);
+  const cashSessions = canCash ? await prisma.cashSession.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, select: { id: true, registerName: true }, orderBy: { openedAt: "asc" } }) : [];
 
   return {
-    canApproveRefund,
+    canApproveRefund, cashSessions,
     configuration: canConfiguration ? configuration : { ...configuration, integrations: { ...configuration.integrations, webhookUrl: "" }, notifications: { rules: [] } },
     paymentMethods: configuration.sales.paymentMethods.filter((item) => item.active).map((item) => item.key),
     categories,
-    products: products.map((item) => ({ id: item.id, name: item.name, description: item.description, priceCents: item.priceCents, costCents: item.costCents, taxCategory: item.taxCategory, kitchenArea: item.kitchenArea, productType: item.productType, areaAssignmentMode: item.areaAssignmentMode, detectedAreaKey: item.detectedAreaKey, active: item.active, category: item.category, preparationArea: item.preparationArea })),
+    stockItems: canMenu && hasPermission(scope.permissions, "restaurant:menu:read") ? (await prisma.inventoryItem.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, active: true }, select: { id: true, name: true, sku: true, restaurantProduct: { select: { id: true } } }, orderBy: { name: "asc" } })).map(item => ({ id: item.id, name: item.name, sku: item.sku, productId: item.restaurantProduct?.id ?? null })) : [],
+    products: products.map((item) => ({ stockMode: item.stockMode, inventoryItemId: item.inventoryItemId, showInMenu: item.showInMenu, imageUrl: item.imageUrl, sortOrder: item.sortOrder, availableStock: item.stockMode === "RESALE" && item.inventoryItem?.trackStock ? item.inventoryItem.stock : null, stockBlocked: item.stockMode === "RESALE" && (!item.inventoryItem?.active || (item.inventoryItem.trackStock && item.inventoryItem.stock <= 0 && configuration.inventory.preventNegativeStock && !configuration.menu.allowOutOfStockSales)), id: item.id, name: item.name, description: item.description, priceCents: item.priceCents, costCents: item.costCents, taxCategory: item.taxCategory, kitchenArea: item.kitchenArea, productType: item.productType, areaAssignmentMode: item.areaAssignmentMode, detectedAreaKey: item.detectedAreaKey, active: item.active, category: item.category, preparationArea: item.preparationArea })),
     promotions: promotions.map((item) => ({ ...item, startsAt: item.startsAt?.toISOString() ?? null, endsAt: item.endsAt?.toISOString() ?? null, createdAt: undefined, updatedAt: undefined })),
     preparationAreas: preparationAreas.map((area) => ({ id: area.id, name: area.name, normalizedKey: area.normalizedKey, type: area.type, source: area.source, dispatchMode: area.dispatchMode, active: area.active, printers: canPrinting ? area.printerLinks.map((link) => ({ id: link.id, printerId: link.printerId, name: link.printer.name, copies: link.copies, active: link.active })) : [] })),
     printDevices: printDevices.map((printer) => ({ id: printer.id, name: printer.name, connectionType: printer.connectionType, paperWidthMm: printer.paperWidthMm, automatic: printer.automatic, active: printer.active, tokenHint: printer.tokenHint, lastSeenAt: printer.lastSeenAt?.toISOString() ?? null })),

@@ -438,7 +438,7 @@ test.describe("40 atenciones transaccionales reales", () => {
     const order = await createOrder(page, 40);
     expectOk(await api(page, "/api/operations/restaurant/cash/cash-brasa-open/close", "POST", { countedAmount: 0 }));
     expectError(await checkoutOrder(page, order.id, "CARD"), 409, "CASH_CLOSED");
-    expectOk(await api(page, "/api/operations/restaurant/cash", "POST", { openingAmount: 200 }));
+    expectOk(await api(page, "/api/operations/restaurant/cash", "POST", { openingAmount: 200, cashRegisterId: "register-brasa-principal" }));
     expectOk(await checkoutOrder(page, order.id, "CARD"));
     await cleanTable(page, order.table.id);
   });

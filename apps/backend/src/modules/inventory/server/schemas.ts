@@ -7,6 +7,7 @@ const quantity = z.coerce.number().positive().max(1_000_000_000);
 export const inventoryItemSchema = z.object({
   sku: z.string().trim().toUpperCase().regex(/^[A-Z0-9._-]{2,40}$/),
   barcode: text(80),
+  inventoryCategory: text(100),
   name: z.string().trim().min(2).max(160),
   kind: z.enum(["PRODUCT", "INPUT", "MATERIAL", "SUPPLY", "PART"]).default("MATERIAL"),
   unit: z.string().trim().toUpperCase().min(1).max(20),
@@ -32,7 +33,7 @@ export const inventoryMovementSchema = z.object({
   if (["WASTE", "LOSS"].includes(input.type) && !input.notes?.trim()) context.addIssue({ code: "custom", path: ["notes"], message: "Indica el motivo de la merma o pérdida." });
 });
 
-const purchaseLine = z.object({ itemId: z.string().min(1), quantity, unitCost: money });
+const purchaseLine = z.object({ presentationId: z.string().optional(), itemId: z.string().min(1), quantity, unitCost: money });
 export const inventoryPurchaseSchema = z.object({
   supplierId: z.string().min(1).optional(),
   supplierName: z.string().trim().min(2).max(160),

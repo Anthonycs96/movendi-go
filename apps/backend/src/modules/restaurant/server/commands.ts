@@ -1,9 +1,12 @@
+import { productStockData } from "./product-stock";
 import { required } from "./owned";
 import { createRestaurantOrder, addOrderItems } from "../infrastructure/prisma/orders";
 import { orderSchema, addItemsSchema } from "./order-input";
 import { updateKitchen, updateOrderState } from "./order-state";
 import { checkoutRestaurantOrder } from "./checkout";
 import { claimOrder } from "./order-version";
+import { handleCashRegisters } from "./cash-registers";
+import { hasPermission } from "@/core/auth/permissions";
 import { handleRestaurantCashCommand } from "./cash-commands";
 import { withSerializableTransaction } from "@/core/database/transactions";
 import "server-only";
@@ -29,13 +32,13 @@ import { electronicDocumentSchema, getSunatConnectionStatus, issueRestaurantElec
 const configuredKey = z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]+$/).min(1).max(80);
 const customerSchema = z.object({ name: z.string().trim().min(2).max(120), documentType: configuredKey.optional().or(z.literal("")), dni: z.string().trim().max(20).optional(), segment: configuredKey.optional().or(z.literal("")), phone: z.string().trim().max(30).optional(), email: z.union([z.string().email(), z.literal("")]).optional(), notes: z.string().trim().max(500).optional() });
 const categorySchema = z.object({ name: z.string().trim().min(2).max(100) });
-const productSchema = z.object({ taxCategory: z.enum(["GRAVADA", "EXONERADA", "INAFECTA"]).default("GRAVADA"), name: z.string().trim().min(2).max(140), description: z.string().trim().max(400).optional(), categoryId: z.string().min(1), price: z.coerce.number().nonnegative().max(100000), cost: z.coerce.number().nonnegative().max(100000).default(0), kitchenArea: z.string().trim().min(1).max(40).optional().default("GENERAL"), productType: configuredKey.optional().default("FOOD"), areaAssignmentMode: z.enum(["INHERIT_FROM_PRODUCT", "SPECIFIC_AREA"]).optional().default("SPECIFIC_AREA"), preparationAreaId: z.string().optional().or(z.literal("")) });
+const productSchema = z.object({ stockMode: z.enum(["RECIPE", "RESALE", "NONE"]).optional(), inventoryItemId: z.string().optional(), sku: z.string().trim().toUpperCase().max(40).optional(), barcode: z.string().trim().max(80).optional(), unit: z.string().trim().toUpperCase().max(20).optional(), inventoryCategory: z.string().trim().max(100).optional(), showInMenu: z.union([z.boolean(), z.enum(["true", "false"]).transform(v => v === "true")]).optional(), imageUrl: z.string().url().startsWith("https://").max(2000).or(z.literal("")).optional(), sortOrder: z.coerce.number().int().min(0).max(100000).optional(), taxCategory: z.enum(["GRAVADA", "EXONERADA", "INAFECTA"]).default("GRAVADA"), name: z.string().trim().min(2).max(140), description: z.string().trim().max(400).optional(), categoryId: z.string().min(1), price: z.coerce.number().nonnegative().max(100000), cost: z.coerce.number().nonnegative().max(100000).default(0), kitchenArea: z.string().trim().min(1).max(40).optional().default("GENERAL"), productType: configuredKey.optional().default("FOOD"), areaAssignmentMode: z.enum(["INHERIT_FROM_PRODUCT", "SPECIFIC_AREA"]).optional().default("SPECIFIC_AREA"), preparationAreaId: z.string().optional().or(z.literal("")) });
 const areaSchema = z.object({ name: z.string().trim().min(2).max(80) });
 const tableSchema = z.object({ name: z.string().trim().min(1).max(40), seats: z.coerce.number().int().min(1).max(50), areaId: z.string().min(1) });
-const kitchenStatusSchema = z.object({ itemIds: z.array(z.string().min(1)).min(1).max(200).optional(), status: configuredKey });
+const kitchenStatusSchema = z.object({ itemIds: z.array(z.string().min(1)).min(1).max(200).optional(), status: configuredKey, confirmed: z.boolean().optional() });
 const orderStatusSchema = z.object({ status: configuredKey, reason: z.string().trim().max(300).optional() });
 const deliveryStatusSchema = z.object({ status: configuredKey });
-const checkoutSchema = z.object({
+const checkoutSchema = z.object({ cashSessionId: z.string().min(1).optional(),
   redeemPoints: z.coerce.number().int().min(0).max(10000000).default(0),
   receivedAmount: z.coerce.number().nonnegative().max(1_000_000).optional(),
   paymentMethod: configuredKey.optional(),
@@ -296,6 +299,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   }
   if (method === "POST" && resource === "products" && !id) {
     const input = parse(productSchema, body);
+    if (!hasPermission(scope.permissions, "restaurant:prices:write") || ((input.showInMenu ?? true) && !hasPermission(scope.permissions, "restaurant:publish:write"))) throw new AppError("FORBIDDEN", 403, "Necesitas permiso para establecer precios y publicar en carta.");
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
     const storedConfiguration = await hasStoredRestaurantConfiguration(scope.tenantId);
     const [category, preparationArea] = await Promise.all([
@@ -305,7 +309,9 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     validateProductConfiguration(input, configuration, storedConfiguration, category);
     const routedArea = preparationArea ?? category.preparationArea;
     const entity = await withSerializableTransaction(async (tx) => {
-      const created = await tx.product.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, categoryId: category.id, name: input.name, description: input.description || null, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null } });
+      if (input.cost > 0 && !hasPermission(scope.permissions, "inventory:costs:write")) throw new AppError("FORBIDDEN", 403, "No tienes permiso para establecer costos.");
+      const stockData = await productStockData(tx, scope, input);
+      const created = await tx.product.create({ data: { ...stockData, tenantId: scope.tenantId, branchId: scope.branchId, categoryId: category.id, name: input.name, description: input.description || null, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null } });
       await recordMenuHistory(tx, scope, { version: 1, source: "MANUAL", changes: [menuChange(null, created)] });
       return created;
     });
@@ -324,7 +330,11 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     const routedArea = preparationArea ?? category.preparationArea;
     await withSerializableTransaction(async (tx) => {
       const before = await tx.product.findFirstOrThrow({ where: { id: product.id, tenantId: scope.tenantId, branchId: scope.branchId } });
-      const after = await tx.product.update({ where: { id: product.id }, data: { name: input.name, description: input.description || null, categoryId: category.id, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null, active: input.active } });
+      if (input.price * 100 !== before.priceCents && !hasPermission(scope.permissions, "restaurant:prices:write")) throw new AppError("FORBIDDEN", 403, "No tienes permiso para modificar precios.");
+      if (input.cost * 100 !== before.costCents && !hasPermission(scope.permissions, "inventory:costs:write")) throw new AppError("FORBIDDEN", 403, "No tienes permiso para modificar costos.");
+      if (((input.showInMenu ?? before.showInMenu) !== before.showInMenu || input.active !== before.active) && !hasPermission(scope.permissions, "restaurant:publish:write")) throw new AppError("FORBIDDEN", 403, "No tienes permiso para publicar productos.");
+      const stockData = await productStockData(tx, scope, input, before);
+      const after = await tx.product.update({ where: { id: product.id }, data: { ...stockData, name: input.name, description: input.description || null, categoryId: category.id, priceCents: Math.round(input.price * 100), costCents: Math.round((input.cost ?? 0) * 100), taxCategory: input.taxCategory, kitchenArea: input.kitchenArea, productType: input.productType, areaAssignmentMode: input.areaAssignmentMode, detectedAreaKey: routedArea ? normalizeRestaurantArea(routedArea.name)?.key : null, preparationAreaId: input.areaAssignmentMode === "INHERIT_FROM_PRODUCT" ? null : preparationArea?.id ?? null, active: input.active } });
       await recordMenuHistory(tx, scope, { version: 1, source: "MANUAL", changes: [menuChange(before, after)] });
     });
     return { ok: true, id: product.id, message: "Producto actualizado correctamente." };
@@ -398,6 +408,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
   if (method === "PATCH" && resource === "orders" && id && action === "status") return updateOrderState(scope, id, parse(orderStatusSchema, body));
   if (method === "PATCH" && resource === "orders" && id && action === "delivery-status") {
     const input = parse(deliveryStatusSchema, body);
+    if (input.status === "DELIVERED" && !hasPermission(scope.permissions, "restaurant:orders:serve")) throw new AppError("FORBIDDEN", 403, "No tienes permiso para confirmar entregas.");
     const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
     const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, source: "DELIVERY" }, select: { id: true, version: true, status: true, deliveryStatus: true } }), "El delivery");
     if (["COMPLETED", "CANCELLED"].includes(order.status) && input.status !== "DELIVERED") throw new AppError("ORDER_CLOSED", 409, "El pedido está cerrado.");
@@ -425,6 +436,13 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     });
     await audit(scope, "TRANSFER", "RestaurantOrder", order.id, { fromTableId: order.tableId, toTableId: target.id });
     return { ok: true, id: order.id, message: "Pedido trasladado a la nueva mesa." };
+  }
+  if (method === "PATCH" && resource === "orders" && id && action === "serve") {
+    const input = parse(z.object({ itemIds: z.array(z.string().min(1)).min(1).max(200).optional() }), body);
+    const ticket = await prisma.kitchenTicket.findFirst({ where: { orderId: id, tenantId: scope.tenantId, branchId: scope.branchId }, select: { id: true } });
+    if (!ticket) throw new AppError("NOT_FOUND", 404, "Comanda no encontrada.");
+    // Default selection is made inside the transaction so newly ready items are safe.
+    return updateKitchen(scope, ticket.id, { ...input, status: "SERVED" });
   }
   if (method === "PATCH" && resource === "kitchen" && id && action === "status") return updateKitchen(scope, id, parse(kitchenStatusSchema, body));
   if (method === "POST" && resource === "orders" && id && action === "checkout") return checkoutRestaurantOrder(scope, id, parse(checkoutSchema, body));
@@ -479,6 +497,7 @@ export async function handleRestaurantCommand(method: string, segments: string[]
     await audit(scope, "SEAT", "DiningTable", table.id);
     return { ok: true, id: table.id, message: "Reserva recibida. Ya puedes abrir el pedido." };
   }
+  if (resource === "cash-registers") return handleCashRegisters(method, id, body, scope);
   if (method === "POST" && resource === "cash") return handleRestaurantCashCommand(id, action, body, scope);
   throw new AppError("NOT_FOUND", 404, "Operación de restaurante no encontrada.");
 }

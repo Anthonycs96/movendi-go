@@ -1,4 +1,6 @@
 "use client";
+import { hasPermission } from "@/core/auth/permissions";
+import { PresentationForm, PublishResaleForm } from "./ResaleTools";
 import { SupplierDirectory } from "./SupplierDirectory";
 
 import { type FormEvent, useMemo, useRef, useState } from "react";
@@ -32,10 +34,10 @@ import {
 import { formatCurrencyCents, formatDateTime } from "@/shared/lib/format";
 
 type Tab = "stock" | "kardex" | "purchases" | "counts" | "recipes";
-type Line = { itemId: string; quantity: string; unitCost?: string };
+type Line = { presentationId?: string; itemId: string; quantity: string; unitCost?: string };
 
 const kindLabels: Record<string, string> = {
-  PRODUCT: "Producto",
+  PRODUCT: "Producto de reventa",
   INPUT: "Insumo",
   MATERIAL: "Material",
   SUPPLY: "Suministro",
@@ -97,7 +99,7 @@ function ItemFields({ item }: { item?: InventoryItemDto }) {
       </Field>
       <Field label="Tipo">
         <Select name="kind" defaultValue={item?.kind ?? "INPUT"}>
-          <option value="PRODUCT">Producto</option>
+          <option value="PRODUCT">Producto de reventa</option>
           <option value="INPUT">Insumo</option>
           <option value="MATERIAL">Material</option>
           <option value="SUPPLY">Suministro</option>
@@ -139,6 +141,7 @@ function ItemFields({ item }: { item?: InventoryItemDto }) {
           defaultValue={item ? item.unitCostCents / 100 : 0}
         />
       </Field>
+      <Field label="Categoría de inventario" hint="Puede ser distinta de la categoría comercial de la carta."><Input name="inventoryCategory" defaultValue={item?.inventoryCategory ?? ""} placeholder="Bebidas / Gaseosas" /></Field>
       <Field label="Código de barras">
         <Input name="barcode" defaultValue={item?.barcode ?? ""} />
       </Field>
@@ -188,6 +191,7 @@ function ItemForm({ item }: { item?: InventoryItemDto }) {
         openingStock: form.get("openingStock") ?? undefined,
         minimumStock: form.get("minimumStock"),
         unitCost: form.get("unitCost"),
+        inventoryCategory: form.get("inventoryCategory"),
         barcode: form.get("barcode"),
         notes: form.get("notes"),
         trackStock: form.get("trackStock") === "on",
@@ -216,6 +220,7 @@ function MovementForm({ items }: { items: InventoryItemDto[] }) {
         idempotencyKey: crypto.randomUUID(),
       })}
     >
+      {!items.length ? <p className="form-span" role="status">Primero registra un artículo en Inventario. Los productos de Carta se vinculan eligiendo «Producto de reventa» al editarlos.</p> : null}
       <Field label="Artículo">
         <Select name="itemId" required>
           <option value="">Selecciona</option>
@@ -281,7 +286,7 @@ function LinesEditor({
               setLines(
                 lines.map((current, position) =>
                   position === index
-                    ? { ...current, itemId: event.target.value }
+                    ? { ...current, itemId: event.target.value, presentationId: "" }
                     : current,
                 ),
               )
@@ -294,7 +299,7 @@ function LinesEditor({
               </option>
             ))}
           </Select>
-          <Input
+          <Field label={costs ? "Cantidad de presentaciones" : "Cantidad"}><Input
             aria-label="Cantidad"
             type="number"
             min="0"
@@ -310,14 +315,15 @@ function LinesEditor({
                 ),
               )
             }
-          />
+          /></Field>
+          {costs ? <div><Field label="Presentación de compra"><Select aria-label="Presentación de compra" value={line.presentationId ?? ""} onChange={e => setLines(lines.map((l, i) => i === index ? { ...l, presentationId: e.target.value } : l))}><option value="">Unidad base × 1</option>{items.find(i => i.id === line.itemId)?.purchasePresentations?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></Field><small>{Number(line.quantity || 0) * (items.find(i => i.id === line.itemId)?.purchasePresentations?.find(p => p.id === line.presentationId)?.factor ?? 1)} {items.find(i => i.id === line.itemId)?.unit ?? "unidades"} ingresarán al stock</small></div> : null}
           {costs ? (
-            <Input
-              aria-label="Costo unitario"
+            <Field label="Costo por presentación"><Input
+              aria-label="Costo por presentación"
               type="number"
               min="0"
               step="0.01"
-              placeholder="Costo unitario"
+              placeholder="Costo por pack / unidad"
               value={line.unitCost ?? ""}
               onChange={(event) =>
                 setLines(
@@ -328,7 +334,7 @@ function LinesEditor({
                   ),
                 )
               }
-            />
+            /></Field>
           ) : null}
           <Button
             type="button"
@@ -360,7 +366,7 @@ function LinesEditor({
   );
 }
 
-function PurchaseDialog({ items, suppliers = [] }: { items: InventoryItemDto[]; suppliers?: InventoryData["suppliers"] }) {
+function PurchaseDialog({ items, suppliers = [], canCreate = true }: { items: InventoryItemDto[]; suppliers?: InventoryData["suppliers"]; canCreate?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -434,6 +440,7 @@ function PurchaseDialog({ items, suppliers = [] }: { items: InventoryItemDto[]; 
           </>
         }
       >
+        {canCreate ? <div className="inventory-actions"><span>¿No existe el artículo? Créalo aquí y continúa con esta compra.</span><ItemForm /></div> : null}
         <form
           id="inventory-purchase-form"
           className="form-grid"
@@ -658,6 +665,9 @@ function SaleReturnDialog({ data, currency, locale }: { data: InventoryData; cur
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [saleId, setSaleId] = useState("");
+  const [movementId, setMovementId] = useState("");
+  const returnKey = useRef(crypto.randomUUID());
   const available = data.sales.filter((sale) => sale.hasInventory && !sale.inventoryReturned);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -665,7 +675,7 @@ function SaleReturnDialog({ data, currency, locale }: { data: InventoryData; cur
     setPending(true);
     setError("");
     try {
-      await send("/api/operations/inventory/returns", { saleId: form.get("saleId"), reason: form.get("reason") });
+      await send("/api/operations/inventory/returns", { saleId: form.get("saleId"), reason: form.get("reason"), partial: movementId ? { movementId, quantity: form.get("returnQuantity"), idempotencyKey: returnKey.current } : undefined });
       setOpen(false);
       router.refresh();
     } catch (reason) {
@@ -676,9 +686,11 @@ function SaleReturnDialog({ data, currency, locale }: { data: InventoryData; cur
   }
   return <>
     <Button variant="secondary" disabled={!available.length} onClick={() => setOpen(true)}>Devolver venta</Button>
-    <Dialog open={open} title="Devolver inventario de una venta" description="Repone exactamente los insumos descontados por la receta original." onClose={() => !pending && setOpen(false)} footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button><Button type="submit" form="inventory-return-form" loading={pending}>Confirmar devolución</Button></>}>
+    <Dialog open={open} title="Devolver inventario de una venta" description="Registra solo mercadería físicamente recuperada. Este movimiento no devuelve dinero ni anula el comprobante; gestiona el reembolso en Caja." onClose={() => !pending && setOpen(false)} footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button><Button type="submit" form="inventory-return-form" loading={pending}>Confirmar devolución</Button></>}>
       <form id="inventory-return-form" className="form-grid" onSubmit={submit}>
-        <Field label="Venta"><Select name="saleId" required><option value="">Selecciona</option>{available.map((sale) => <option key={sale.id} value={sale.id}>{sale.code} · {formatDateTime(sale.createdAt)} · {formatCurrencyCents(sale.totalCents, currency, locale)}</option>)}</Select></Field>
+        <Field label="Venta"><Select name="saleId" required value={saleId} onChange={e => { setSaleId(e.target.value); setMovementId(""); returnKey.current = crypto.randomUUID(); }}><option value="">Selecciona</option>{available.map((sale) => <option key={sale.id} value={sale.id}>{sale.code} · {formatDateTime(sale.createdAt)} · {formatCurrencyCents(sale.totalCents, currency, locale)}</option>)}</Select></Field>
+        <Field label="Devolver"><Select value={movementId} onChange={e => { setMovementId(e.target.value); returnKey.current = crypto.randomUUID(); }}><option value="">Todo el consumo pendiente</option>{available.find(s => s.id === saleId)?.consumptions?.filter(m => m.remaining > 0).map(m => <option key={m.id} value={m.id}>{m.name} · hasta {m.remaining} {m.unit}</option>)}</Select></Field>
+        {movementId ? <Field label="Cantidad devuelta"><Input name="returnQuantity" type="number" min="0.000001" max={available.find(s => s.id === saleId)?.consumptions?.find(m => m.id === movementId)?.remaining} step="0.000001" defaultValue="1" required onChange={() => { returnKey.current = crypto.randomUUID(); }} /></Field> : null}
         <Field label="Motivo"><Input name="reason" required minLength={3} placeholder="Anulación o devolución" /></Field>
         {error ? <p className="form-error">{error}</p> : null}
       </form>
@@ -692,13 +704,16 @@ export function InventoryWorkspace({
   currency = "PEN",
   locale = "es-PE",
   canWrite = true,
+  permissions,
 }: {
   data: InventoryData;
   tenantType: string;
   currency?: string;
   locale?: string;
   canWrite?: boolean;
+  permissions?: string[];
 }) {
+  const can = (permission: string) => permissions ? hasPermission(permissions, permission) : canWrite;
   const [tab, setTab] = useState<Tab>("stock");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("ALL");
@@ -739,15 +754,15 @@ export function InventoryWorkspace({
         description="Controla ingresos, consumos, pérdidas, compras y existencias reales por sede."
         icon={Boxes}
         actions={
-          canWrite ? <div className="inventory-actions">
-            <MovementForm items={activeItems} />
-            <PurchaseDialog items={activeItems} suppliers={data.suppliers} />
-            {tenantType === "RESTAURANT" ? <SaleReturnDialog data={data} currency={currency} locale={locale} /> : null}
-            <ItemForm />
-          </div> : null
+          <div className="inventory-actions">
+            {can("inventory:adjust:write") ? <MovementForm items={activeItems} /> : null}
+            {can("inventory:purchases:write") ? <PurchaseDialog items={activeItems} suppliers={data.suppliers} canCreate={can("inventory:items:create")} /> : null}
+            {tenantType === "RESTAURANT" && can("inventory:adjust:write") ? <SaleReturnDialog data={data} currency={currency} locale={locale} /> : null}
+            {can("inventory:items:create") ? <ItemForm /> : null}
+          </div>
         }
       />
-      {tenantType === "BARBERSHOP" ? <SupplierDirectory suppliers={data.suppliers ?? []} canWrite={canWrite} /> : null}
+      {["BARBERSHOP", "RESTAURANT"].includes(tenantType) ? <SupplierDirectory suppliers={data.suppliers ?? []} canWrite={canWrite} /> : null}
       <div className="stats-grid stats-grid--four">
         <StatCard
           label="Artículos activos"
@@ -878,6 +893,7 @@ export function InventoryWorkspace({
                 cell: (item) =>
                   formatCurrencyCents(item.unitCostCents, currency, locale),
               },
+              { key: "reserved", header: "Reservado en pedidos", cell: item => `${item.reservedStock ?? 0} ${item.unit}` },
               {
                 key: "status",
                 header: "Estado",
@@ -891,7 +907,7 @@ export function InventoryWorkspace({
                 key: "actions",
                 header: "",
                 sortable: false,
-                cell: (item) => canWrite ? <ItemForm item={item} /> : null,
+                cell: (item) => <div className="inventory-actions">{can("inventory:items:edit") ? <><ItemForm item={item} /><PresentationForm item={item} /></> : null}{data.menuSetup && can("restaurant:products:create") && can("restaurant:publish:write") && can("restaurant:prices:write") ? <PublishResaleForm item={item} setup={data.menuSetup} /> : null}</div>,
               },
             ]}
           />
@@ -993,7 +1009,7 @@ export function InventoryWorkspace({
                 key: "lines",
                 header: "Artículos",
                 align: "right",
-                cell: (purchase) => String(purchase.lines.length),
+                cell: (purchase) => purchase.lines.map(line => `${line.item.name}: ${line.purchasedQuantity ?? line.quantity} × ${line.presentationName ?? "Unidad base"} = ${line.quantity} ${line.item.unit}`).join("; "),
               },
               {
                 key: "totalCents",

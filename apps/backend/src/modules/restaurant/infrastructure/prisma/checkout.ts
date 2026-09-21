@@ -2,6 +2,7 @@ import { operationCode } from "../../server/operation-code";
 import "server-only";
 import { prisma } from "@/core/database/prisma";
 import { withSerializableTransaction } from "@/core/database/transactions";
+import { hasPermission } from "@/core/auth/permissions";
 import { AppError } from "@/core/auth/errors";
 import type { TenantScope } from "@/core/auth/types";
 import { applyCashEffect } from "@/modules/cash/server/service";
@@ -15,10 +16,11 @@ import { claimOrder } from "../../server/order-version";
 import { checkoutOrderUseCase } from "../../application/checkout";
 import { assertOrderPayable } from "../../domain/checkout";
 
-export type CheckoutInput = { redeemPoints: number; receivedAmount?: number; paymentMethod?: string; payments?: Array<{ method: string; amount: number; reference?: string }> };
+export type CheckoutInput = { cashSessionId?: string; redeemPoints: number; receivedAmount?: number; paymentMethod?: string; payments?: Array<{ method: string; amount: number; reference?: string }> };
 import { required } from "../../server/owned";
 
 export async function checkoutRestaurantOrder(scope: TenantScope, id: string, input: CheckoutInput) {
+  if (!hasPermission(scope.permissions, "restaurant:orders:charge")) throw new AppError("FORBIDDEN", 403, "No tienes permiso para cobrar pedidos.");
   const configuration = await getRestaurantConfiguration(scope.tenantId, scope.branchId);
   const order = await required(prisma.restaurantOrder.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId }, include: { sale: true, kitchenTicket: true } }), "El pedido");
   assertOrderPayable(order);
@@ -29,7 +31,10 @@ export async function checkoutRestaurantOrder(scope: TenantScope, id: string, in
   if (input.redeemPoints > maximumPoints) throw new AppError("REDEMPTION_LIMIT", 409, `Puedes canjear hasta ${maximumPoints} puntos en este pedido. Actualiza el saldo.`);
   const loyaltyDiscountCents = input.redeemPoints * club.pointValueCents;
   const payableCents = order.totalCents - loyaltyDiscountCents;
-  const cash = await prisma.cashSession.findFirst({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN" }, orderBy: { openedAt: "desc" } });
+  const sessions = await prisma.cashSession.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId, status: "OPEN", ...(input.cashSessionId ? { id: input.cashSessionId } : {}) }, take: 2 });
+  if (input.cashSessionId && !sessions.length) throw new AppError("CASH_CLOSED", 409, "La caja seleccionada no está abierta en esta sucursal.");
+  if (sessions.length > 1) throw new AppError("SELECT_CASH_SESSION", 400, "Selecciona la caja que recibirá este cobro.");
+  const cash = sessions[0];
   if (!cash && configuration.sales.requireOpenCash) throw new AppError("CASH_CLOSED", 409, "Abre una caja antes de cobrar.");
   const payments = input.payments?.length
     ? input.payments.map((payment) => ({ method: payment.method, amountCents: Math.round(payment.amount * 100), reference: payment.reference || null }))
@@ -37,6 +42,7 @@ export async function checkoutRestaurantOrder(scope: TenantScope, id: string, in
   if (payments.length > 1 && !configuration.sales.splitPaymentsEnabled) throw new AppError("SPLIT_PAYMENTS_DISABLED", 409, "Los pagos divididos no están habilitados para esta sede.");
   for (const payment of payments) assertRestaurantConfigured(configuration.sales.paymentMethods, payment.method, "El método de pago");
   const { cashCents: cashPaidCents, changeCents, paymentMethod } = validateSalePayments(payableCents, payments, input.receivedAmount === undefined ? undefined : Math.round(input.receivedAmount * 100));
+  if (cashPaidCents > 0 && !cash) throw new AppError("CASH_CLOSED", 409, "Abre una caja para recibir efectivo.");
   const sale = await withSerializableTransaction((tx) => checkoutOrderUseCase({
     claim: () => claimOrder(tx, scope, order),
     redeemPoints: async () => {
@@ -63,5 +69,5 @@ export async function checkoutRestaurantOrder(scope: TenantScope, id: string, in
     },
   }));
   const electronicDocumentMessage = configuration.integrations.sunatEnabled && configuration.integrations.sunatAutoIssue ? " Comprobante en cola; aceptación pendiente." : "";
-  return { ok: true, id: sale.id, message: `Venta registrada.${order.kitchenTicket && order.kitchenTicket.status !== "SERVED" ? " La preparación y entrega siguen pendientes en Cocina." : order.tableId ? " Mesa enviada a limpieza." : ""}${electronicDocumentMessage}` };
+  return { ok: true, id: sale.id, message: `Venta registrada.${order.kitchenTicket && order.kitchenTicket.status !== "SERVED" ? " La preparación o el servicio siguen pendientes." : order.tableId ? " Mesa enviada a limpieza." : ""}${electronicDocumentMessage}` };
 }

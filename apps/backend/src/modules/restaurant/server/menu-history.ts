@@ -3,7 +3,7 @@ import type { Prisma, Product } from "@prisma/client";
 import { AppError } from "@/core/auth/errors";
 
 export type MenuScope = { tenantId: string; branchId: string; actorId: string };
-export const menuFields = ["name", "description", "categoryId", "priceCents", "costCents", "taxCategory", "kitchenArea", "productType", "areaAssignmentMode", "detectedAreaKey", "preparationAreaId", "active"] as const;
+export const menuFields = ["name", "description", "categoryId", "priceCents", "costCents", "taxCategory", "kitchenArea", "productType", "areaAssignmentMode", "detectedAreaKey", "preparationAreaId", "active", "showInMenu", "imageUrl", "sortOrder"] as const;
 export type MenuSnapshot = Pick<Product, typeof menuFields[number]>;
 export type MenuChange = { productId: string; before: MenuSnapshot | null; after: MenuSnapshot; afterUpdatedAt: string };
 export type MenuHistory = { version: 1; source: "MANUAL" | "PDF" | "REVERT"; importId?: string; filename?: string; reason?: string; changes: MenuChange[] };
@@ -30,11 +30,11 @@ export async function revertMenuHistory(tx: Prisma.TransactionClient, scope: Men
   const changes: MenuChange[] = [];
   for (const change of history.changes) {
     const product = await tx.product.findFirst({ where: { id: change.productId, tenantId: scope.tenantId, branchId: scope.branchId } });
-    if (!product || product.updatedAt.toISOString() !== change.afterUpdatedAt || menuFields.some((field) => product[field] !== change.after[field])) {
+    if (!product || product.updatedAt.toISOString() !== change.afterUpdatedAt || menuFields.some((field) => field in change.after && product[field] !== change.after[field])) {
       throw new AppError("MENU_HISTORY_CONFLICT", 409, `${change.after.name} tiene cambios posteriores. No se revirtió ningún producto; revisa su versión actual.`);
     }
     // Only restore fields changed by this operation. New products remain referenced by sales.
-    const restore = change.before ? Object.fromEntries(menuFields.filter((field) => change.before![field] !== change.after[field]).map((field) => [field, change.before![field]])) : { active: false };
+    const restore = change.before ? Object.fromEntries(menuFields.filter((field) => field in change.before! && field in change.after && change.before![field] !== change.after[field]).map((field) => [field, change.before![field]])) : { active: false };
     if (change.before && ("categoryId" in restore || (restore.active === true))) {
       const category = await tx.category.findFirst({ where: { id: change.before.categoryId, tenantId: scope.tenantId, branchId: scope.branchId, active: true } });
       if (!category) throw new AppError("MENU_HISTORY_CONFLICT", 409, "La categoría anterior ya no está activa. Revisa el producto manualmente.");

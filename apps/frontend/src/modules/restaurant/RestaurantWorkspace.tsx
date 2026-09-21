@@ -74,7 +74,7 @@ function RestaurantSection({
     ) : (
       <ErrorState />
     );
-  if (section === "inventory") return data.inventoryModule ? <InventoryWorkspace data={data.inventoryModule} tenantType="RESTAURANT" currency={core.tenant.currency} locale={core.tenant.locale} canWrite={hasPermission(permissions, "inventory:write")} /> : <ErrorState />;
+  if (section === "inventory") return data.inventoryModule ? <InventoryWorkspace data={data.inventoryModule} tenantType="RESTAURANT" permissions={permissions} currency={core.tenant.currency} locale={core.tenant.locale} canWrite={hasPermission(permissions, "inventory:write")} /> : <ErrorState />;
   return (
     <>
     <RestaurantDirectory

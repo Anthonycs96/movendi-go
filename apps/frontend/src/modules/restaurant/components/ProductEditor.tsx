@@ -6,6 +6,8 @@ import type { RestaurantData } from "../types";
 
 type Product = RestaurantData["products"][number];
 function ProductFields({ data, product }: { data: RestaurantData; product?: Product }) {
+  const [stockMode, setStockMode] = useState(product?.stockMode ?? "RECIPE");
+  const [stockItem, setStockItem] = useState(product?.inventoryItemId ?? "");
   const [type, setType] = useState(product?.productType ?? "FOOD");
   const [routing, setRouting] = useState(product?.areaAssignmentMode ?? "SPECIFIC_AREA");
   return <>
@@ -14,11 +16,18 @@ function ProductFields({ data, product }: { data: RestaurantData; product?: Prod
       <Field label="Categoría"><Select name="categoryId" searchable={false} defaultValue={product?.category.id ?? ""} required><option value="" disabled>Selecciona categoría</option>{data.categories.filter((item) => item.active || item.id === product?.category.id).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</Select></Field>
       <div className="form-span"><Field label="Descripción"><textarea className="input" name="description" rows={2} maxLength={400} defaultValue={product?.description ?? ""} placeholder="Ingredientes, tamaño o presentación" /></Field></div>
     </section>
+    <section className="editor-section"><header><span className="section-kicker">INVENTARIO</span><h3>Cómo se abastece</h3><p>La reventa descuenta unidades terminadas; los preparados consumen su receta.</p></header>
+      <Field label="Control de inventario"><Select name="stockMode" value={stockMode} onChange={e => setStockMode(e.target.value)}><option value="RECIPE">Preparado · receta e insumos</option><option value="RESALE">Producto de reventa</option><option value="NONE">Sin control de stock</option></Select></Field>
+      {stockMode === "RESALE" ? <><Field label="Artículo de inventario" hint="Usa el mismo artículo de Compras. Si es nuevo, lo crearemos al guardar."><Select name="inventoryItemId" value={stockItem} onChange={e => setStockItem(e.target.value)}><option value="">Crear artículo vinculado</option>{(data.stockItems ?? []).filter(i => !i.productId || i.productId === product?.id).map(i => <option key={i.id} value={i.id}>{i.sku} · {i.name}</option>)}</Select></Field>{!stockItem ? <><Field label="SKU (opcional)"><Input name="sku" maxLength={40} /></Field><Field label="Código de barras"><Input name="barcode" maxLength={80} /></Field><Field label="Unidad base"><Input name="unit" defaultValue="UND" required /></Field><Field label="Categoría de inventario"><Input name="inventoryCategory" placeholder="Bebidas / Gaseosas" /></Field></> : null}</> : null}
+      <Field label="Mostrar en carta"><Select name="showInMenu" defaultValue={String(product?.showInMenu ?? true)}><option value="true">Sí</option><option value="false">No · conservar en catálogo</option></Select></Field>
+      <Field label="Orden en carta"><Input name="sortOrder" type="number" min="0" defaultValue={product?.sortOrder ?? 0} /></Field>
+      <Field label="Imagen (URL HTTPS opcional)"><Input name="imageUrl" type="url" defaultValue={product?.imageUrl ?? ""} /></Field>
+    </section>
     <section className="editor-section"><header><span className="section-kicker">02 · PRECIO</span><h3>Precio y costo</h3></header>
       <Field label="Precio (S/)"><Input name="price" type="number" min="0" max="100000" step="0.01" defaultValue={product ? (product.priceCents / 100).toFixed(2) : ""} required /></Field>
-      <Field label="Costo (S/)" hint="Se usa para calcular el margen."><Input name="cost" type="number" min="0" max="100000" step="0.01" defaultValue={((product?.costCents ?? 0) / 100).toFixed(2)} required={data.configuration.menu.requireCost} /></Field>
+      <Field label="Costo (S/)" hint="En reventa se utiliza el costo promedio del artículo comprado."><Input name="cost" type="number" min="0" max="100000" step="0.01" defaultValue={((product?.costCents ?? 0) / 100).toFixed(2)} required={data.configuration.menu.requireCost} /></Field>
       <Field label="Afectación tributaria"><Select name="taxCategory" defaultValue={product?.taxCategory ?? "GRAVADA"}><option value="GRAVADA">Gravada</option><option value="EXONERADA">Exonerada</option><option value="INAFECTA">Inafecta</option></Select></Field>
-      {product ? <Field label="Estado"><Select name="active" defaultValue={String(product?.active ?? true)}><option value="true">Activo · disponible en carta</option><option value="false">Inactivo · oculto para nuevos pedidos</option></Select></Field> : null}
+      {product ? <Field label="Estado"><Select name="active" defaultValue={String(product?.active ?? true)}><option value="true">Disponible para venta</option><option value="false">Inactivo · oculto para nuevos pedidos</option></Select></Field> : null}
     </section>
     <section className="editor-section"><header><span className="section-kicker">03 · PREPARACIÓN</span><h3>Destino del pedido</h3><p>Define quién prepara este producto.</p></header>
       <Field label="Tipo de producto"><Select name="productType" value={type} onChange={(event) => { setType(event.target.value); if (event.target.value !== "ADDON") setRouting("SPECIFIC_AREA"); }}>{data.configuration.menu.productTypes.filter((item) => item.active || item.key === product?.productType).map((item) => <option value={item.key} key={item.key}>{item.label}</option>)}</Select></Field>

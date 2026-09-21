@@ -31,6 +31,8 @@ import {
 import { formatCurrencyCents, formatDateTime } from "@/shared/lib/format";
 import { localizeCode } from "@/shared/lib/localization";
 import type { CoreTenantData } from "@movendi/contracts";
+import { ItemService, ServeReady } from "./OrderService";
+import { CashRegisters } from "./CashRegisters";
 import { CoreSettingsWorkspace } from "@/core/tenancy/components/CoreSettingsWorkspace";
 import { PrintConfiguration } from "./PrintConfiguration";
 import { RestaurantConfigurationCenter } from "./RestaurantConfiguration";
@@ -96,7 +98,8 @@ export function RestaurantDirectory({
   const [menuView, setMenuView] = useState("products");
   const locale = core.tenant.locale;
   const money = (value: number) => formatCurrencyCents(value, core.tenant.currency, locale);
-  const canCharge = hasPermission(permissions, "restaurant:cash:write");
+  const canCharge = hasPermission(permissions, "restaurant:orders:charge");
+  const canServe = hasPermission(permissions, "restaurant:orders:serve");
   const canEditOrders = hasPermission(permissions, "restaurant:orders:write");
 
   if (section === "menu") {
@@ -123,7 +126,7 @@ export function RestaurantDirectory({
                 </Field>
               </OperationForm>
               {hasPermission(permissions, "restaurant:menu:write") ? <MenuImport data={data} /> : null}
-              <ProductEditor data={data} allowed={hasPermission(permissions, "restaurant:menu:write")} />
+              <ProductEditor data={data} allowed={hasPermission(permissions, "restaurant:products:create")} />
             </div>
           }
         />
@@ -237,7 +240,7 @@ export function RestaurantDirectory({
                   key: "actions",
                   header: "Acciones",
                   cell: (row) => (
-                    <ProductEditor data={data} product={row} allowed={hasPermission(permissions, "restaurant:menu:write")} />
+                    <ProductEditor data={data} product={row} allowed={hasPermission(permissions, "restaurant:products:edit")} />
                   ),
                 },
               ]}
@@ -430,10 +433,7 @@ export function RestaurantDirectory({
               {
                 key: "items",
                 header: "Detalle",
-                cell: (row) =>
-                  row.items
-                    .map((item) => `${item.quantity}× ${item.name}`)
-                    .join(", "),
+                cell: row => <div>{row.items.map(item => <div key={item.id}><strong>{item.quantity}× {item.name}</strong><ItemService item={item} orderId={row.id} canServe={canServe} /></div>)}<ServeReady order={row} canServe={canServe} /></div>,
               },
               {
                 key: "status",
@@ -516,7 +516,7 @@ export function RestaurantDirectory({
                         <CheckoutPaymentFields data={data} order={row} totalCents={row.totalCents} />
                       </OperationForm>
                     ) : null}
-                    {canEditOrders && !row.paid &&
+                    {hasPermission(permissions, "restaurant:orders:cancel") && !row.paid &&
                     !["CANCELLED", "COMPLETED"].includes(row.status) ? (
                       <OperationForm
                         title={`Cancelar ${row.code}`}
@@ -540,7 +540,7 @@ export function RestaurantDirectory({
                         Enviar delivery
                       </OperationButton>
                     ) : null}
-                    {canEditOrders && row.source === "DELIVERY" &&
+                    {canEditOrders && canServe && row.source === "DELIVERY" &&
                     row.deliveryStatus === "DISPATCHED" ? (
                       <OperationButton
                         endpoint={`/api/operations/restaurant/orders/${row.id}/delivery-status`}
@@ -628,6 +628,7 @@ export function RestaurantDirectory({
           </Card>
         }
       />
+      <CashRegisters canWrite={hasPermission(permissions, "restaurant:configuration:write")} />
       <RestaurantLaunch canWrite={hasPermission(permissions, "restaurant:configuration:write")} />
       <RestaurantConfigurationCenter initialConfiguration={data.configuration} />
       <PrintConfiguration data={data} />

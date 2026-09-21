@@ -14,6 +14,7 @@ import {
 } from "@/shared/components/ui";
 import { formatTime } from "@/shared/lib/format";
 import { localizeCode } from "@/shared/lib/localization";
+import { preparationLabels } from "./OrderService";
 import { KitchenPrintStation } from "./KitchenPrintStation";
 
 function kitchenTone(createdAt: string, warningMinutes: number, criticalMinutes: number): "danger" | "warning" | "info" {
@@ -43,7 +44,7 @@ export function KitchenWorkspace({
     const groups = [...new Set(order.items.filter((item) => !["CANCELLED", "SERVED", "HELD"].includes(item.status)).map((item) => item.preparationAreaKey))];
     return groups.filter((key) => area === "ALL" || area === key).map((key) => {
       const items = order.items.filter((item) => item.preparationAreaKey === key && !["CANCELLED", "SERVED", "HELD"].includes(item.status));
-      const state = items.every((item) => item.status === "READY") ? "READY" : items.some((item) => item.status === "PREPARING" || item.status === "READY") ? "PREPARING" : "QUEUED";
+      const state = items.every((item) => item.status === "READY") ? "READY" : items.some(item => item.status === "READY") ? "PARTIALLY_READY" : items.some(item => item.status === "PREPARING") ? "PREPARING" : "QUEUED";
       return { ...order, areaKey: key, areaName: items[0].preparationAreaName, items, kitchenTicket: order.kitchenTicket ? { ...order.kitchenTicket, status: state } : null };
     });
   });
@@ -99,7 +100,7 @@ export function KitchenWorkspace({
                       : kitchenTone(order.kitchenTicket?.createdAt ?? order.createdAt, data.configuration.kitchen.warningMinutes, data.configuration.kitchen.criticalMinutes)
                   }
                 >
-                  {localizeCode(order.kitchenTicket?.status, locale)}
+                  {preparationLabels[order.kitchenTicket?.status ?? ""] ?? localizeCode(order.kitchenTicket?.status, locale)}
                 </StatusBadge>
               </header>
               <div className="ticket-time">
@@ -115,41 +116,16 @@ export function KitchenWorkspace({
                       {item.notes ? <small>{item.notes}</small> : null}
                     </span>
                     <StatusBadge
-                      tone={item.status === "READY" ? "success" : "neutral"}
+                      tone={item.status === "READY" ? "success" : item.status === "PREPARING" ? "warning" : "neutral"}
                     >
-                      {localizeCode(item.status, locale)}
+                      {preparationLabels[item.status] ?? localizeCode(item.status, locale)}
                     </StatusBadge>
+                    {canWrite && order.kitchenTicket && ["PENDING", "QUEUED", "PREPARING"].includes(item.status) ? <OperationButton endpoint={`/api/operations/restaurant/kitchen/${order.kitchenTicket.id}/status`} body={{ itemIds: [item.id], status: item.status === "PREPARING" || item.stockModeSnapshot === "RESALE" ? "READY" : "PREPARING" }} variant="primary">{item.status === "PREPARING" || item.stockModeSnapshot === "RESALE" ? "Marcar listo" : "Preparar"} · {item.name}</OperationButton> : null}
                   </li>
                 ))}
               </ul>
-              {canWrite ? <footer>
-                {order.kitchenTicket && order.items.some((item) => ["PENDING", "QUEUED"].includes(item.status)) ? (
-                  <OperationButton
-                    endpoint={`/api/operations/restaurant/kitchen/${order.kitchenTicket.id}/status`}
-                    body={{ status: "PREPARING", itemIds: order.items.filter((item) => ["PENDING", "QUEUED"].includes(item.status)).map((item) => item.id) }}
-                    variant="primary"
-                  >
-                    Iniciar preparación
-                  </OperationButton>
-                ) : null}
-                {order.kitchenTicket && order.items.some((item) => item.status === "PREPARING") ? (
-                  <OperationButton
-                    endpoint={`/api/operations/restaurant/kitchen/${order.kitchenTicket.id}/status`}
-                    body={{ status: "READY", itemIds: order.items.filter((item) => item.status === "PREPARING").map((item) => item.id) }}
-                    variant="primary"
-                  >
-                    Marcar listo
-                  </OperationButton>
-                ) : null}
-                {order.kitchenTicket && order.items.some((item) => item.status === "READY") ? (
-                  <OperationButton
-                    endpoint={`/api/operations/restaurant/kitchen/${order.kitchenTicket.id}/status`}
-                    body={{ status: "SERVED", itemIds: order.items.filter((item) => item.status === "READY").map((item) => item.id) }}
-                    variant="primary"
-                  >
-                    Entregado
-                  </OperationButton>
-                ) : null}
+              {canWrite && order.kitchenTicket && order.items.some(item => ["PENDING", "QUEUED", "PREPARING"].includes(item.status)) ? <footer>
+                <OperationButton endpoint={`/api/operations/restaurant/kitchen/${order.kitchenTicket.id}/status`} body={{ status: "READY", confirmed: true, itemIds: order.items.filter(item => ["PENDING", "QUEUED", "PREPARING"].includes(item.status)).map(item => item.id) }} confirmMessage={`¿Marcar todos los productos de ${order.areaName} como listos? Confirma que están preparados; las otras áreas no cambiarán.`}>Marcar todos listos</OperationButton>
               </footer> : null}
             </Card>
           ))}

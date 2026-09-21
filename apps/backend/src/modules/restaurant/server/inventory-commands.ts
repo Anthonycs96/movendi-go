@@ -18,6 +18,7 @@ export async function handleRestaurantInventoryCommand(method: string, segments:
     const input = parse(inventoryRecipeSchema, body);
     ensureUniqueIds(input.ingredients.map((ingredient) => ingredient.itemId), "La receta");
     const product = await prisma.product.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId, active: true } });
+    if (product && product.stockMode !== "RECIPE") throw new AppError("RECIPE_NOT_APPLICABLE", 409, "Los productos de reventa o sin stock no utilizan recetas.");
     if (!product) throw new AppError("PRODUCT_NOT_FOUND", 404, "El producto vendido no existe en esta sede.");
     const validItems = await prisma.inventoryItem.count({ where: { id: { in: input.ingredients.map((ingredient) => ingredient.itemId) }, tenantId: scope.tenantId, OR: [{ branchId: scope.branchId }, { branchId: null }], active: true, trackStock: true } });
     if (validItems !== input.ingredients.length) throw new AppError("INVALID_RECIPE_ITEMS", 400, "La receta contiene insumos inválidos o de otra sede.");
@@ -30,7 +31,7 @@ export async function handleRestaurantInventoryCommand(method: string, segments:
     const input = parse(inventoryReturnSchema, body);
     const sale = await prisma.sale.findFirst({ where: { id: input.saleId, tenantId: scope.tenantId, branchId: scope.branchId } });
     if (!sale) throw new AppError("SALE_NOT_FOUND", 404, "La venta no existe en esta sede.");
-    const restored = await withSerializableTransaction((tx) => reverseRestaurantSaleInventory(tx, scope, sale.id, input.reason));
+    const restored = await withSerializableTransaction((tx) => reverseRestaurantSaleInventory(tx, scope, sale.id, input.reason, input.partial));
     await audit(scope, "RETURN", "SaleInventory", sale.id, { restored, reason: input.reason });
     return { ok: true, id: sale.id, message: `Inventario devuelto: ${restored} artículo(s).` };
   }

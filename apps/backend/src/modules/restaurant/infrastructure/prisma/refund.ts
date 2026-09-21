@@ -46,7 +46,7 @@ export async function executeRefund(scope: TenantScope, saleId: string, input: R
         }
       },
       restock: async () => {
-        if (input.stockDisposition === "RESTOCK" && sale.inventoryMovements.some((movement) => movement.type === "SALE_CONSUMPTION") && !sale.inventoryMovements.some((movement) => movement.type === "SALE_RETURN")) await reverseRestaurantSaleInventory(tx, scope, sale.id, input.reason);
+        if (input.stockDisposition === "RESTOCK" && sale.inventoryMovements.some((movement) => movement.type === "SALE_CONSUMPTION")) await reverseRestaurantSaleInventory(tx, scope, sale.id, input.reason);
       },
       cancelPreparation: async () => {
         if (sale.orderId) {

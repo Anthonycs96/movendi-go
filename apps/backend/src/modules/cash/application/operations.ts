@@ -6,7 +6,7 @@ export async function openCashUseCase(repository: CashRepository, input: OpenCas
   if (input.requestId) {
     const session = await repository.findSession(input.requestId);
     if (session) {
-      if (session.openingCents !== input.openingCents || session.registerName !== input.registerName || (session.openingNote ?? "") !== (input.notes ?? "")) throw new CashError("IDEMPOTENCY_CONFLICT", "Esta solicitud corresponde a otra apertura.");
+      if ((input.cashRegisterId && session.cashRegisterId !== input.cashRegisterId) || session.openingCents !== input.openingCents || session.registerName !== input.registerName || (session.openingNote ?? "") !== (input.notes ?? "")) throw new CashError("IDEMPOTENCY_CONFLICT", "Esta solicitud corresponde a otra apertura.");
       return { session, replayed: true };
     }
   }

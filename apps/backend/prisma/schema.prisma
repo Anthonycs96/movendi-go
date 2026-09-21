@@ -74,6 +74,7 @@ model Tenant {
   printDevices                     PrintDevice[]
   preparationAreaPrinters          PreparationAreaPrinter[]
   restaurantPrintSettings          RestaurantPrintSettings[]
+  cashRegisters CashRegister[]
   cashSessions                     CashSession[]
   sales                            Sale[]
   auditLogs                        AuditLog[]
@@ -480,6 +481,7 @@ model Branch {
   inventoryMovements              InventoryMovement[]
   inventoryPurchases              InventoryPurchase[]
   inventoryCounts                 InventoryCount[]
+  cashRegisters CashRegister[]
   cashSessions                    CashSession[]
   sales                           Sale[]
   salePayments                    SalePayment[]
@@ -744,6 +746,12 @@ model Category {
 }
 
 model Product {
+  stockMode String @default("RECIPE")
+  inventoryItemId String? @unique
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  showInMenu Boolean @default(true)
+  imageUrl String?
+  sortOrder Int @default(0)
   taxCategory String @default("GRAVADA")
   id                 String   @id @default(cuid())
   tenantId           String
@@ -1051,8 +1059,15 @@ model Promotion {
 }
 
 model OrderItem {
+  startedAt DateTime?
+  readyAt DateTime?
+  servedAt DateTime?
+  startedByUserId String?
+  readyByUserId String?
+  servedByUserId String?
   preparationAreaKey String @default("GENERAL")
   preparationAreaName String @default("General")
+  stockModeSnapshot String @default("RECIPE")
   recipeSnapshot String?
   taxCategory String @default("GRAVADA")
   id              String  @id @default(cuid())
@@ -1096,7 +1111,25 @@ model KitchenTicket {
   @@index([tenantId, createdAt])
 }
 
+model CashRegister {
+  id String @id @default(cuid())
+  tenantId String
+  branchId String
+  name String
+  nameKey String
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id])
+  sessions CashSession[]
+  @@unique([tenantId, branchId, nameKey])
+  @@index([tenantId, branchId, active])
+}
+
 model CashSession {
+  cashRegisterId String?
+  cashRegister CashRegister? @relation(fields: [cashRegisterId], references: [id], onDelete: Restrict)
   scannerConnection RetailScannerConnection?
   balanceBasis String    @default("CASH_ONLY")
   registerName  String    @default("Caja principal")
@@ -1125,6 +1158,7 @@ model CashSession {
   @@index([tenantId, branchId, status])
   @@index([tenantId, openedAt])
   @@unique([tenantId, branchId, activeSlot])
+  @@index([cashRegisterId, status])
 }
 
 model Sale {
@@ -2290,6 +2324,9 @@ model TransportMaintenanceSchedule {
 }
 
 model InventoryItem {
+  restaurantProduct Product?
+  inventoryCategory String?
+  purchasePresentations InventoryPresentation[]
   salonProduct SalonProduct?
   serviceSupplies ServiceSupply[]
   salonLines SalonSaleLine[]
@@ -2394,7 +2431,21 @@ model InventoryPurchase {
   @@index([tenantId, branchId, supplierName])
 }
 
+model InventoryPresentation {
+  id String @id @default(cuid())
+  itemId String
+  name String
+  factor Float @default(1)
+  active Boolean @default(true)
+  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  @@unique([itemId, name])
+}
+
 model InventoryPurchaseLine {
+  presentationName String @default("Unidad base")
+  presentationFactor Float @default(1)
+  purchasedQuantity Float?
+  presentationCostCents Int?
   id            String @id @default(cuid())
   purchaseId    String
   itemId        String

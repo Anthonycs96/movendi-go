@@ -11,7 +11,7 @@ export type InventoryPurchaseInput = {
   notes?: string;
   idempotencyKey?: string;
   /** Costs are already in cents, converted at the HTTP boundary. */
-  lines: Array<{ itemId: string; quantity: number; unitCost: number }>;
+  lines: Array<{ presentationName?: string; presentationFactor?: number; itemId: string; quantity: number; unitCost: number }>;
 };
 
 /** Purchase, lines and stock must commit or roll back in the caller's transaction. */
@@ -29,7 +29,11 @@ export async function registerInventoryPurchaseUseCase(
   const lines = input.lines.map((line) => {
     normalizeMovementQuantity(line.quantity);
     if (!Number.isSafeInteger(line.unitCost) || line.unitCost < 0) throw new InventoryError("INVALID_PURCHASE", "El costo debe ser un entero no negativo en céntimos.");
-    return { itemId: line.itemId, quantity: line.quantity, unitCostCents: line.unitCost, totalCents: Math.round(line.quantity * line.unitCost) };
+    const factor = line.presentationFactor ?? 1;
+    if (!Number.isFinite(factor) || factor <= 0 || factor > 1000000) throw new InventoryError("INVALID_PURCHASE", "La equivalencia de presentación no es válida.");
+    const quantity = normalizeMovementQuantity(line.quantity * factor);
+    if (quantity > 1000000000) throw new InventoryError("INVALID_PURCHASE", "La cantidad convertida supera el límite.");
+    return { itemId: line.itemId, quantity, unitCostCents: Math.round(line.unitCost / factor), totalCents: Math.round(line.quantity * line.unitCost), presentationName: line.presentationName ?? "Unidad base", presentationFactor: factor, purchasedQuantity: line.quantity, presentationCostCents: line.unitCost };
   });
   if (input.idempotencyKey) {
     const existing = await purchases.findByMovementKey(`PURCHASE:${input.idempotencyKey}:0`);
@@ -41,7 +45,7 @@ export async function registerInventoryPurchaseUseCase(
         && existing.notes === (input.notes || null)
         && (!input.purchasedAt || existing.purchasedAt.getTime() === input.purchasedAt.getTime())
         && existing.lines.length === lines.length
-        && lines.every((line) => existing.lines.some((stored) => stored.itemId === line.itemId && stored.quantity === line.quantity && stored.unitCostCents === line.unitCostCents));
+        && lines.every((line) => existing.lines.some((stored) => stored.itemId === line.itemId && stored.quantity === line.quantity && stored.unitCostCents === line.unitCostCents && (stored.presentationFactor ?? 1) === line.presentationFactor && (stored.presentationName ?? "Unidad base") === line.presentationName && (stored.purchasedQuantity ?? stored.quantity) === line.purchasedQuantity && (stored.presentationCostCents ?? stored.unitCostCents) === line.presentationCostCents));
       if (!matches) throw new InventoryError("IDEMPOTENCY_CONFLICT", "Esta solicitud ya se utilizó para otra compra de inventario.");
       return existing;
     }
@@ -53,9 +57,9 @@ export async function registerInventoryPurchaseUseCase(
     totalCents: lines.reduce((sum, line) => sum + line.totalCents, 0),
     notes: input.notes || null, purchasedAt: input.purchasedAt ?? new Date(), lines,
   });
-  for (const [index, line] of input.lines.entries()) {
+  for (const [index, line] of lines.entries()) {
     const movement = await applyInventoryMovementUseCase(movements, scope, {
-      itemId: line.itemId, type: "PURCHASE", direction: "IN", quantity: line.quantity, unitCostCents: line.unitCost,
+      itemId: line.itemId, type: "PURCHASE", direction: "IN", quantity: line.quantity, unitCostCents: line.unitCostCents,
       originType: "PURCHASE", originId: purchase.id, purchaseId: purchase.id,
       idempotencyKey: input.idempotencyKey ? `PURCHASE:${input.idempotencyKey}:${index}` : `PURCHASE:${purchase.id}:${line.itemId}`,
       reference: input.documentNumber || code, notes: input.notes || null, occurredAt: input.purchasedAt,

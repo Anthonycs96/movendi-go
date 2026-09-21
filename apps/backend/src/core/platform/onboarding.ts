@@ -82,7 +82,7 @@ const defaultPermissions: Record<string, string[]> = {
   RETAIL_MANAGER: ["*"],
   RETAIL_CASHIER: ["minimarket:sales:read", "minimarket:sales:write", "minimarket:cash:write", "customers:read"],
   RETAIL_STOCK: ["minimarket:transfers:write", "minimarket:catalog:read", "minimarket:catalog:write", "inventory:read", "inventory:write"],
-  WAITER: ["dashboard:read", "restaurant:floor:read", "restaurant:floor:write", "restaurant:orders:read", "restaurant:orders:write", "restaurant:menu:read", "restaurant:promotions:read", "customers:read"],
+  WAITER: ["dashboard:read", "restaurant:floor:read", "restaurant:floor:write", "restaurant:orders:read", "restaurant:orders:write", "restaurant:orders:serve", "restaurant:menu:read", "restaurant:promotions:read", "customers:read"],
   KITCHEN: ["dashboard:read", "restaurant:kitchen:read", "restaurant:kitchen:write", "restaurant:orders:read"],
   CASHIER: ["dashboard:read", "restaurant:orders:read", "restaurant:cash:write", "customers:read"],
   MANAGER: ["*"], RECEPTION: ["dashboard:read", "barbershop:appointments:read", "barbershop:appointments:write", "customers:read", "customers:write", "services:read"],
@@ -224,6 +224,7 @@ export async function initializeBusinessSetup(tenantId: string, branchId: string
       if (template.diningArea) await tx.diningArea.upsert({ where: { tenantId_branchId_name: { tenantId, branchId, name: template.diningArea } }, create: { tenantId, branchId, name: template.diningArea }, update: { active: true } });
     }
     if (tenantType === "RESTAURANT") {
+      await tx.cashRegister.upsert({ where: { tenantId_branchId_nameKey: { tenantId, branchId, nameKey: "caja principal" } }, create: { tenantId, branchId, name: "Caja principal", nameKey: "caja principal" }, update: {} });
       await tx.restaurantPrintSettings.upsert({ where: { branchId }, create: { tenantId, branchId, mode: "SIMPLE", automatic: true }, update: {} });
       await tx.restaurantConfiguration.upsert({ where: { tenantId }, create: { tenantId, settings: JSON.stringify(defaultRestaurantConfiguration) }, update: {} });
     }

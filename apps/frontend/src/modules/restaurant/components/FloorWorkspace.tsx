@@ -37,6 +37,8 @@ import {
 import QRCode from "qrcode";
 import type { IScannerControls } from "@zxing/browser";
 import { useRouter } from "next/navigation";
+import { CheckoutPaymentFields, checkoutPayload } from "./CheckoutForm";
+import { ItemService, ServeReady } from "./OrderService";
 import { useRestaurantLive } from "./use-restaurant-live";
 import type {
   RestaurantData,
@@ -71,16 +73,15 @@ const orderLabels: Record<string, string> = {
   PLACED: "Enviado",
   QUEUED: "En cola",
   PREPARING: "Preparando",
-  READY: "Listo",
+  READY: "Listo para servir",
   SERVED: "Servido",
 };
 const kitchenLabels: Record<string, string> = {
   QUEUED: "En cola",
   PREPARING: "Preparando",
-  READY: "Listo",
-  SERVED: "Entregado",
+  READY: "Listo para servir",
+  SERVED: "Servido",
 };
-const paymentMethodLabels: Record<string, string> = { CASH: "Efectivo", CARD: "Tarjeta", TRANSFER: "Transferencia", YAPE: "Yape", PLIN: "Plin", OTHER: "Otro" };
 
 type Customer = RestaurantData["customers"][number];
 
@@ -206,11 +207,11 @@ function QuantityStepper({
       >
         <Minus size={17} />
       </button>
-      <b aria-label={`${quantity} unidades`}>{quantity}</b>
+      <b aria-label={`${quantity} unidades`}>{product.stockBlocked ? "Agotado" : quantity}</b>
       <button
         type="button"
         aria-label={`Agregar ${product.name}`}
-        disabled={quantity >= 50}
+        disabled={quantity >= 50 || product.stockBlocked}
         onClick={() => onQuantity(product.id, 1)}
       >
         <Plus size={17} />
@@ -658,7 +659,7 @@ function ActiveOrderExpansionPanel({
     const query = normalize(productQuery);
     return products.filter(
       (product) =>
-        product.active &&
+        product.active && product.showInMenu !== false &&
         (categoryId === "ALL" || product.category.id === categoryId) &&
         (!query || normalize(product.name).includes(query)),
     );
@@ -892,6 +893,7 @@ function ActiveOrderExpansionPanel({
                     }
                     key={product.id}
                   >
+                    {product.imageUrl ? <Image src={product.imageUrl} alt="" width={64} height={64} unoptimized style={{ borderRadius: 8, objectFit: "cover" }} /> : null}
                     <div className="touch-product__copy">
                       <strong>
                         {product.name}
@@ -964,26 +966,21 @@ function ActiveOrderExpansionPanel({
 }
 
 function ActiveOrderPanel({
+  data,
   order,
   products,
-  paymentMethods,
   warningMinutes,
   criticalMinutes,
-  splitPaymentsEnabled,
   permissions,
 }: {
   order: RestaurantOrderDto;
   products: RestaurantProductDto[];
-  paymentMethods: string[];
+  data: RestaurantData;
   warningMinutes: number;
   criticalMinutes: number;
-  splitPaymentsEnabled: boolean;
   permissions: string[];
 }) {
   const router = useRouter();
-  const [paymentMethod, setPaymentMethod] = useState(paymentMethods.includes("CARD") ? "CARD" : paymentMethods[0] ?? "CASH");
-  const [splitMode, setSplitMode] = useState(false);
-  const [payments, setPayments] = useState<Array<{ method: string; amount: string }>>([{ method: paymentMethods[0] ?? "CASH", amount: (order.totalCents / 100).toFixed(2) }]);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [failed, setFailed] = useState(false);
@@ -1063,7 +1060,7 @@ function ActiveOrderPanel({
           <ChefHat size={14} />
           <small>Cocina</small>
           <strong>
-            {kitchenLabels[order.kitchenTicket?.status ?? ""] ?? "Sin comanda"}
+            {(order.kitchenTicket?.status === "PARTIALLY_READY" ? "Parcialmente listo" : kitchenLabels[order.kitchenTicket?.status ?? ""]) ?? "Sin comanda"}
           </strong>
         </span>
       </div>
@@ -1086,10 +1083,12 @@ function ActiveOrderPanel({
               {item.notes ? <small>{item.notes}</small> : null}
             </span>
             <strong>{formatCurrencyCents(item.totalCents)}</strong>
+            <ItemService item={item} orderId={order.id} canServe={hasPermission(permissions, "restaurant:orders:serve")} />
           </li>
         ))}
       </ul>
-      {hasPermission(permissions, "restaurant:orders:write") ? <Button
+      <ServeReady order={order} canServe={hasPermission(permissions, "restaurant:orders:serve")} />
+      {!order.paid && hasPermission(permissions, "restaurant:orders:write") ? <Button
         type="button"
         size="lg"
         className="attention-add-button"
@@ -1098,31 +1097,10 @@ function ActiveOrderPanel({
         <Plus size={18} />
         Abrir carta y agregar productos
       </Button> : null}
-      {hasPermission(permissions, "restaurant:cash:write") ? <div className="attention-checkout">
-        {!splitMode ? <Select
-          value={paymentMethod}
-          onChange={(event) => setPaymentMethod(event.target.value)}
-          aria-label="Medio de pago"
-        >
-          {paymentMethods.map((method) => <option value={method} key={method}>{paymentMethodLabels[method] ?? method}</option>)}
-        </Select> : <div className="split-payment-editor">{payments.map((payment, index) => <div key={`${index}-${payment.method}`}><Select aria-label={`Medio de pago ${index + 1}`} value={payment.method} onChange={(event) => setPayments((current) => current.map((item, row) => row === index ? { ...item, method: event.target.value } : item))}>{paymentMethods.map((method) => <option value={method} key={method}>{paymentMethodLabels[method] ?? method}</option>)}</Select><Input aria-label={`Monto ${index + 1}`} type="number" min="0.01" step="0.01" value={payment.amount} onChange={(event) => setPayments((current) => current.map((item, row) => row === index ? { ...item, amount: event.target.value } : item))} />{payments.length > 2 ? <Button type="button" variant="ghost" size="sm" onClick={() => setPayments((current) => current.filter((_, row) => row !== index))}>Quitar</Button> : null}</div>)}<small>Asignado: {formatCurrencyCents(payments.reduce((sum, payment) => sum + Math.round((Number(payment.amount) || 0) * 100), 0))} de {formatCurrencyCents(order.totalCents)}</small><Button type="button" variant="ghost" size="sm" disabled={payments.length >= Math.min(10, paymentMethods.length)} onClick={() => { const assigned = payments.reduce((sum, payment) => sum + Math.round((Number(payment.amount) || 0) * 100), 0); const nextMethod = paymentMethods.find((method) => !payments.some((payment) => payment.method === method)) ?? paymentMethods[0]; setPayments((current) => [...current, { method: nextMethod, amount: (Math.max(0, order.totalCents - assigned) / 100).toFixed(2) }]); }}>Agregar otro medio</Button></div>}
-        {splitPaymentsEnabled ? <label className="split-payment-toggle"><input type="checkbox" checked={splitMode} onChange={(event) => { const enabled = event.target.checked; setSplitMode(enabled); if (enabled) { const first = Math.floor(order.totalCents / 2); setPayments([{ method: paymentMethods[0] ?? "CASH", amount: (first / 100).toFixed(2) }, { method: paymentMethods.find((method) => method !== (paymentMethods[0] ?? "CASH")) ?? paymentMethods[0] ?? "CASH", amount: ((order.totalCents - first) / 100).toFixed(2) }]); } }} /> Dividir pago</label> : null}
-        <Button
-          loading={pending}
-          variant="primary"
-          disabled={splitMode && payments.reduce((sum, payment) => sum + Math.round((Number(payment.amount) || 0) * 100), 0) !== order.totalCents}
-          onClick={() =>
-            void run(
-              `/api/operations/restaurant/orders/${order.id}/checkout`,
-              "POST",
-              splitMode ? { payments: payments.map((payment) => ({ method: payment.method, amount: Number(payment.amount) })) } : { paymentMethod },
-              "Pedido cobrado.",
-            )
-          }
-        >
-          Cobrar {formatCurrencyCents(order.totalCents)}
-        </Button>
-      </div> : <p className="order-empty-inline">El cobro de este pedido lo realiza caja.</p>}
+      {order.paid ? <p role="status">Pagado · El servicio continúa hasta entregar todos los productos.</p> : hasPermission(permissions, "restaurant:orders:charge") ? <form className="attention-checkout" onSubmit={event => { event.preventDefault(); void run(`/api/operations/restaurant/orders/${order.id}/checkout`, "POST", checkoutPayload(new FormData(event.currentTarget)), "Pedido cobrado."); }}>
+        <CheckoutPaymentFields data={data} order={order} totalCents={order.totalCents} />
+        <Button type="submit" loading={pending}>Cobrar {formatCurrencyCents(order.totalCents)}</Button>
+      </form> : <p className="order-empty-inline">El cobro de este pedido lo realiza caja.</p>}
       <div className="attention-links">
         {hasPermission(permissions, "restaurant:orders:read") ? <Link href="orders">Ver pedidos</Link> : null}
         {hasPermission(permissions, "restaurant:kitchen:read") ? <Link href="kitchen">Abrir cocina</Link> : null}
@@ -1227,7 +1205,7 @@ function NewOrderComposer({
     const query = normalize(productQuery);
     return data.products.filter(
       (product) =>
-        product.active &&
+        product.active && product.showInMenu !== false &&
         (categoryId === "ALL" || product.category.id === categoryId) &&
         (!query || normalize(product.name).includes(query)),
     );
@@ -1616,6 +1594,7 @@ function NewOrderComposer({
                     }
                     key={product.id}
                   >
+                    {product.imageUrl ? <Image src={product.imageUrl} alt="" width={64} height={64} unoptimized style={{ borderRadius: 8, objectFit: "cover" }} /> : null}
                     <div className="touch-product__copy">
                       <strong>
                         {product.name}
@@ -2080,7 +2059,7 @@ function FloorMap({
     const term = normalize(query);
     return activeTables.filter((table) => {
       const operationalStatus = table.activeOrder
-        ? table.activeOrder.kitchenTicket?.status === "READY"
+        ? table.activeOrder.items.some(item => item.status === "READY")
           ? "READY"
           : "ACTIVE"
         : table.status;
@@ -2097,10 +2076,10 @@ function FloorMap({
   ).length;
   const activeCount = activeTables.filter(
     (table) =>
-      table.activeOrder && table.activeOrder.kitchenTicket?.status !== "READY",
+      table.activeOrder && !table.activeOrder.items.some(item => item.status === "READY"),
   ).length;
   const readyCount = activeTables.filter(
-    (table) => table.activeOrder?.kitchenTicket?.status === "READY",
+    (table) => table.activeOrder?.items.some(item => item.status === "READY"),
   ).length;
   return (
     <Card className="panel floor-map">
@@ -2171,6 +2150,8 @@ function FloorMap({
 
 function TableOperationalStatus({ table, locale }: { table: RestaurantTableDto; locale: string }) {
   const kitchen = table.activeOrder?.kitchenTicket?.status;
+  if (kitchen === "SERVED") return <StatusBadge tone="info" dot>Servido · Por cobrar</StatusBadge>;
+  if (kitchen === "PARTIALLY_READY") return <StatusBadge tone="success" dot>{table.activeOrder?.items.some(item => item.status === "READY") ? "Listo para servir · Parcial" : "Servicio parcial"}</StatusBadge>;
   if (kitchen === "PREPARING")
     return (
       <StatusBadge tone="danger" dot>
@@ -2341,10 +2322,9 @@ export function FloorWorkspace({ data, businessName, locale, permissions }: { da
               permissions={permissions}
               order={focused.activeOrder}
               products={data.products}
-              paymentMethods={data.paymentMethods}
+              data={data}
               warningMinutes={data.configuration.kitchen.warningMinutes}
               criticalMinutes={data.configuration.kitchen.criticalMinutes}
-              splitPaymentsEnabled={data.configuration.sales.splitPaymentsEnabled}
             />
           ) : workspaceView === "tables" && focused && focused.status !== "AVAILABLE" ? (
             <Card className="floor-table-detail">

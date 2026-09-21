@@ -78,7 +78,7 @@ test.beforeAll(async ({ browser }) => {
   tableId = initial.tables[0].id;
   itemId = (await command(page.request, "inventory/items", { sku: "AUDIT-INPUT", name: "Insumo auditado", kind: "INPUT", unit: "KG", openingStock: 1000, minimumStock: 2, unitCost: 8 })).id;
   await command(page.request, `inventory/recipes/${productId}`, { yieldQuantity: 1, ingredients: [{ itemId, quantity: 1, wastePercent: 0 }] });
-  await command(page.request, "restaurant/cash", { openingAmount: 100 });
+  await command(page.request, "restaurant/cash", { openingAmount: 100, cashRegisterId: (await (await page.request.get("/api/data/restaurant-cash")).json()).registers[0].id });
   await login(page.request, "superadmin@multisaas.local", "nova-studio", "Nexo2026!");
   await setup({ step: "BUSINESS", name: `Restaurante ${slug}`, shortName: "Auditoría real", branchName: "Sede auditada", email: "", country: "PE", currency: "PEN", timezone: "America/Lima" });
   for (const [step, sections] of Object.entries({
@@ -145,7 +145,10 @@ test("un mesero no puede cobrar y un cajero sí", async ({ request, playwright }
 
 test("no permite completar un pedido sin registrar la venta", async ({ request }) => {
   const created = await order(request);
-  await command(request, `restaurant/orders/${created.id}/status`, { status: "SERVED" }, "PATCH");
+  const ticket = (await data(request)).orders.find(item => item.id === created.id)!.kitchenTicket!;
+  await command(request, `restaurant/kitchen/${ticket.id}/status`, { status: "PREPARING" }, "PATCH");
+  await command(request, `restaurant/kitchen/${ticket.id}/status`, { status: "READY", confirmed: true }, "PATCH");
+  await command(request, `restaurant/orders/${created.id}/serve`, {}, "PATCH");
   const response = await request.patch(`/api/operations/restaurant/orders/${created.id}/status`, { data: { status: "COMPLETED" } });
   expect(response.status(), await response.text()).toBe(409);
 });
@@ -205,18 +208,28 @@ test("adiciones concurrentes conservan todas las líneas y su total", async ({ r
   expect(current.totalCents).toBe(2000 * (1 + accepted));
 });
 
-test("un módulo desactivado bloquea tanto lectura como escritura por API", async ({ request, playwright }) => {
+test("un módulo desactivado bloquea lectura y escritura de un operador sin acceso administrativo", async ({ request, playwright }) => {
   const platform = await playwright.request.newContext({ baseURL: "http://localhost:3100" });
   await login(platform, "superadmin@multisaas.local", "nova-studio", "Nexo2026!");
+  const operator = await playwright.request.newContext({ baseURL: "http://localhost:3100" });
+  const db = new PrismaClient();
+  const role = await db.role.findFirstOrThrow({ where: { tenantId, key: "WAITER" } });
+  await db.$disconnect();
+  const previousPermissions = JSON.parse(role.permissions) as string[];
+  await command(request, `core/roles/${role.id}`, { name: role.name, permissions: [...previousPermissions, "inventory:read", "inventory:write"].join(",") }, "PATCH");
+  await login(operator, `waiter@${slug}.local`);
+  expect((await operator.get("/api/data/tenant?section=inventory")).status()).toBe(200);
   const modules = ["dashboard", "floor", "orders", "kitchen", "menu", "checkout", "settings", "inventory", "reports", "clients", "promotions"];
   try {
     await command(platform, `platform/onboarding/${tenantId}`, { step: "MODULES", enabledModules: modules.filter((item) => item !== "inventory") }, "PATCH");
-    expect((await request.get("/api/data/tenant?section=inventory")).status()).toBe(403);
-    expect((await request.post("/api/operations/inventory/items", { data: { sku: "DISABLED", name: "No permitido", unit: "KG" } })).status()).toBe(403);
+    expect((await operator.get("/api/data/tenant?section=inventory")).status()).toBe(403);
+    expect((await operator.post("/api/operations/inventory/items", { data: { sku: "DISABLED", name: "No permitido", unit: "KG" } })).status()).toBe(403);
   } finally {
     await command(platform, `platform/onboarding/${tenantId}`, { step: "MODULES", enabledModules: modules }, "PATCH");
     await command(platform, `platform/onboarding/${tenantId}`, { step: "REVIEW", ready: true }, "PATCH");
     await platform.dispose();
+    await command(request, `core/roles/${role.id}`, { name: role.name, permissions: previousPermissions.join(",") }, "PATCH");
+    await operator.dispose();
   }
 });
 
@@ -241,7 +254,8 @@ test("la caja cierra con saldo correcto y dos aperturas simultáneas no duplican
   expect(current.cashSession!.expectedCents).toBe(cash.expectedCents + 500);
   await command(request, `restaurant/cash/${cash.id}/close`, { countedAmount: current.cashSession!.expectedCents / 100 });
   expect((await data(request)).cashSession).toBeNull();
-  const responses = await Promise.all([1, 2].map(() => request.post("/api/operations/restaurant/cash", { data: { openingAmount: 100 } })));
+  const cashRegisterId = (await (await request.get("/api/data/restaurant-cash")).json()).registers[0].id;
+  const responses = await Promise.all([1, 2].map(() => request.post("/api/operations/restaurant/cash", { data: { openingAmount: 100, cashRegisterId } })));
   expect(responses.map((response) => response.status()).sort()).toEqual([200, 409]);
   expect((await request.post(`/api/operations/restaurant/cash/${cash.id}/movement`, { data: { type: "IN", amount: 1, reason: "Caja cerrada" } })).status()).toBe(404);
 });
@@ -395,7 +409,7 @@ test("cliente desde formulario, delivery, estados y cobro", async ({ page }) => 
   const created = await order(page.request, { source: "DELIVERY", customerId: customer.id, deliveryPhone: "900000001", deliveryAddress: "Dirección de prueba 123", deliveryFee: 5 });
   const current = (await data(page.request)).orders.find((item) => item.id === created.id)!;
   expect(current.totalCents).toBe(2500);
-  await command(page.request, `restaurant/kitchen/${current.kitchenTicket!.id}/status`, { status: "READY" }, "PATCH");
+  await command(page.request, `restaurant/kitchen/${current.kitchenTicket!.id}/status`, { status: "READY", confirmed: true }, "PATCH");
   for (const status of ["DISPATCHED", "DELIVERED"]) await command(page.request, `restaurant/orders/${created.id}/delivery-status`, { status }, "PATCH");
   await command(page.request, `restaurant/orders/${created.id}/checkout`, { paymentMethod: "CARD" });
 });
@@ -435,7 +449,7 @@ test("cada estación avanza sus productos sin completar otra área", async ({ re
   expect(drinkLine.preparationAreaKey).not.toBe(plateLine.preparationAreaKey);
   const bulk = await request.patch(`/api/operations/restaurant/kitchen/${opened.kitchenTicket!.id}/status`, { data: { status: "READY" } });
   expect(bulk.status()).toBe(409);
-  await command(request, `restaurant/kitchen/${opened.kitchenTicket!.id}/status`, { status: "READY", itemIds: [drinkLine.id] }, "PATCH");
+  await command(request, `restaurant/kitchen/${opened.kitchenTicket!.id}/status`, { status: "READY", confirmed: true, itemIds: [drinkLine.id] }, "PATCH");
   const partial = (await data(request)).orders.find((item) => item.id === created.id)!;
   expect(partial.status).toBe("PREPARING");
   expect(partial.items.find((item) => item.id === plateLine.id)?.status).toBe("PENDING");
@@ -607,7 +621,7 @@ test("simulación: muestra el formato de impresión y conserva la comanda pendie
     await station.getByRole("combobox").selectOption(printer.id);
     await expect(station.getByRole("combobox")).toHaveValue(printer.id);
     await expect(station.getByRole("checkbox", { name: "Modo simulación" })).toBeChecked();
-    await station.getByRole("button", { name: "Imprimir ahora", exact: true }).click();
+    await station.locator(".kitchen-print-errors > div").filter({ hasText: "Impresora simulada QA" }).getByRole("button", { name: "Imprimir ahora", exact: true }).click();
     await expect(station).toContainText("Prueba sin cambios");
     await station.getByRole("button", { name: "Ver formato / guardar PDF" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-print-invoked", "true");
@@ -634,7 +648,8 @@ test("el pago anticipado conserva las comandas pendientes hasta su entrega", asy
   const current = await data(request);
   const queued = current.kitchen.find((item) => item.id === created.id)!;
   expect(queued).toBeTruthy(); expect(queued.paid).toBe(true);
-  await command(request, `restaurant/kitchen/${queued.kitchenTicket!.id}/status`, { status: "SERVED" }, "PATCH");
+  await command(request, `restaurant/kitchen/${queued.kitchenTicket!.id}/status`, { status: "READY", confirmed: true }, "PATCH");
+  await command(request, `restaurant/orders/${created.id}/serve`, {}, "PATCH");
   expect((await data(request)).kitchen.some((item) => item.id === created.id)).toBe(false);
 });
 

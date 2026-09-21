@@ -36,19 +36,20 @@ export interface AuthSessionView {
 export interface BranchSummary { id: string; name: string }
 export interface BusinessAccessSummary { name: string; slug: string; type: BusinessType }
 
-export interface InventoryItemDto { id: string; sku: string; barcode: string | null; name: string; kind: string; unit: string; stock: number; minimumStock: number; unitCostCents: number; trackStock: boolean; notes: string | null; active: boolean; createdAt: string; updatedAt: string }
+export interface InventoryItemDto { reservedStock?: number; inventoryCategory?: string | null; purchasePresentations?: Array<{ id: string; name: string; factor: number }>; restaurantProduct?: { id: string; name: string; showInMenu: boolean; priceCents: number } | null; id: string; sku: string; barcode: string | null; name: string; kind: string; unit: string; stock: number; minimumStock: number; unitCostCents: number; trackStock: boolean; notes: string | null; active: boolean; createdAt: string; updatedAt: string }
 export interface InventoryMovementDto { id: string; itemId: string; type: string; direction: string; quantity: number; stockBefore: number; stockAfter: number; unitCostCents: number; totalCostCents: number; originType: string; originId: string | null; reference: string | null; notes: string | null; occurredAt: string; item: { name: string; sku: string; unit: string }; actor: { name: string; email: string } | null }
-export interface InventoryPurchaseDto { id: string; code: string; supplierName: string; documentNumber: string | null; status: string; totalCents: number; notes: string | null; purchasedAt: string; createdBy: { name: string; email: string }; lines: Array<{ id: string; itemId: string; quantity: number; unitCostCents: number; totalCents: number; item: { name: string; sku: string; unit: string } }> }
+export interface InventoryPurchaseDto { id: string; code: string; supplierName: string; documentNumber: string | null; status: string; totalCents: number; notes: string | null; purchasedAt: string; createdBy: { name: string; email: string }; lines: Array<{ presentationName?: string; presentationFactor?: number; purchasedQuantity?: number | null; presentationCostCents?: number | null; id: string; itemId: string; quantity: number; unitCostCents: number; totalCents: number; item: { name: string; sku: string; unit: string } }> }
 export interface InventoryCountDto { id: string; code: string; status: string; notes: string | null; countedAt: string; createdBy: { name: string; email: string }; lines: Array<{ id: string; itemId: string; expectedQuantity: number; countedQuantity: number; difference: number; item: { name: string; sku: string; unit: string } }> }
 export interface InventoryRecipeProductDto { id: string; name: string; recipe: { id: string; active: boolean; yieldQuantity: number; ingredients: Array<{ id: string; itemId: string; quantity: number; wastePercent: number; item: { id: string; name: string; sku: string; unit: string } }> } | null }
 export interface InventoryData {
+  menuSetup?: { categories: Array<{ id: string; name: string }>; preparationAreas: Array<{ id: string; name: string }> };
   suppliers?: Array<{ id: string; name: string; documentType: string; documentNumber: string; phone: string | null; email: string | null; address: string | null; contact: string | null; active: boolean }>;
   items: InventoryItemDto[];
   movements: InventoryMovementDto[];
   purchases: InventoryPurchaseDto[];
   counts: InventoryCountDto[];
   products: InventoryRecipeProductDto[];
-  sales: Array<{ id: string; code: string; createdAt: string; totalCents: number; hasInventory: boolean; inventoryReturned: boolean }>;
+  sales: Array<{ id: string; code: string; createdAt: string; totalCents: number; hasInventory: boolean; inventoryReturned: boolean; consumptions?: Array<{ id: string; name: string; unit: string; remaining: number }> }>;
   topConsumption: Array<{ itemId: string; quantity: number; item: InventoryItemDto }>;
   metrics: { activeItems: number; totalStock: number; lowStock: number; outOfStock: number; valuationCents: number };
 }
@@ -78,12 +79,12 @@ export interface BarbershopData {
 }
 
 export interface RestaurantCategoryDto { id: string; name: string; active: boolean; preparationArea: { id: string; name: string } | null }
-export interface RestaurantProductDto { taxCategory: string; id: string; name: string; description: string | null; priceCents: number; costCents: number; kitchenArea: string; productType: string; areaAssignmentMode: string; detectedAreaKey: string | null; active: boolean; category: { id: string; name: string }; preparationArea: { id: string; name: string } | null }
+export interface RestaurantProductDto { stockMode?: string; inventoryItemId?: string | null; showInMenu?: boolean; imageUrl?: string | null; sortOrder?: number; availableStock?: number | null; stockBlocked?: boolean; taxCategory: string; id: string; name: string; description: string | null; priceCents: number; costCents: number; kitchenArea: string; productType: string; areaAssignmentMode: string; detectedAreaKey: string | null; active: boolean; category: { id: string; name: string }; preparationArea: { id: string; name: string } | null }
 export interface PreparationAreaDto { id: string; name: string; normalizedKey: string | null; type: string; source: string; dispatchMode: string; active: boolean; printers: Array<{ id: string; printerId: string; name: string; copies: number; active: boolean }> }
 export interface PrintDeviceDto { id: string; name: string; connectionType: string; paperWidthMm: number; automatic: boolean; active: boolean; tokenHint: string | null; lastSeenAt: string | null }
 export interface RestaurantPrintSettingsDto { mode: "SIMPLE" | "ADVANCED"; automatic: boolean; defaultPrinterId: string | null; fields: string[] }
 export interface RestaurantPromotionDto { id: string; name: string; code: string | null; kind: string; value: number; buyQuantity: number; freeQuantity: number; scope: string; categoryId: string | null; productId: string | null; minSubtotalCents: number; maxDiscountCents: number | null; automatic: boolean; weekdays: string; startTime: string | null; endTime: string | null; startsAt: string | null; endsAt: string | null; active: boolean }
-export interface RestaurantOrderDto { id: string; code: string; source: string; deliveryPhone: string | null; deliveryAddress: string | null; deliveryReference: string | null; deliveryFeeCents: number; deliveryStatus: string | null; status: string; notes: string | null; subtotalCents: number; discountCents: number; totalCents: number; promotionName: string | null; promotionCode: string | null; createdAt: string; table: { id: string; name: string } | null; customer: { id: string; name: string; loyaltyPoints?: number; active?: boolean } | null; waiter: { id: string; name: string }; items: Array<{ preparationAreaKey: string; preparationAreaName: string; id: string; productId: string; parentProductId: string | null; productType: string; name: string; quantity: number; totalCents: number; status: string; notes: string | null }>; kitchenTicket: { id: string; status: string; createdAt: string } | null; paid: boolean }
+export interface RestaurantOrderDto { id: string; code: string; source: string; deliveryPhone: string | null; deliveryAddress: string | null; deliveryReference: string | null; deliveryFeeCents: number; deliveryStatus: string | null; status: string; notes: string | null; subtotalCents: number; discountCents: number; totalCents: number; promotionName: string | null; promotionCode: string | null; createdAt: string; table: { id: string; name: string } | null; customer: { id: string; name: string; loyaltyPoints?: number; active?: boolean } | null; waiter: { id: string; name: string }; items: Array<{ stockModeSnapshot?: string; startedAt?: string | null; readyAt?: string | null; servedAt?: string | null; startedByUserId?: string | null; readyByUserId?: string | null; servedByUserId?: string | null; preparationAreaKey: string; preparationAreaName: string; id: string; productId: string; parentProductId: string | null; productType: string; name: string; quantity: number; totalCents: number; status: string; notes: string | null }>; kitchenTicket: { id: string; status: string; createdAt: string } | null; paid: boolean }
 export interface RestaurantTableDto { id: string; name: string; seats: number; status: string; active: boolean; qrToken: string | null; area: { id: string; name: string }; reservation: { name: string; phone: string | null; reservedAt: string | null; partySize: number | null; notes: string | null } | null; activeOrder: RestaurantOrderDto | null }
 export interface RestaurantCatalogOption { key: string; label: string; active: boolean }
 export interface RestaurantStatusOption extends RestaurantCatalogOption { terminal: boolean; allowedNext: string[] }
@@ -106,6 +107,7 @@ export interface RestaurantConfiguration {
   reports: { cutoffHour: number; includeCancelledOrders: boolean; defaultPeriod: "7d" | "30d" | "90d" | "12m" };
 }
 export interface RestaurantData {
+  stockItems?: Array<{ id: string; name: string; sku: string; productId: string | null }>;
   canApproveRefund: boolean;
   inventoryModule?: InventoryData;
   configuration: RestaurantConfiguration;
@@ -122,6 +124,7 @@ export interface RestaurantData {
   orders: RestaurantOrderDto[];
   kitchen: RestaurantOrderDto[];
   sales: Array<{ status: string; refund: { id: string; creditStatus: string; reason: string; creditError: string | null; pdfUrl: string | null; xmlUrl: string | null; cdrUrl: string | null } | null; id: string; code: string; paymentMethod: string; payments: Array<{ id: string; method: string; amountCents: number; reference: string | null }>; electronicDocument: { id: string; kind: string; series: string; number: number; status: string; pdfUrl: string | null; xmlUrl: string | null; cdrUrl: string | null; lastError: string | null } | null; subtotalCents: number; discountCents: number; promotionName: string | null; totalCents: number; createdAt: string; orderCode: string | null; waiter: { id: string; name: string } | null; cashier: { id: string; name: string } | null }>;
+  cashSessions?: Array<{ id: string; registerName: string }>;
   cashSession: { id: string; status: string; openingCents: number; expectedCents: number; openedAt: string; movements: Array<{ id: string; type: string; amountCents: number; reason: string; createdAt: string; createdBy: string }> } | null;
   metrics: { occupiedTables: number; reservedTables: number; cleaningTables: number; activeOrders: number; kitchenPending: number; todayRevenueCents: number };
   reports: RestaurantReportsData | null;

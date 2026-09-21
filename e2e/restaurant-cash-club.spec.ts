@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { mkdir } from "node:fs/promises";
 const db = new PrismaClient();
+let registerId = "";
 let cashId = "", orderId = "", saleId = "", customerId = "", expectedCents = 0;
 test.describe.configure({ mode: "serial" });
 async function login(request: APIRequestContext, slug="brasa-norte", email="superadmin@multisaas.local") {
@@ -17,6 +18,7 @@ test("apertura, cobro mixto con vuelto, movimientos y arqueo desde caja",async({
   await login(page.request);
   const seededCash = (await (await page.request.get("/api/data/restaurant-cash")).json()).cash;
   if (seededCash) await post(page.request, `cash/${seededCash.id}/close`, { countedAmount: seededCash.expectedCents / 100 });
+  registerId = (await post(page.request, "cash-registers", { name: "Caja terraza" })).id;
   const workspace=await (await page.request.get("/api/data/tenant?section=floor")).json();
   const config=workspace.data.configuration;
   expect((await page.request.patch("/api/operations/restaurant/configuration/sales",{data:{...config.sales,splitPaymentsEnabled:true}})).ok()).toBe(true);
@@ -29,7 +31,7 @@ test("apertura, cobro mixto con vuelto, movimientos y arqueo desde caja",async({
   await expect(page.getByRole("tab",{name:"Caja actual",exact:true})).toHaveAttribute("aria-selected","true");
   await page.getByRole("button",{name:"Abrir caja",exact:true}).click();
   let dialog=page.getByRole("dialog");
-  await dialog.getByLabel("Caja o punto de venta").fill("Caja terraza");
+  await dialog.getByLabel("Caja o punto de venta").selectOption(registerId);
   await dialog.getByLabel("Monto inicial (S/)").fill("100");
   await dialog.getByLabel("Observación de apertura").fill("Turno de prueba completo");
   await dialog.getByRole("button",{name:"Abrir caja",exact:true}).click();
@@ -74,7 +76,7 @@ test("apertura, cobro mixto con vuelto, movimientos y arqueo desde caja",async({
 
 test("devolución de otro turno afecta solo la caja actual y revierte puntos",async({request})=>{
   await login(request);
-  const newCash=(await post(request,"cash",{openingAmount:100,registerName:"Segundo turno",idempotencyKey:"second-shift-0001"})).id;
+  const newCash=(await post(request,"cash",{openingAmount:100,cashRegisterId:registerId,idempotencyKey:"second-shift-0001"})).id;
   const customer=await db.customer.findUniqueOrThrow({where:{id:customerId}});expect(customer.loyaltyPoints).toBeGreaterThan(0);
   const refund={reason:"Devolución solicitada por cliente",stockDisposition:"WASTE",paymentConfirmed:true};
   await post(request,`sales/${saleId}/refund`,refund);await post(request,`sales/${saleId}/refund`,refund);
@@ -97,12 +99,12 @@ test("reintentos, saldo insuficiente, cierre obsoleto y diferencia con motivo",a
   expect((await request.post(`/api/operations/restaurant/cash/${current.id}/close`,{data:{countedAmount:0}})).status()).toBe(400);
   await post(request,`cash/${current.id}/close`,{countedAmount:0,notes:"Diferencia revisada por administración"});
   expect((await request.post(`/api/operations/restaurant/cash/${current.id}/movement`,{data:{type:"IN",amount:10,reason:"Caja cerrada"}})).status()).toBe(404);
-  const input={openingAmount:10,registerName:"Caja idempotente",idempotencyKey:"open-once-0001"};
+  const input={openingAmount:10,cashRegisterId:registerId,idempotencyKey:"open-once-0001"};
   const opened=await post(request,"cash",input);expect((await post(request,"cash",input)).id).toBe(opened.id);
   expect((await request.post("/api/operations/restaurant/cash",{data:{...input,openingAmount:11}})).status()).toBe(409);
-  expect((await request.post("/api/operations/restaurant/cash",{data:{openingAmount:10}})).status()).toBe(409);
+  expect((await request.post("/api/operations/restaurant/cash",{data:{cashRegisterId:registerId,openingAmount:10}})).status()).toBe(409);
   await post(request,`cash/${opened.id}/close`,{countedAmount:10});
-  const concurrent=await Promise.all([1,2].map((number)=>request.post("/api/operations/restaurant/cash",{data:{openingAmount:10,idempotencyKey:`concurrent-open-${number}`}})));
+  const concurrent=await Promise.all([1,2].map((number)=>request.post("/api/operations/restaurant/cash",{data:{cashRegisterId:registerId,openingAmount:10,idempotencyKey:`concurrent-open-${number}`}})));
   expect(concurrent.filter((response)=>response.status()===200)).toHaveLength(1);
   expect(concurrent.filter((response)=>response.status()===409)).toHaveLength(1);
 });

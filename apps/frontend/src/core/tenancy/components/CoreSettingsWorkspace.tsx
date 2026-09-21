@@ -44,6 +44,15 @@ const commonPermissions: PermissionOption[] = [
     group: "Administración",
   },
   { value: "inventory:read", label: "Ver stock, Kardex y alertas", group: "Inventario" },
+  { value: "inventory:items:create", label: "Crear artículos de inventario", group: "Inventario" },
+  { value: "inventory:items:edit", label: "Editar artículos y presentaciones", group: "Inventario" },
+  { value: "inventory:purchases:write", label: "Registrar compras", group: "Inventario" },
+  { value: "inventory:costs:write", label: "Modificar costos", group: "Inventario" },
+  { value: "inventory:adjust:write", label: "Ajustar y devolver inventario", group: "Inventario" },
+  { value: "restaurant:products:create", label: "Crear productos de carta", group: "Restaurante" },
+  { value: "restaurant:products:edit", label: "Editar productos de carta", group: "Restaurante" },
+  { value: "restaurant:prices:write", label: "Modificar precios de carta", group: "Restaurante" },
+  { value: "restaurant:publish:write", label: "Publicar productos en carta", group: "Restaurante" },
   { value: "inventory:write", label: "Administrar compras, movimientos, conteos y recetas", group: "Inventario" },
 ];
 
@@ -101,6 +110,13 @@ const industryPermissions: Record<string, PermissionOption[]> = {
       label: "Administrar salón y mesas",
       group: "Salón",
     },
+    { value: "restaurant:orders:serve", label: "Servir productos listos", group: "Pedidos" },
+    { value: "restaurant:orders:charge", label: "Cobrar pedidos", group: "Caja" },
+    { value: "restaurant:orders:cancel", label: "Cancelar pedidos", group: "Pedidos" },
+    { value: "restaurant:cash:read", label: "Ver caja y ventas", group: "Caja" },
+    { value: "restaurant:cash:open", label: "Abrir caja", group: "Caja" },
+    { value: "restaurant:cash:close", label: "Cerrar caja", group: "Caja" },
+    { value: "restaurant:cash:movement", label: "Registrar movimientos de caja", group: "Caja" },
     { value: "restaurant:orders:read", label: "Ver pedidos", group: "Pedidos" },
     {
       value: "restaurant:orders:write",
@@ -136,7 +152,7 @@ const industryPermissions: Record<string, PermissionOption[]> = {
     { value: "restaurant:write", label: "Acceso de edición anterior (compatibilidad)", group: "Compatibilidad" },
     {
       value: "restaurant:cash:write",
-      label: "Operar caja y cobros",
+      label: "Caja completa y cobros (permiso anterior)",
       group: "Caja",
     },
     { value: "restaurant:cash:approve", label: "Aprobar retiros y diferencias de caja", group: "Caja" },

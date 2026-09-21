@@ -313,7 +313,7 @@ test.describe.serial("Configuración integral de Restaurante", () => {
 
     let data = await restaurantData(page, "orders");
     if (!data.cashSession) {
-      const opened = await page.request.post("/api/operations/restaurant/cash", { data: { openingAmount: 100 } });
+      const opened = await page.request.post("/api/operations/restaurant/cash", { data: { openingAmount: 100, cashRegisterId: (await (await page.request.get("/api/data/restaurant-cash")).json()).registers[0].id } });
       expect(opened.status(), await opened.text()).toBe(200);
       data = await restaurantData(page, "orders");
     }

@@ -24,7 +24,7 @@ const restaurantSectionPermissions: Record<string, string> = {
   menu: "restaurant:menu:read",
   inventory: "inventory:read",
   promotions: "restaurant:promotions:read",
-  checkout: "restaurant:cash:write",
+  checkout: "restaurant:cash:read",
   reports: "restaurant:reports:read",
   settings: "settings:write",
 };

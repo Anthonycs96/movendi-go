@@ -1,0 +1,153 @@
+import { test, expect, type APIRequestContext } from "@playwright/test";
+import { PrismaClient } from "@prisma/client";
+import { mkdir } from "node:fs/promises";
+
+const db = new PrismaClient();
+let itemId: string, productId: string, categoryId: string, packId: string, tenantId: string, branchId: string;
+async function login(api: APIRequestContext, email = "admin@brasa.local") {
+  const r = await api.post("/api/auth/login", { data: { email, password: "Nexo2026!", businessSlug: "brasa-norte" } });
+  expect(r.status(), await r.text()).toBe(200);
+}
+async function command(api: APIRequestContext, path: string, data: unknown, method = "POST") {
+  const r = await api.fetch(`/api/operations/${path}`, { method, data });
+  expect(r.status(), await r.text()).toBe(200); return r.json();
+}
+async function stock() { return (await db.inventoryItem.findUniqueOrThrow({ where: { id: itemId } })).stock; }
+async function order(api: APIRequestContext, quantity: number, additional: Array<{ productId: string; quantity: number }> = []) {
+  const r = await command(api, "restaurant/orders", { source: "TAKEAWAY", items: [{ productId, quantity }, ...additional], idempotencyKey: crypto.randomUUID() });
+  return db.restaurantOrder.findUniqueOrThrow({ where: { id: r.id }, include: { items: true, kitchenTicket: true } });
+}
+test.describe.serial("Reventa: compra, carta, reserva, despacho y Kardex", () => {
+  test.afterAll(async () => { await db.$disconnect(); });
+  test("crear una sola identidad, comprar 2 packs x12 y publicar explícitamente", async ({ request }) => {
+    await login(request);
+    const category = await db.category.findFirstOrThrow({ where: { tenantId: "tenant-brasa" } });
+    ({ tenantId, branchId } = category); categoryId = category.id;
+    const admin = await db.user.findUniqueOrThrow({ where: { id: "user-brasa-admin" } });
+    const role = await db.role.create({ data: { tenantId, key: "RESALE_WAITER", name: "Mozo reventa QA", permissions: JSON.stringify(["restaurant:orders:read", "restaurant:orders:write", "restaurant:floor:read"]) } });
+    const user = await db.user.create({ data: { name: "Mozo QA reventa", email: "mozo@brasa.local", passwordHash: admin.passwordHash } });
+    await db.membership.create({ data: { tenantId, branchId, userId: user.id, roleId: role.id } });
+    itemId = (await command(request, "inventory/items", { sku: "REV-COLA-QA", name: "Coca-Cola 500 ml QA", kind: "PRODUCT", unit: "UND", inventoryCategory: "Bebidas / Gaseosas", barcode: "7750000000123", trackStock: true })).id;
+    expect(await db.product.count({ where: { inventoryItemId: itemId } })).toBe(0);
+    packId = (await command(request, "inventory/presentations", { itemId, name: "Pack x 12", factor: 12 })).id;
+    const supplierId = (await command(request, "inventory/suppliers", { name: "Distribuidora ABC", documentType: "RUC", documentNumber: "20123456789" })).id;
+    const purchase = { supplierId, supplierName: "Distribuidora ABC", documentNumber: "F001-REV", idempotencyKey: crypto.randomUUID(), lines: [{ itemId, presentationId: packId, quantity: 2, unitCost: 26.40 }] };
+    const bought = await command(request, "inventory/purchases", purchase);
+    await command(request, "inventory/purchases", purchase);
+    expect(await stock()).toBe(24);
+    const line = await db.inventoryPurchaseLine.findFirstOrThrow({ where: { purchaseId: bought.id } });
+    expect(line).toMatchObject({ quantity: 24, purchasedQuantity: 2, presentationFactor: 12, presentationName: "Pack x 12", unitCostCents: 220, totalCents: 5280 });
+    const area = await db.preparationArea.findFirst({ where: { tenantId, branchId, name: { contains: "Bar" } } }) ?? await db.preparationArea.create({ data: { tenantId, branchId, name: "Bar QA reventa", type: "BAR" } });
+    productId = (await command(request, "restaurant/products", { name: "Coca-Cola 500 ml QA", categoryId, price: 5, stockMode: "RESALE", inventoryItemId: itemId, preparationAreaId: area.id, showInMenu: false })).id;
+    expect(await db.inventoryItem.count({ where: { id: itemId } })).toBe(1);
+    expect(await db.productRecipe.count({ where: { productId } })).toBe(0);
+    const tenant = await db.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+    if (tenant.planId) await db.platformPlan.update({ where: { id: tenant.planId }, data: { publicWebsiteEnabled: true } });
+    await db.tenant.update({ where: { id: tenantId }, data: { publicSitePublished: true } });
+    const publicMenu = await request.get("/api/public/sites/brasa-norte");
+    expect(publicMenu.status(), await publicMenu.text()).toBe(200);
+    expect((await publicMenu.json()).site.products.some((p: { id: string }) => p.id === productId)).toBe(false);
+    await command(request, `restaurant/products/${productId}`, { name: "Coca-Cola 500 ml QA", categoryId, price: 5, cost: 0, stockMode: "RESALE", inventoryItemId: itemId, preparationAreaId: area.id, showInMenu: true, active: "true" }, "PATCH");
+  });
+  test("pedido mixto, Bar directo a listo, receta, cobro y devolución de una unidad", async ({ request }) => {
+    await login(request);
+    const ingredient = (await command(request, "inventory/items", { sku: "INS-POLLO-REV", name: "Pollo crudo QA", kind: "INPUT", unit: "UND", openingStock: 10, unitCost: 3 })).id;
+    const prepared = (await command(request, "restaurant/products", { name: "Pollo preparado QA", categoryId, price: 20, stockMode: "RECIPE", kitchenArea: "KITCHEN" })).id;
+    await command(request, `inventory/recipes/${prepared}`, { yieldQuantity: 1, ingredients: [{ itemId: ingredient, quantity: 1, wastePercent: 0 }] });
+    const created = await order(request, 2, [{ productId: prepared, quantity: 2 }]);
+    expect(await stock()).toBe(22);
+    expect((await db.inventoryItem.findUniqueOrThrow({ where: { id: ingredient } })).stock).toBe(8);
+    const cola = created.items.find(i => i.productId === productId)!;
+    const chicken = created.items.find(i => i.productId === prepared)!;
+    expect(cola.preparationAreaKey).not.toBe(chicken.preparationAreaKey);
+    expect(cola.unitCostCents).toBe(220);
+    await command(request, `restaurant/kitchen/${created.kitchenTicket!.id}/status`, { itemIds: [cola.id], status: "READY" }, "PATCH");
+    expect(await stock()).toBe(22);
+    expect((await db.orderItem.findUniqueOrThrow({ where: { id: chicken.id } })).status).toBe("PENDING");
+    await command(request, `restaurant/orders/${created.id}/serve`, { itemIds: [cola.id] }, "PATCH");
+    const sale = await command(request, `restaurant/orders/${created.id}/checkout`, { paymentMethod: "CASH", cashSessionId: "cash-brasa-open" });
+    expect(await stock()).toBe(22);
+    const consumption = await db.inventoryMovement.findFirstOrThrow({ where: { saleId: sale.id, itemId, type: "SALE_CONSUMPTION" } });
+    expect(consumption).toMatchObject({ direction: "OUT", quantity: 2, actorId: "user-brasa-admin", branchId, tenantId });
+    const partial = { saleId: sale.id, reason: "Una botella cerrada recuperada", partial: { movementId: consumption.id, quantity: 1, idempotencyKey: crypto.randomUUID() } };
+    await command(request, "inventory/returns", partial); await command(request, "inventory/returns", partial);
+    expect(await stock()).toBe(23);
+    expect(await db.inventoryMovement.count({ where: { itemId, type: "SALE_RETURN", quantity: 1 } })).toBe(1);
+    expect((await request.post("/api/operations/inventory/returns", { data: { ...partial, partial: { ...partial.partial, quantity: 2, idempotencyKey: crypto.randomUUID() } } })).status()).toBe(409);
+  });
+  test("cajas x24, cancelación pendiente, agotado y últimos productos concurrentes", async ({ request, playwright }) => {
+    await login(request);
+    const box = (await command(request, "inventory/presentations", { itemId, name: "Caja x 24", factor: 24 })).id;
+    await command(request, "inventory/purchases", { supplierName: "Distribuidora ABC", lines: [{ itemId, presentationId: box, quantity: 3, unitCost: 52.80 }] });
+    expect(await stock()).toBe(95);
+    const pending = await order(request, 2); expect(await stock()).toBe(93);
+    await command(request, `restaurant/orders/${pending.id}/status`, { status: "CANCELLED", reason: "Pedido duplicado" }, "PATCH");
+    expect(await stock()).toBe(95);
+    expect(await db.inventoryMovement.count({ where: { orderId: pending.id, type: "RESERVATION_RELEASE", quantity: 2 } })).toBe(1);
+    await command(request, "inventory/movements", { itemId, type: "ADJUSTMENT_OUT", quantity: 94, notes: "Preparar última unidad QA" });
+    const waiter = await playwright.request.newContext({ baseURL: "http://localhost:3100" }); await login(waiter, "mozo@brasa.local");
+    const results = await Promise.all([request, waiter].map(api => api.post("/api/operations/restaurant/orders", { data: { source: "TAKEAWAY", items: [{ productId, quantity: 1 }], idempotencyKey: crypto.randomUUID() } })));
+    expect(results.map(r => r.status()).sort()).toEqual([200, 409]); expect(await stock()).toBe(0);
+    await waiter.dispose();
+  });
+  test("aislamiento, presentaciones manipuladas y permisos de operador", async ({ request, playwright }) => {
+    await login(request);
+    const otherBranch = await db.branch.create({ data: { tenantId, name: "Sede reventa QA" } });
+    const foreign = await db.inventoryItem.create({ data: { tenantId, branchId: otherBranch.id, sku: "FOREIGN", name: "Botella ajena" } });
+    const p = await db.inventoryPresentation.create({ data: { itemId: foreign.id, name: "Pack ajeno", factor: 12 } });
+    expect((await request.post("/api/operations/inventory/purchases", { data: { supplierName: "Ajeno", lines: [{ itemId, presentationId: p.id, quantity: 1, unitCost: 12 }] } })).status()).toBe(400);
+    expect((await request.post("/api/operations/restaurant/products", { data: { name: "Vínculo ajeno", categoryId, price: 5, stockMode: "RESALE", inventoryItemId: foreign.id } })).status()).toBe(409);
+    const waiter = await playwright.request.newContext({ baseURL: "http://localhost:3100" }); await login(waiter, "mozo@brasa.local");
+    for (const path of ["inventory/items", "inventory/purchases", "inventory/movements", "restaurant/products"]) expect((await waiter.post(`/api/operations/${path}`, { data: {} })).status()).toBe(403);
+    const nova = await db.branch.findFirstOrThrow({ where: { tenantId: { not: tenantId } } });
+    const foreignTenant = await db.inventoryItem.create({ data: { tenantId: nova.tenantId, branchId: nova.id, sku: "OTHER-TENANT", name: "Otra empresa" } });
+    expect((await request.post("/api/operations/restaurant/products", { data: { name: "Vínculo empresa ajena", categoryId, price: 5, stockMode: "RESALE", inventoryItemId: foreignTenant.id } })).status()).toBe(409);
+    await db.role.updateMany({ where: { tenantId, key: "RESALE_WAITER" }, data: { permissions: JSON.stringify(["inventory:read", "inventory:items:create", "restaurant:products:edit"]) } });
+    await login(waiter, "mozo@brasa.local");
+    expect((await waiter.post("/api/operations/inventory/items", { data: { sku: "FORBIDDEN-COST", name: "Costo no permitido", unit: "UND", unitCost: 5 } })).status()).toBe(403);
+    expect((await waiter.patch(`/api/operations/restaurant/products/${productId}`, { data: { name: "Coca-Cola 500 ml QA", categoryId, price: 100, cost: 0, active: "true" } })).status()).toBe(403);
+    await waiter.dispose();
+  });
+  test("frontend móvil: agotado, compra por packs y creación rápida sin perder compra", async ({ page }) => {
+    await login(page.request); await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/t/brasa-norte/floor");
+    const add = page.getByRole("button", { name: "Agregar Coca-Cola 500 ml QA", exact: true });
+    await expect(add).toBeDisabled();
+    await page.goto("/t/brasa-norte/inventory");
+    await page.getByRole("button", { name: "Registrar compra", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Nueva compra" });
+    await dialog.getByLabel("Documento", { exact: true }).fill("F001-MOVIL");
+    await dialog.getByLabel("Artículo", { exact: true }).selectOption(itemId);
+    await dialog.getByLabel("Cantidad", { exact: true }).fill("2");
+    await dialog.getByLabel("Presentación de compra").selectOption(packId);
+    await expect(dialog.getByText("24 UND ingresarán al stock")).toBeVisible();
+    await page.getByRole("button", { name: "Nuevo artículo", exact: true }).last().click();
+    const itemDialog = page.getByRole("dialog", { name: "Nuevo artículo", exact: true });
+    await itemDialog.getByLabel("Código / SKU").fill("REV-RAPIDA-QA");
+    await itemDialog.getByLabel("Nombre", { exact: true }).fill("Agua QA rápida");
+    await itemDialog.getByLabel("Tipo", { exact: true }).selectOption("PRODUCT");
+    await itemDialog.getByRole("button", { name: "Guardar", exact: true }).click();
+    await expect(itemDialog).toHaveCount(0);
+    await expect(dialog.getByLabel("Documento", { exact: true })).toHaveValue("F001-MOVIL");
+    await expect(dialog.getByLabel("Artículo", { exact: true }).getByRole("option", { name: /Agua QA rápida/ })).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await mkdir("outputs/restaurant-resale", { recursive: true });
+    await page.screenshot({ path: "outputs/restaurant-resale/purchase-mobile.png", fullPage: true });
+    const supplier = await db.inventorySupplier.findFirstOrThrow({ where: { tenantId, branchId } });
+    await dialog.getByLabel("Proveedor", { exact: true }).selectOption(supplier.id);
+    await dialog.getByLabel("Costo por presentación", { exact: true }).fill("26.40");
+    await dialog.getByRole("button", { name: "Registrar compra", exact: true }).click();
+    await expect(dialog).toHaveCount(0); expect(await stock()).toBe(24);
+    await page.goto("/t/brasa-norte/menu");
+    await page.getByRole("button", { name: "Nuevo producto", exact: true }).click();
+    const productDialog = page.getByRole("dialog", { name: "Nuevo producto", exact: true });
+    await productDialog.getByLabel("Nombre", { exact: true }).fill("Agua creada desde carta QA");
+    await productDialog.getByLabel("Categoría", { exact: true }).selectOption(categoryId);
+    await productDialog.getByLabel("Control de inventario").selectOption("RESALE");
+    await productDialog.getByLabel("Precio (S/)", { exact: true }).fill("4");
+    await productDialog.getByRole("button", { name: "Guardar", exact: true }).click();
+    await expect(productDialog).toHaveCount(0);
+    const saved = await db.product.findFirstOrThrow({ where: { tenantId, name: "Agua creada desde carta QA" }, include: { inventoryItem: true } });
+    expect(saved.inventoryItem?.name).toBe(saved.name); expect(saved.stockMode).toBe("RESALE");
+  });
+});

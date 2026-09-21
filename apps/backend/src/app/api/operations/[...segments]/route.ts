@@ -19,7 +19,10 @@ function requiredPermission(moduleName: string, resource: string, method: string
   if (moduleName === "minimarket") return minimarketPermission(resource, method, action);
   if (moduleName === "barbershop") return salonPermission(resource, method, action);
   if (moduleName === "restaurant") {
-    if (resource === "orders" && action === "checkout") return "restaurant:cash:write";
+    if (resource === "orders" && action === "checkout") return "restaurant:orders:charge";
+    if (resource === "orders" && action === "status") return undefined; // The state service enforces the specific action permission.
+    if (resource === "orders" && action === "serve") return "restaurant:orders:serve";
+    if (resource === "cash-registers") return method === "GET" ? undefined : "restaurant:configuration:write";
     if (resource === "sales" && ["electronic-document", "credit-note"].includes(action ?? "")) return "restaurant:sunat:write";
     if (resource === "configuration") return method === "GET" ? "restaurant:configuration:read" : "restaurant:configuration:write";
     if (resource === "sunat") return method === "GET" ? "restaurant:sunat:read" : "restaurant:sunat:write";
@@ -29,9 +32,10 @@ function requiredPermission(moduleName: string, resource: string, method: string
     if (resource === "orders") return method === "GET" ? "restaurant:orders:read" : "restaurant:orders:write";
     if (resource === "kitchen") return method === "GET" ? "restaurant:kitchen:read" : "restaurant:kitchen:write";
     if (resource === "print-jobs") return method === "GET" ? "restaurant:printing:read" : "restaurant:printing:write";
-    if (resource === "cash") return "restaurant:cash:write";
+    if (resource === "cash") return method === "GET" ? "restaurant:cash:read" : action === "close" ? "restaurant:cash:close" : action === "movement" ? "restaurant:cash:movement" : "restaurant:cash:open";
     if (resource === "customers") return method === "GET" ? "customers:read" : "customers:write";
-    if (["categories", "products"].includes(resource)) return method === "GET" ? "restaurant:menu:read" : "restaurant:menu:write";
+    if (resource === "products") return method === "GET" ? "restaurant:menu:read" : method === "POST" ? "restaurant:products:create" : "restaurant:products:edit";
+    if (resource === "categories") return method === "GET" ? "restaurant:menu:read" : "restaurant:menu:write";
     if (resource === "promotions") return method === "GET" ? "restaurant:promotions:read" : "restaurant:promotions:write";
     return method === "GET" ? "restaurant:menu:read" : "restaurant:menu:write";
   }
@@ -89,7 +93,8 @@ async function handle(request: Request, context: Context) {
     }
 
     if (moduleName === "inventory") {
-      const permission = ["GET", "HEAD"].includes(request.method) ? "inventory:read" : "inventory:write";
+      const resource = segments[1];
+      const permission = ["GET", "HEAD"].includes(request.method) ? "inventory:read" : resource === "items" ? (request.method === "POST" ? "inventory:items:create" : "inventory:items:edit") : resource === "purchases" ? "inventory:purchases:write" : resource === "presentations" ? "inventory:items:edit" : ["movements", "counts", "returns"].includes(resource) ? "inventory:adjust:write" : "inventory:write";
       const inventorySession = await requireSession(permission);
       assertRestaurantModule(inventorySession, "inventory");
       if (inventorySession.tenantType === "BARBERSHOP") assertSalonModule(inventorySession, "inventory");

@@ -12,4 +12,4 @@ export const inventoryRecipeSchema = z.object({
   })).min(1).max(100),
 });
 
-export const inventoryReturnSchema = z.object({ saleId: z.string().min(1), reason: z.string().trim().min(3).max(500) });
+export const inventoryReturnSchema = z.object({ partial: z.object({ movementId: z.string().min(1), quantity: quantity, idempotencyKey: z.string().min(8).max(120) }).optional(), saleId: z.string().min(1), reason: z.string().trim().min(3).max(500) });
