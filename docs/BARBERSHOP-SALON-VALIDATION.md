@@ -45,4 +45,14 @@ La entrega corresponde a la primera etapa operativa descrita en el informe: no i
 
 ## Publicación
 
-La evidencia del commit activo, despliegues y salud se añade al completar la publicación autorizada.
+Publicación confirmada el 21 de septiembre de 2026 a las 00:54 UTC (20 de septiembre, 19:54 en Lima).
+
+- Commit funcional: `c27cefd3873da6a2dfce4d14a5f7db864424b772`, enviado a `main`.
+- [Frontend en Cloud Run: GitHub Actions](https://github.com/Anthonycs96/movendi-go/actions/runs/35549048053): `completed / success`.
+- Backend Railway: despliegue `a0335317-ce3a-4ce6-b33e-d56b535fa6ea`, estado `SUCCESS`, mismo commit.
+- Los logs de producción confirman `20260921010000_salon_operations` aplicada correctamente a PostgreSQL antes de activar el backend.
+- [Movendi Go](https://web.movendi-go.com): frontend `ok`, versión completa coincidente con el commit funcional; backend `ready`, versión `c27cefd3873d`, base de datos `reachable`.
+- Acceso público `/login`: HTTP 200. Consulta anónima `/api/barbershop/reports`: HTTP 401, como corresponde.
+- Escaneo de los 62 archivos de la entrega: sin secretos de alta confianza. No se ejecutó ningún seed en producción.
+
+Las verificaciones funcionales con escrituras se realizaron en bases aisladas; la comprobación posterior a publicación fue de despliegue, migración, salud y protección de acceso, sin generar ventas ficticias en producción.

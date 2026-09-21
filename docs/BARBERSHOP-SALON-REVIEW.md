@@ -1,6 +1,6 @@
 # Barbería y Salón: revisión y entrega operativa
 
-Fecha: 21 de septiembre de 2026. Alcance: Movendi Go, comparación con Restaurante y Minimarket, implementación de la primera etapa y validación previa a publicación. La evidencia de ejecución se completa al finalizar las verificaciones.
+Fecha: 21 de septiembre de 2026. Alcance: Movendi Go, comparación con Restaurante y Minimarket, implementación de la primera etapa, validación y publicación. Evidencia de pruebas y despliegue en [BARBERSHOP-SALON-VALIDATION.md](BARBERSHOP-SALON-VALIDATION.md).
 
 ## 1. Diagnóstico del módulo anterior
 
