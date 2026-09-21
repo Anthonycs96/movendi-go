@@ -145,3 +145,16 @@ La entrega conjunta con reventa aprobó 50 pruebas Playwright, 228 de la suite g
 - `e2e/restaurant-production-audit.spec.ts`
 - `e2e/restaurant-resale.spec.ts`
 - `packages/contracts/src/index.ts`
+
+## Despliegue verificado
+
+Aplicación publicada el 21/09/2026 a las 04:30 UTC (20/09/2026, 23:30 en Lima), commit `5b9b7220281519abb48c2f043df06f37f9748b35`.
+
+- Frontend: https://web.movendi-go.com. GitHub Actions `35561097612`: success.
+- Backend Railway: deployment `7f7f19d4-684f-44f5-87a8-05f8e67095e9`: SUCCESS.
+- `/api/frontend-health`: ok; frontend y backend identifican el mismo commit.
+- `/api/ready`: ready, base accesible y sin trabajos fallidos/obsoletos. Login: HTTP 200.
+- Las dos migraciones nuevas figuran finalizadas en `_prisma_migrations` de producción.
+- Respaldo previo: `backups/postgresql/restaurant-resale-20260921-predeploy.dump`, con manifiesto SHA-256. No se ejecutó seed en producción.
+
+Actualizar la pestaña abierta con Ctrl+F5 antes de usar los nuevos formularios. Los productos existentes se clasifican y vinculan explícitamente; no se inventaron equivalencias de stock ni se publicaron compras automáticamente.
