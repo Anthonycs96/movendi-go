@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { MinimarketData } from "@movendi/contracts";
 import { claimOperation, completeOperation, localRead, type PendingOperation } from "./local-store";
-type Result = { id?: string; code?: string; totalCents?: number; changeCents?: number | null; error?: { code?: string; message?: string } };
+type Result = { id?: string; sku?: string; code?: string; totalCents?: number; changeCents?: number | null; error?: { code?: string; message?: string } };
 export const scopeKey = (scope: MinimarketData["scope"]) => [scope.tenantId, scope.branchId, scope.actorId].join(":");
 export const cartScopeKey = (data: Pick<MinimarketData, "scope" | "cash">) => `${scopeKey(data.scope)}:cash:${data.cash?.id ?? "draft"}`;
 export function useRetailOperation(scope: MinimarketData["scope"]) {

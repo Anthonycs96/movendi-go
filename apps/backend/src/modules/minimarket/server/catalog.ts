@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { randomBytes } from "node:crypto";
 import type { z } from "zod";
 import type { TenantScope } from "@/core/auth/types";
 import { AppError } from "@/core/auth/errors";
@@ -19,8 +20,10 @@ export async function createRetailProduct(tx: Prisma.TransactionClient, scope: T
   try {
     await assertAvailableBarcodes(tx, scope, input.presentations.map((p) => p.barcode ?? ""));
     const category = await ensureRetailCategory(tx, scope, input.category);
-    const item = await tx.inventoryItem.create({ data: { ...scoped(scope), name: input.name, sku: input.sku, unit: input.unit, kind: "RETAIL", minimumStock: input.minimumStock, trackStock: true } });
+    // Generate inside the idempotent transaction so retries replay the original SKU.
+    const sku = input.sku || `PRD-${randomBytes(8).toString("hex").toUpperCase()}`;
+    const item = await tx.inventoryItem.create({ data: { ...scoped(scope), name: input.name, sku, unit: input.unit, kind: "RETAIL", minimumStock: input.minimumStock, trackStock: true } });
     const product = await tx.retailProduct.create({ data: { ...scoped(scope), itemId: item.id, category, taxCategory: input.taxCategory, trackExpiry: input.trackExpiry, expiryAlertDays: input.expiryAlertDays, presentations: { create: input.presentations.map((p) => ({ ...p, sku: p.sku || null, barcode: p.barcode || null, ...scoped(scope) })) } } });
-    return { id: product.id, itemId: item.id };
+    return { id: product.id, itemId: item.id, sku: item.sku };
   } catch (error) { if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new AppError("DUPLICATE_PRODUCT", 409, "El SKU, código de barras o nombre de presentación ya existe en esta sucursal."); throw error; }
 }

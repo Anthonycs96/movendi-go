@@ -219,12 +219,6 @@
 }
 .barcodeField { display: grid; gap: 10px; }
 .barcodeField > button { justify-self: start; }
-.wizardSteps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0; }
-.wizardSteps li { display: flex; align-items: center; gap: 6px; flex: 1; color: var(--text-soft); font-size: 12px; }
-.wizardSteps li > span { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-soft); border: 1px solid var(--border); flex-shrink: 0; }
-.wizardSteps li[aria-current=step] { color: #1769d3; font-weight: 700; }
-.wizardSteps li[aria-current=step] > span { background: #1769d3; color: white; border-color: #1769d3; }
-.wizardTitle { margin: 0; font-size: 18px; }
 .wizardActions { display: flex; width: 100%; gap: 12px; }
 .wizardActions > button { min-height: 46px; border-radius: 12px; border: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font: inherit; font-size: 14px; }
 .wizardActions > button:first-child { color: var(--text); background: var(--surface-solid); }
@@ -239,7 +233,6 @@
   .catalogItem { padding: 14px; gap: 10px; }
   .productDialog :global(.dialog__content) { padding: 20px 18px; }
   .productDialog > footer { padding: 14px 18px; }
-  .wizardSteps li { font-size: 11px; }
 }
 .catalogFilters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; flex-basis: 100%; }
 .catalogFilters label { flex: 1 1 170px; min-width: 0; }
@@ -266,3 +259,22 @@
   .categoryItem { flex-direction: column; align-items: stretch; }
   .categoryItem .catalogActions { justify-content: flex-start; }
 }
+
+.quickProductForm { min-width: 0; }
+.quickProductFields { display: grid; gap: 18px; min-width: 0; border: 0; padding: 0; margin: 0; }
+.quickProductDefaults { display: flex; align-items: center; gap: 8px; margin: 0; padding: 11px 12px; color: #245b9c; background: #f0f6ff; border-radius: 10px; font-size: 12px; line-height: 1.5; }
+.quickProductDefaults svg { flex-shrink: 0; }
+.quickProductBarcode { display: grid; gap: 7px; }
+.quickProductPrice { display: grid; gap: 6px; }
+.quickProductPrice small { color: #667681; font-size: 12px; }
+.quickProductBarcode small, .quickProductHint { color: #667681; font-size: 12px; line-height: 1.6; }
+.quickProductHint { margin: 0; }
+.quickProductActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; }
+.quickProductActions button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 10px 12px; border: 1px solid #dce4ef; border-radius: 10px; background: #fff; color: #243d5b; font: inherit; font-size: 13px; cursor: pointer; }
+.quickProductActions button:disabled { opacity: .5; cursor: default; }
+.quickProductActions .dialogAction { flex: 1; color: #fff; background: #1769d9; border-color: #1769d9; }
+.quickProductSuccess { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid #bfeadd; border-radius: 12px; background: #f1fbf7; color: #0b705a; }
+.quickProductSuccess svg { flex-shrink: 0; }
+.quickProductSuccess > div { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.quickProductSuccess small { font-size: 12px; }
+@media (max-width: 520px) { .quickProductActions > button:first-child { order: 2; flex: 0 0 auto; } .quickProductActions > button[value=another] { order: 3; flex: 1; } .quickProductActions .dialogAction { order: 1; flex: 1 0 100%; } }

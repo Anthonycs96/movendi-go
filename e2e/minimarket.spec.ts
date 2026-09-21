@@ -38,9 +38,8 @@ async function ensureProduct(api: APIRequestContext) {
   const p = await command(api, "minimarket/products", { idempotencyKey: randomUUID(), name: "Producto de prueba", sku: "TEST", presentations: [{ name: "Unidad", factor: 1, priceCents: 500 }] });
   await command(api, "minimarket/purchases", { idempotencyKey: randomUUID(), supplierName: "Proveedor", lines: [{ productId: p.id, quantity: 10, unitCostCents: 200 }] });
 }
-test.beforeAll(async ({ browser }) => {
-  slug = `retail-${Date.now().toString(36)}`;
-  const page = await browser.newPage();
+async function createBusiness(page: Page) {
+  const slug = `retail-${Date.now().toString(36)}`;
   await login(page.request, "superadmin@multisaas.local", "nova-studio", "Nexo2026!");
   await page.goto("/platform/businesses");
   await page.getByRole("button", { name: /Nuevo negocio|Nueva empresa/i }).click();
@@ -54,7 +53,7 @@ test.beforeAll(async ({ browser }) => {
   await page.getByLabel(/Clave temporal/).fill(password);
   const created = page.waitForResponse((response) => response.url().endsWith("/api/operations/platform/tenants") && response.request().method() === "POST");
   await page.getByRole("button", { name: /Crear y continuar/i }).click();
-  const response = await created; expect(response.status(), await response.text()).toBe(200); tenantId = (await response.json()).id;
+  const response = await created; expect(response.status(), await response.text()).toBe(200); const tenantId = (await response.json()).id as string;
   const setup = (payload: unknown) => command(page.request, `platform/onboarding/${tenantId}`, payload, "PATCH");
   await setup({ step: "BUSINESS", name: `Minimarket ${slug}`, shortName: "Mi mercado", branchName: "Principal", email: "", country: "PE", currency: "PEN", timezone: "America/Lima" });
   await setup({ step: "MODULES", enabledModules: ["dashboard", "pos", "catalog", "inventory", "purchases", "sales", "checkout", "clients", "reports", "settings"] });
@@ -62,6 +61,12 @@ test.beforeAll(async ({ browser }) => {
   await setup({ step: "TEAM", users: [{ name: "Cajero", email: `cashier@${slug}.local`, roleKey: "RETAIL_CASHIER", password }] });
   await setup({ step: "OPERATIONS", paymentMethods: ["CASH", "CARD", "YAPE"], hours: Array.from({ length: 7 }, (_, weekday) => ({ weekday, open: "08:00", close: "22:00", closed: false })) });
   await setup({ step: "REVIEW", ready: true });
+  return { slug, tenantId };
+}
+
+test.beforeAll(async ({ browser }) => {
+  const page = await browser.newPage();
+  ({ slug, tenantId } = await createBusiness(page));
   await page.close();
 });
 
@@ -89,15 +94,13 @@ test("jornada completa en pantalla: catálogo, compra con lote, caja, cobro, tic
   await page.screenshot({ path: info.outputPath("catalog-mobile.png"), fullPage: true });
   await page.getByRole("button", { name: "Nuevo producto", exact: true }).click();
   const create = page.getByRole("dialog", { name: "Nuevo producto", exact: true });
-  await create.getByRole("button", { name: "Continuar", exact: true }).click();
-  await expect(create.getByRole("heading", { name: "Identifica tu producto" })).toBeVisible();
-  await create.getByLabel("Nombre", { exact: true }).fill("Leche entera"); await create.getByLabel("SKU", { exact: true }).fill("LECHE-01");
-  await page.screenshot({ path: info.outputPath("product-step-one-mobile.png"), fullPage: true });
-  await create.getByRole("button", { name: "Continuar", exact: true }).click();
-  await create.getByRole("button", { name: "Atrás", exact: true }).click();
-  await expect(create.getByLabel("Nombre", { exact: true })).toHaveValue("Leche entera");
-  await create.getByRole("button", { name: "Continuar", exact: true }).click();
+  await create.getByRole("button", { name: "Crear producto", exact: true }).click();
+  await expect(create.getByLabel("Nombre", { exact: true })).toBeFocused();
+  await create.getByLabel("Nombre", { exact: true }).fill("Leche entera");
   await create.getByLabel("Precio de venta").fill("5");
+  await page.screenshot({ path: info.outputPath("quick-product-mobile.png"), fullPage: false });
+  await create.getByText("Más detalles (opcional)", { exact: true }).click();
+  await create.getByLabel("SKU propio (opcional)", { exact: true }).fill("LECHE-01");
   await create.getByText("Presentación y venta por peso", { exact: true }).click();
   await expect(create.getByLabel("Unidades base por presentación")).toHaveValue("1");
   await create.getByRole("button", { name: "Leer código con cámara", exact: true }).click();
@@ -117,9 +120,9 @@ test("jornada completa en pantalla: catálogo, compra con lote, caja, cobro, tic
   await expect.poll(() => page.evaluate(() => (window as unknown as { registrationStream: MediaStream }).registrationStream.getTracks().every((track) => track.readyState === "ended"))).toBeTruthy();
   await page.setViewportSize({ width: 320, height: 700 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-  await expect(create.getByRole("button", { name: "Continuar", exact: true })).toBeInViewport();
+  await expect(create.getByRole("button", { name: "Crear producto", exact: true })).toBeInViewport();
   await page.screenshot({ path: info.outputPath("product-price-small-mobile.png"), fullPage: true });
-  await create.getByRole("button", { name: "Continuar", exact: true }).click();
+  await create.getByText("Inventario y vencimientos", { exact: true }).click();
   await expect(create.getByLabel("Alertar vencimiento con días de anticipación")).toBeDisabled();
   await create.getByLabel("Controlar lotes y vencimientos").check();
   await expect(create.getByLabel("Alertar vencimiento con días de anticipación")).toBeVisible();
@@ -162,6 +165,59 @@ test("jornada completa en pantalla: catálogo, compra con lote, caja, cobro, tic
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Ir a cobrar", exact: true }).filter({ visible: true })).toBeFocused();
   await page.setViewportSize({ width: 1280, height: 800 }); await page.goto(`/t/${slug}/checkout`); await page.getByRole("button", { name: "Cerrar turno", exact: true }).click(); await page.getByLabel("Efectivo contado").fill("105"); await page.getByRole("button", { name: "Cerrar turno" }).click(); await expect(page.getByRole("heading", { name: "Sin turno abierto", exact: true })).toBeVisible();
+});
+
+test("alta rápida sin SKU: dos campos, creación seguida y opciones conservadas", async ({ page }, info) => {
+  // Keep the new catalog separate from the shared sales journey's stocked products.
+  const { slug: quickSlug } = await createBusiness(page);
+  await login(page.request, `admin@${quickSlug}.local`, quickSlug);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/t/${quickSlug}/catalog`);
+  await page.getByRole("button", { name: "Nuevo producto", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Nuevo producto", exact: true });
+  await expect(dialog.getByLabel("SKU propio (opcional)", { exact: true })).toBeHidden();
+  await expect(dialog.getByRole("button", { name: "Continuar", exact: true })).toHaveCount(0);
+  await dialog.getByLabel("Nombre", { exact: true }).fill("Pan de alta rápida");
+  await dialog.getByLabel("Precio de venta", { exact: true }).fill("0.5");
+  await expect(dialog.getByRole("button", { name: "Crear producto", exact: true })).toBeInViewport();
+  await page.screenshot({ path: info.outputPath("alta-rapida-sin-sku.png"), fullPage: false });
+  await dialog.getByRole("button", { name: "Guardar y crear otro", exact: true }).click();
+  await expect(dialog.getByRole("status")).toContainText("Pan de alta rápida guardado");
+  await expect(dialog.getByLabel("Nombre", { exact: true })).toHaveValue("");
+  await expect(dialog.getByLabel("Nombre", { exact: true })).toBeFocused();
+  await expect(dialog.getByLabel("Precio de venta", { exact: true })).toHaveValue("");
+  const first = (await workspace(page.request, "catalog")).products.find((row) => row.name === "Pan de alta rápida")!;
+  expect(first.sku).toMatch(/^PRD-[0-9A-F]{16}$/); expect(first.presentations[0].barcode).toBeNull();
+  expect(first.presentations[0].priceCents).toBe(50); expect(first.stock).toBe(0);
+  await dialog.getByLabel("Nombre", { exact: true }).fill("Arroz de alta rápida");
+  await dialog.getByLabel("Precio de venta", { exact: true }).fill("4.9");
+  await dialog.getByText("Más detalles (opcional)", { exact: true }).click();
+  await dialog.getByRole("combobox", { name: "Categoría", exact: true, includeHidden: true }).selectOption("__new__");
+  await dialog.getByLabel("Nombre de la nueva categoría", { exact: true }).fill("Granel rápido");
+  await dialog.getByRole("combobox", { name: "Unidad base", exact: true, includeHidden: true }).selectOption("KG");
+  await dialog.getByLabel("SKU propio (opcional)", { exact: true }).fill("ARROZ-RAPIDO");
+  await dialog.getByLabel("Código de barras", { exact: true }).fill("ALTA-RAPIDA-ARROZ");
+  await dialog.getByRole("button", { name: "Guardar y crear otro", exact: true }).click();
+  await expect(dialog.getByRole("status")).toContainText("Arroz de alta rápida guardado");
+  await expect(dialog.getByLabel("Código de barras", { exact: true })).toHaveValue("");
+  await expect(dialog.getByLabel("SKU propio (opcional)", { exact: true })).toHaveValue("");
+  await expect(dialog.getByRole("combobox", { name: "Categoría", exact: true, includeHidden: true })).toHaveValue("Granel rápido");
+  await expect(dialog.getByRole("combobox", { name: "Unidad base", exact: true, includeHidden: true })).toHaveValue("KG");
+  await expect(dialog.getByText("Por kilogramo", { exact: true })).toBeVisible();
+  const second = (await workspace(page.request, "catalog")).products.find((row) => row.sku === "ARROZ-RAPIDO")!;
+  expect(second.unit).toBe("KG"); expect(second.presentations[0].weighted).toBe(true); expect(second.presentations[0].name).toBe("Kilogramo");
+  await page.setViewportSize({ width: 320, height: 700 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await expect(dialog.getByRole("button", { name: "Crear producto", exact: true })).toBeInViewport();
+  await dialog.getByLabel("Nombre", { exact: true }).fill("Avena de alta rápida");
+  await dialog.getByRole("button", { name: "Crear producto", exact: true }).click();
+  await expect(dialog.getByLabel("Precio de venta", { exact: true })).toBeFocused();
+  await dialog.getByLabel("Precio de venta", { exact: true }).fill("3");
+  await dialog.getByLabel("Precio de venta", { exact: true }).press("Enter");
+  await expect(dialog).toHaveCount(0);
+  const third = (await workspace(page.request, "catalog")).products.find((row) => row.name === "Avena de alta rápida")!;
+  expect(third.sku).toMatch(/^PRD-[0-9A-F]{16}$/); expect(third.sku).not.toBe(first.sku);
+  expect(third.category).toBe("Granel rápido"); expect(third.unit).toBe("KG"); expect(third.presentations[0].barcode).toBeNull();
 });
 
 test("cajero: permisos, sede asignada y accesos indirectos protegidos", async ({ request, playwright }) => {
@@ -434,11 +490,10 @@ test("categorías y corrección de códigos desde el catálogo móvil", async ({
   await page.getByRole("button", { name: "Nuevo producto", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Nuevo producto", exact: true });
   await dialog.getByLabel("Nombre", { exact: true }).fill("Snack editable");
-  await dialog.getByLabel("SKU", { exact: true }).fill("SNACK-EDIT");
+  await dialog.getByText("Más detalles (opcional)", { exact: true }).click();
+  await dialog.getByLabel("SKU propio (opcional)", { exact: true }).fill("SNACK-EDIT");
   await dialog.getByRole("combobox", { name: "Categoría", exact: true }).selectOption("Snacks E2E");
-  await dialog.getByRole("button", { name: "Continuar", exact: true }).click();
   await dialog.getByLabel("Precio de venta", { exact: true }).fill("3.5");
-  await dialog.getByRole("button", { name: "Continuar", exact: true }).click();
   await dialog.getByRole("button", { name: "Crear producto", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await page.getByRole("combobox", { name: "Filtrar por categoría", exact: true }).selectOption("Snacks E2E");

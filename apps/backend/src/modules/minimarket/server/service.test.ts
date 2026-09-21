@@ -103,6 +103,35 @@ async function connectScanner(session: AuthSession, cashSessionId: string) {
   return { connectionId: result.connectionId, receiverToken, pairingToken, senderToken, cartIntentId };
 }
 
+test("catálogo rápido: SKU omitido o vacío genera código estable y respeta el SKU propio", async () => {
+  const input = { idempotencyKey: randomUUID(), name: "Pan sin código", presentations: [{ name: "Unidad", factor: 1, priceCents: 50 }] };
+  const created = await command(["products"], input) as { id: string; itemId: string; sku: string };
+  assert.match(created.sku, /^PRD-[0-9A-F]{16}$/);
+  assert.deepEqual(await command(["products"], input), created);
+  const stored = await db.retailProduct.findUniqueOrThrow({ where: { id: created.id }, include: { item: true, presentations: true } });
+  assert.equal(stored.item.sku, created.sku); assert.equal(stored.item.stock, 0); assert.equal(stored.item.unit, "UND");
+  assert.equal(stored.category, "General"); assert.equal(stored.presentations[0].barcode, null);
+  assert.equal(await db.inventoryItem.count({ where: { tenantId: scope.tenantId, branchId: scope.branchId, name: input.name } }), 1);
+  const blank = await command(["products"], { ...input, idempotencyKey: randomUUID(), sku: "   " }) as { id: string; sku: string };
+  assert.match(blank.sku, /^PRD-[0-9A-F]{16}$/); assert.notEqual(blank.sku, created.sku);
+  const custom = await command(["products"], { ...input, idempotencyKey: randomUUID(), sku: " PAN-001 " }) as { id: string; sku: string };
+  assert.equal(custom.sku, "PAN-001");
+  await assert.rejects(command(["products"], { ...input, idempotencyKey: randomUUID(), sku: "PAN-001" }), code("DUPLICATE_PRODUCT"));
+  const second = await command(["products"], { ...input, idempotencyKey: randomUUID(), sku: "PAN-001" }, secondScope) as { id: string; sku: string };
+  assert.equal(second.sku, "PAN-001");
+  await assert.rejects(command(["products"], { ...input, idempotencyKey: randomUUID(), name: " " }), code("VALIDATION_ERROR"));
+});
+
+test("PostgreSQL: alta simultánea sin SKU y recuperación de una misma creación", async (context) => {
+  if (!process.env.INVENTORY_TEST_DATABASE_URL) { context.skip("Requiere PostgreSQL real."); return; }
+  const input = { idempotencyKey: randomUUID(), name: "Alta concurrente", presentations: [{ name: "Unidad", factor: 1, priceCents: 100 }] };
+  const same = await Promise.all([command(["products"], input), command(["products"], input)]);
+  assert.deepEqual(same[0], same[1]);
+  const different = await Promise.all(Array.from({ length: 5 }, () => command(["products"], { ...input, idempotencyKey: randomUUID() }))) as Array<{ id: string; sku: string }>;
+  assert.equal(new Set(different.map((row) => row.sku)).size, 5);
+  assert.equal(await db.retailProduct.count({ where: { tenantId: scope.tenantId, branchId: scope.branchId } }), 6);
+});
+
 test("cinco cajas: lecturas, ventas y medios de pago permanecen aislados por turno", async () => {
   const p = await product({ stock: 20 });
   const sessions: Array<{ session: AuthSession; cash: string; link: Awaited<ReturnType<typeof connectScanner>> }> = [];
