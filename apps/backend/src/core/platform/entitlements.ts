@@ -11,7 +11,7 @@ export async function assertTransactionalQuota(tx: Prisma.TransactionClient, ten
   monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
   const count = kind === "users" ? await tx.membership.count({ where: { tenantId, active: true, user: { active: true } } })
     : tenant.type === "RESTAURANT" ? await tx.restaurantOrder.count({ where: { tenantId, createdAt: { gte: monthStart } } })
-      : tenant.type === "BARBERSHOP" ? await tx.appointment.count({ where: { tenantId, createdAt: { gte: monthStart } } })
+      : tenant.type === "BARBERSHOP" ? await tx.appointment.count({ where: { tenantId, createdAt: { gte: monthStart } } }) + await tx.salonSale.count({ where: { tenantId, createdAt: { gte: monthStart }, sale: { appointmentId: null } } })
         : tenant.type === "MINIMARKET" ? await tx.retailSale.count({ where: { tenantId, createdAt: { gte: monthStart } } }) : await tx.transportTrip.count({ where: { tenantId, createdAt: { gte: monthStart } } });
   const limit = kind === "users" ? tenant.plan.maxUsers : tenant.plan.maxMonthlyOperations;
   if (count >= limit) throw new AppError(kind === "users" ? "PLAN_USER_LIMIT" : "PLAN_OPERATION_LIMIT", 409, `La empresa alcanzó el límite de ${kind === "users" ? "usuarios" : "operaciones del mes"} de su plan.`, { limit });
@@ -41,7 +41,7 @@ export async function assertTenantWriteEntitlement(tenantId: string, countOperat
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
   const operations = tenant.type === "BARBERSHOP"
-    ? await prisma.appointment.count({ where: { tenantId, createdAt: { gte: monthStart } } })
+    ? await prisma.appointment.count({ where: { tenantId, createdAt: { gte: monthStart } } }) + await prisma.salonSale.count({ where: { tenantId, createdAt: { gte: monthStart }, sale: { appointmentId: null } } })
     : tenant.type === "RESTAURANT"
       ? await prisma.restaurantOrder.count({ where: { tenantId, createdAt: { gte: monthStart } } })
       : tenant.type === "MINIMARKET" ? await prisma.retailSale.count({ where: { tenantId, createdAt: { gte: monthStart } } }) : await prisma.transportTrip.count({ where: { tenantId, createdAt: { gte: monthStart } } });

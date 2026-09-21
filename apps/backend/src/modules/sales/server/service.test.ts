@@ -43,7 +43,7 @@ before(async () => {
     execFileSync(process.execPath, [require.resolve("prisma/build/index.js"), "migrate", "deploy", "--schema", fileURLToPath(new URL("../../../../prisma/schema.prisma", import.meta.url))], { env: { ...process.env, DATABASE_URL: url }, stdio: "pipe", timeout: 60_000 });
     db = new PrismaClient({ datasources: { db: { url } } });
   }
-  const tenant = await db.tenant.create({ data: { slug: "sales-test", name: "Ventas", shortName: "VEN", type: "RESTAURANT" } });
+  const tenant = await db.tenant.create({ data: { slug: "sales-test", name: "Ventas", shortName: "VEN", type: "RESTAURANT", paymentMethods: JSON.stringify(["CASH", "CARD", "TRANSFER", "YAPE", "PLIN", "OTHER"]) } });
   const other = await db.tenant.create({ data: { slug: "sales-other", name: "Otra", shortName: "OTR", type: "BARBERSHOP" } });
   const branch = await db.branch.create({ data: { tenantId: tenant.id, name: "Principal" } });
   const second = await db.branch.create({ data: { tenantId: tenant.id, name: "Segunda" } });

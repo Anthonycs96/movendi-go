@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import type { RestaurantOrderDto } from "@movendi/contracts";
 
 async function login(request: APIRequestContext, slug: string) {
   const response = await request.post("/api/auth/login", { data: { email: "superadmin@multisaas.local", password: "Nexo2026!", businessSlug: slug } });
@@ -9,12 +10,13 @@ async function login(request: APIRequestContext, slug: string) {
 test("barbería: los datos por pantalla coinciden con el contrato completo", async ({ request }) => {
   await login(request, "nova-studio");
   const full = (await (await request.get("/api/data/tenant")).json()).data;
-  for (const [section, fields] of Object.entries({ dashboard: ["customers", "staff", "appointments", "sales", "metrics"], appointments: ["customers", "staff", "services", "appointments", "cashSession"], clients: ["customers"], team: ["staff"], services: ["services"], checkout: ["appointments", "sales", "cashSession"] })) {
+  for (const [section, fields] of Object.entries({ dashboard: ["staff", "appointments", "metrics"], appointments: ["customers", "staff", "services", "appointments", "cashSession"], clients: ["customers"], team: ["staff"], services: ["services"], checkout: ["appointments", "sales", "cashSession"] })) {
     const response = await request.get(`/api/data/tenant?section=${section}`);
     expect(response.ok()).toBe(true);
     const data = (await response.json()).data;
     for (const field of fields) expect(data[field], `${section}/${field}`).toEqual(full[field]);
     if (["clients", "team", "services"].includes(section)) expect(data.appointments).toEqual([]);
+    if (section === "dashboard") { expect(data.customers).toEqual([]); expect(data.sales).toEqual([]); }
   }
 });
 
@@ -60,8 +62,10 @@ test("salón y cocina mantienen todas las atenciones activas al omitir el histor
     expect(data.orders).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: closedId })]));
     expect(data.orders).toEqual(expect.arrayContaining([expect.objectContaining({ id: paidPendingId, paid: true, status: "COMPLETED" })]));
     expect(data.kitchen).toEqual(expect.arrayContaining([expect.objectContaining({ id: paidPendingId })]));
-    expect(data.kitchen).toEqual(full.kitchen);
+    const screenOrder = (order: RestaurantOrderDto) => section === "kitchen" && order.customer ? { ...order, customer: { id: order.customer.id, name: order.customer.name } } : order;
+    expect(data.kitchen).toEqual(full.kitchen.map(screenOrder));
     const active = full.orders.filter((order: { status: string; kitchenTicket?: { status: string } }) => !["COMPLETED", "CANCELLED"].includes(order.status) || (order.status === "COMPLETED" && order.kitchenTicket && !["SERVED", "CANCELLED"].includes(order.kitchenTicket.status)));
-    expect(data.orders).toEqual(active);
+    expect(data.orders).toEqual(active.map(screenOrder));
+    if (section === "kitchen") for (const order of data.orders) if (order.customer) { expect(order.customer).not.toHaveProperty("loyaltyPoints"); expect(order.customer).not.toHaveProperty("active"); }
   }
 });

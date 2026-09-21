@@ -405,18 +405,18 @@ test("ejecutor compartido conserva reintentos de concurrencia y su error al agot
   let attempts = 0;
   const transaction = context.mock.method(prisma, "$transaction", async () => {
     attempts += 1;
-    if (attempts < 3) throw new TransactionConflictError("Conflicto de prueba");
+    if (attempts < 5) throw new TransactionConflictError("Conflicto de prueba");
     return "confirmed";
   });
   assert.equal(await withSerializableTransaction(async () => "unused"), "confirmed");
-  assert.equal(attempts, 3);
+  assert.equal(attempts, 5);
   transaction.mock.mockImplementation(async () => { throw new TransactionConflictError("Conflicto de prueba"); });
   await assert.rejects(withSerializableTransaction(async () => "unused"), error("INVENTORY_BUSY", 409));
-  assert.equal(transaction.mock.callCount(), 6);
+  assert.equal(transaction.mock.callCount(), 11);
   const businessError = new AppError("INSUFFICIENT_STOCK", 409, "Sin stock");
   transaction.mock.mockImplementation(async () => { throw businessError; });
   await assert.rejects(withSerializableTransaction(async () => "unused"), (value) => value === businessError);
-  assert.equal(transaction.mock.callCount(), 7);
+  assert.equal(transaction.mock.callCount(), 12);
 });
 
 test("conflicto optimista de inventario se traduce a la señal del ejecutor compartido", async (context) => {

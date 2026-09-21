@@ -42,6 +42,7 @@ export interface InventoryPurchaseDto { id: string; code: string; supplierName: 
 export interface InventoryCountDto { id: string; code: string; status: string; notes: string | null; countedAt: string; createdBy: { name: string; email: string }; lines: Array<{ id: string; itemId: string; expectedQuantity: number; countedQuantity: number; difference: number; item: { name: string; sku: string; unit: string } }> }
 export interface InventoryRecipeProductDto { id: string; name: string; recipe: { id: string; active: boolean; yieldQuantity: number; ingredients: Array<{ id: string; itemId: string; quantity: number; wastePercent: number; item: { id: string; name: string; sku: string; unit: string } }> } | null }
 export interface InventoryData {
+  suppliers?: Array<{ id: string; name: string; documentType: string; documentNumber: string; phone: string | null; email: string | null; address: string | null; contact: string | null; active: boolean }>;
   items: InventoryItemDto[];
   movements: InventoryMovementDto[];
   purchases: InventoryPurchaseDto[];
@@ -53,11 +54,19 @@ export interface InventoryData {
 }
 
 export interface BarberCustomerDto { id: string; name: string; dni: string | null; phone: string | null; email: string | null; notes: string | null; active: boolean; createdAt: string }
-export interface StaffDto { id: string; name: string; phone: string | null; specialty: string | null; commissionPct: number; active: boolean; schedules: Array<{ weekday: number; startsAt: string; endsAt: string }> }
-export interface ServiceDto { id: string; name: string; category: string | null; durationMinutes: number; priceCents: number; active: boolean }
+export interface StaffDto { id: string; name: string; phone: string | null; specialty: string | null; commissionPct: number; commissionFixedCents?: number | null; productCommissionPct?: number; productCommissionFixedCents?: number | null; active: boolean; schedules: Array<{ weekday: number; startsAt: string; endsAt: string }> }
+export interface ServiceDto { id: string; name: string; category: string | null; durationMinutes: number; priceCents: number; active: boolean; staffIds?: string[]; supplies?: Array<{ itemId: string; quantity: number }>; commissionPct?: number | null; commissionFixedCents?: number | null }
 export interface AppointmentDto { id: string; startsAt: string; endsAt: string; status: string; priceCents: number; notes: string | null; customer: { id: string; name: string; phone: string | null }; staff: { id: string; name: string }; service: { id: string; name: string }; paid: boolean }
 export interface BarberSaleDto { id: string; code: string; paymentMethod: string; totalCents: number; createdAt: string; customer: string | null }
 export interface BarbershopData {
+  timezone?: string;
+  products?: import("./salon").SalonProductDto[];
+  stockItems?: Array<{ kind?: string; id: string; name: string; sku: string; stock: number; unit: string }>;
+  blocks?: import("./salon").SalonBlockDto[];
+  permissions?: string[];
+  paymentMethods?: string[];
+  appointmentTotal?: number;
+  promotions?: Array<{ id: string; name: string; kind: string; value: number; startsAt: string | null; endsAt: string | null; active: boolean }>;
   inventoryModule?: InventoryData;
   customers: BarberCustomerDto[];
   staff: StaffDto[];
@@ -379,3 +388,4 @@ export function loyaltyRedemptionLimit(totalCents: number, deliveryFeeCents: num
 
 export type { MinimarketData, MinimarketProduct, MinimarketSale } from "./minimarket";
 export { businessSlugFromName } from "./business-slug";
+export * from "./salon";

@@ -1,5 +1,6 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
+import { setTimeout as delay } from "node:timers/promises";
 import { AppError } from "@/core/auth/errors";
 import { prisma } from "./prisma";
 
@@ -21,7 +22,10 @@ export async function withSerializableTransaction<T>(operation: (transaction: Pr
       if (!retriable) throw error;
       // These callers already expose this legacy code/message. Relocating the
       // runner must not silently change authentication, fiscal or cash APIs.
-      if (attempt === 2) throw new AppError("INVENTORY_BUSY", 409, "El inventario cambió durante la operación. Inténtalo nuevamente.");
+      if (attempt === 5) throw new AppError("INVENTORY_BUSY", 409, "El inventario cambió durante la operación. Inténtalo nuevamente.");
+      // Give the winning transaction time to commit and avoid synchronized retries
+      // when several cashiers or reservations compete for the same records.
+      await delay(Math.min(200, 25 * 2 ** attempt) + Math.floor(Math.random() * 25));
     }
   }
 }

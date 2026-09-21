@@ -8,13 +8,13 @@ const tone: Record<string, "neutral" | "info" | "success" | "warning" | "danger"
 const label: Record<string, string> = { PENDING: "Pendiente", CONFIRMED: "Confirmada", COMPLETED: "Completada", CANCELLED: "Cancelada", NO_SHOW: "No asistió" };
 
 export function BarbershopDashboard({ data }: { data: BarbershopData }) {
-  const upcoming = [...data.appointments].filter((item) => new Date(item.startsAt) >= new Date()).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, 5);
+  const upcoming = [...data.appointments].filter((item) => new Date(item.startsAt) >= new Date() && ["PENDING", "CONFIRMED"].includes(item.status)).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, 5);
   const pending = data.appointments.filter((item) => item.status === "PENDING").length;
 
   return <>
     <PageHeader
       eyebrow="Resumen del negocio"
-      title="Beauty"
+      title="Barbería y Salón"
       description="Agenda, atención, cobros y equipo en una experiencia propia."
       icon={Scissors}
       actions={<Link className="button button--primary button--md" href="appointments"><span>Nueva cita</span><ArrowUpRight size={15} /></Link>}
@@ -28,7 +28,7 @@ export function BarbershopDashboard({ data }: { data: BarbershopData }) {
     </section>
     <section className="dashboard-grid dashboard-grid--single">
       <Card className="panel">
-        <div className="panel__header"><div><h2>Próximas citas</h2><p>Reservas de hoy asignadas al equipo.</p></div><Link href="appointments">Ver agenda</Link></div>
+        <div className="panel__header"><div><h2>Próximas citas</h2><p>Próximas atenciones. Revisa las preferencias del cliente antes de recibirlo.</p></div><Link href="appointments">Ver agenda</Link></div>
         {upcoming.length ? upcoming.map((item) => <div className="appointment-row" key={item.id}><div className="appointment-row__time"><strong>{formatTime(item.startsAt)}</strong><span>{formatShortDate(item.startsAt)}</span></div><div className="mini-avatar">{initials(item.customer.name)}</div><div className="appointment-row__client"><strong>{item.customer.name}</strong><span>{item.service.name} · {item.staff.name}</span></div><StatusBadge tone={tone[item.status]} dot>{label[item.status] ?? item.status}</StatusBadge><strong className="appointment-row__price">{formatCurrencyCents(item.priceCents)}</strong></div>) : <div className="empty-panel"><CalendarCheck size={28} /><strong>Sin citas agendadas</strong><span>No hay reservas para mostrar en este momento.</span></div>}
       </Card>
     </section>

@@ -10,7 +10,7 @@ export class PrismaSaleRepository implements SaleRepository {
     const { tenantId, branchId } = this.scope;
     const branch = await this.tx.branch.findFirst({ where: { id: branchId, tenantId }, select: { tenant: { select: { currency: true } } } });
     if (!branch) return null;
-    const origin = input.origin.kind === "ORDER"
+    const origin = input.origin.kind === "SALON" ? await this.tx.salonSale.findFirst({ where: { id: input.origin.id, tenantId, branchId }, select: { id: true } }) : input.origin.kind === "ORDER"
       ? await this.tx.restaurantOrder.findFirst({ where: { id: input.origin.id, tenantId, branchId }, select: { id: true } })
       : input.origin.kind === "RETAIL" ? await this.tx.retailSale.findFirst({ where: { id: input.origin.id, tenantId, branchId }, select: { id: true } }) : await this.tx.appointment.findFirst({ where: { id: input.origin.id, tenantId, branchId }, select: { id: true } });
     if (!origin) return null;
@@ -20,7 +20,7 @@ export class PrismaSaleRepository implements SaleRepository {
   }
 
   async existsForOrigin(origin: SaleOrigin) {
-    return !!await this.tx.sale.findFirst({ where: { ...this.scope, ...(origin.kind === "ORDER" ? { orderId: origin.id } : origin.kind === "RETAIL" ? { retailSaleId: origin.id } : { appointmentId: origin.id }) }, select: { id: true } });
+    return !!await this.tx.sale.findFirst({ where: { ...this.scope, ...(origin.kind === "SALON" ? { salonSaleId: origin.id } : origin.kind === "ORDER" ? { orderId: origin.id } : origin.kind === "RETAIL" ? { retailSaleId: origin.id } : { appointmentId: origin.id }) }, select: { id: true } });
   }
 
   async create(input: RecordSaleInput, snapshot: CommercialSnapshot) {
@@ -28,13 +28,13 @@ export class PrismaSaleRepository implements SaleRepository {
     void detail;
     try { return await this.tx.sale.create({ data: {
       ...fields, ...this.scope,
-      ...(origin.kind === "ORDER" ? { orderId: origin.id } : origin.kind === "RETAIL" ? { retailSaleId: origin.id } : { appointmentId: origin.id }),
+      ...(origin.kind === "SALON" ? { salonSaleId: origin.id } : origin.kind === "ORDER" ? { orderId: origin.id } : origin.kind === "RETAIL" ? { retailSaleId: origin.id } : { appointmentId: origin.id }),
       commercialSnapshot: JSON.stringify(snapshot),
       ...(payments ? { payments: { create: payments.map((payment) => ({ ...payment, ...this.scope })) } } : {}),
     } }); } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         const target = error.meta?.target;
-        if (Array.isArray(target) && target.some((field) => field === "orderId" || field === "appointmentId" || field === "retailSaleId")) throw new SalesError("ALREADY_PAID", "El origen de esta venta ya fue cobrado.");
+        if (Array.isArray(target) && target.some((field) => ["orderId", "appointmentId", "retailSaleId", "salonSaleId"].includes(field))) throw new SalesError("ALREADY_PAID", "El origen de esta venta ya fue cobrado.");
       }
       throw error;
     }

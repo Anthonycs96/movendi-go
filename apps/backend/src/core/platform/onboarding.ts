@@ -19,7 +19,7 @@ import { existingPreparationAreasByKey, reconcilePreparationAreas, type Preparat
 const moduleKeys = {
   MINIMARKET: ["dashboard", "pos", "catalog", "inventory", "purchases", "sales", "checkout", "clients", "reports", "settings"],
   RESTAURANT: ["dashboard", "floor", "orders", "kitchen", "clients", "menu", "inventory", "promotions", "checkout", "reports", "settings"],
-  BARBERSHOP: ["dashboard", "appointments", "clients", "team", "services", "inventory", "checkout", "settings"],
+  BARBERSHOP: ["dashboard", "appointments", "clients", "team", "services", "inventory", "checkout", "reports", "settings"],
   TRANSPORT: ["dashboard", "operations", "fleet", "drivers", "documents", "finance", "fuel", "maintenance", "inventory", "tires", "reports", "settings"],
 } as const;
 
@@ -220,7 +220,7 @@ export async function initializeBusinessSetup(tenantId: string, branchId: string
     // En Restaurante la plantilla propone roles, áreas y ambientes dentro del
     // asistente. No crea entidades operativas antes de que el administrador las confirme.
     if (tenantType !== "RESTAURANT") {
-      for (const key of template.roles) await tx.role.upsert({ where: { tenantId_key: { tenantId, key } }, create: { tenantId, key, name: roleName(key), permissions: JSON.stringify(defaultPermissions[key] ?? []) }, update: {} });
+      for (const key of template.roles) await tx.role.upsert({ where: { tenantId_key: { tenantId, key } }, create: { tenantId, key, name: roleName(key), permissions: JSON.stringify(tenantType === "BARBERSHOP" && key === "CASHIER" ? ["dashboard:read", "barbershop:cash:write", "customers:read", "services:read", "barbershop:appointments:read"] : defaultPermissions[key] ?? []) }, update: {} });
       if (template.diningArea) await tx.diningArea.upsert({ where: { tenantId_branchId_name: { tenantId, branchId, name: template.diningArea } }, create: { tenantId, branchId, name: template.diningArea }, update: { active: true } });
     }
     if (tenantType === "RESTAURANT") {

@@ -28,14 +28,14 @@ test("Barbería cobra desde agenda, separa efectivo y pagos digitales y protege 
   const id = await createAppointment("2035-01-08T14:00");
   await page.goto("/t/nova-studio/appointments");
   await page.getByPlaceholder("Buscar cliente, servicio o barbero").fill(name);
-  await page.getByLabel("Filtrar por fecha").fill("");
+  await page.getByLabel("Filtrar por fecha").fill("2035-01-08");
   const row = page.getByRole("row").filter({ hasText: name });
-  const checkoutResponse = page.waitForResponse((response) => response.url().endsWith(`/appointments/${id}/checkout`) && response.request().method() === "POST");
+  const checkoutResponse = page.waitForResponse((response) => response.url().endsWith("/barbershop/sales") && response.request().method() === "POST");
   await row.getByRole("button", { name: "Cobrar", exact: true }).click();
-  await page.getByRole("dialog", { name: "Cobrar cita" }).getByLabel("Medio de pago").selectOption("YAPE");
+  await page.getByRole("dialog", { name: `Cobrar a ${name}` }).getByLabel("Medio de pago 1").selectOption("YAPE");
   await mkdir("output/stages678", { recursive: true });
-  await page.getByRole("dialog", { name: "Cobrar cita" }).screenshot({ path: "output/stages678/barber-payment.png" });
-  await page.getByRole("dialog", { name: "Cobrar cita" }).getByRole("button", { name: "Registrar cobro" }).click();
+  await page.getByRole("dialog", { name: `Cobrar a ${name}` }).screenshot({ path: "output/stages678/barber-payment.png" });
+  await page.getByRole("dialog", { name: `Cobrar a ${name}` }).getByRole("button", { name: /Registrar cobro/ }).click();
   const checkout = await checkoutResponse;
   expect(checkout.status(), await checkout.text()).toBe(200);
   const saleId = (await checkout.json()).id as string;
@@ -59,7 +59,7 @@ test("Barbería cobra desde agenda, separa efectivo y pagos digitales y protege 
   expect(cashPayment.status(), await cashPayment.text()).toBe(200);
   expect((await data()).cashSession!.expectedCents).toBe(before.cashSession!.expectedCents + sale.totalCents);
   await page.goto("/t/nova-studio/checkout");
-  await expect(page.getByText("Efectivo esperado", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Efectivo esperado/ })).toBeVisible();
   await page.screenshot({ path: "output/stages678/barber-cash.png", fullPage: true, animations: "disabled" });
 
   const pending = await createAppointment("2035-01-08T15:00");

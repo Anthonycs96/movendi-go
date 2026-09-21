@@ -4,6 +4,7 @@ import type { InventoryRepository, InventoryScope } from "../ports/inventory-rep
 import { applyInventoryMovementUseCase } from "./apply-inventory-movement";
 
 export type InventoryPurchaseInput = {
+  supplierId?: string;
   supplierName: string;
   documentNumber?: string;
   purchasedAt?: Date;
@@ -34,6 +35,7 @@ export async function registerInventoryPurchaseUseCase(
     const existing = await purchases.findByMovementKey(`PURCHASE:${input.idempotencyKey}:0`);
     if (existing) {
       const matches = existing.branchId === scope.branchId
+        && (existing.supplierId ?? null) === (input.supplierId ?? null)
         && existing.supplierName === input.supplierName
         && existing.documentNumber === (input.documentNumber || null)
         && existing.notes === (input.notes || null)
@@ -46,6 +48,7 @@ export async function registerInventoryPurchaseUseCase(
   }
   const code = createCode();
   const purchase = await purchases.create({
+    supplierId: input.supplierId ?? null,
     code, supplierName: input.supplierName, documentNumber: input.documentNumber || null,
     totalCents: lines.reduce((sum, line) => sum + line.totalCents, 0),
     notes: input.notes || null, purchasedAt: input.purchasedAt ?? new Date(), lines,

@@ -1,4 +1,5 @@
 import { withSerializableTransaction } from "@/core/database/transactions";
+import { z } from "zod";
 import "server-only";
 import { parseInput as parse } from "@/core/validation/parse-input";
 import type { InventoryCommandPolicies } from "./policies";
@@ -11,6 +12,16 @@ import { inventoryCountSchema, inventoryItemSchema, inventoryItemUpdateSchema, i
 
 export async function handleInventoryCommand(method: string, segments: string[], body: unknown, scope: TenantScope, policies: InventoryCommandPolicies = {}) {
   const [resource, id] = segments;
+  if (resource === "suppliers" && ((method === "POST" && !id) || (method === "PATCH" && id))) {
+    const input = parse(z.object({ name: z.string().trim().min(2).max(160), documentType: z.enum(["RUC", "DNI", "OTHER"]), documentNumber: z.string().trim().min(1).max(30), phone: z.string().trim().max(30).optional(), email: z.string().email().or(z.literal("")).optional(), address: z.string().trim().max(200).optional(), contact: z.string().trim().max(120).optional(), active: z.boolean().default(true) }).refine((v) => v.documentType === "OTHER" || (v.documentType === "RUC" ? /^\d{11}$/ : /^\d{8}$/).test(v.documentNumber), "Revisa el número de documento."), body);
+    const entity = await withSerializableTransaction(async (tx) => {
+      if (id && !await tx.inventorySupplier.findFirst({ where: { id, tenantId: scope.tenantId, branchId: scope.branchId } })) throw new AppError("NOT_FOUND", 404, "Proveedor no encontrado.");
+      const result = id ? await tx.inventorySupplier.update({ where: { id }, data: input }) : await tx.inventorySupplier.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, ...input } });
+      await tx.auditLog.create({ data: { tenantId: scope.tenantId, branchId: scope.branchId, userId: scope.actorId, action: id ? "UPDATE" : "CREATE", entityType: "InventorySupplier", entityId: result.id } });
+      return result;
+    });
+    return { ok: true, id: entity.id, message: "Proveedor guardado." };
+  }
 
   if (method === "POST" && resource === "items" && !id) {
     const input = parse(inventoryItemSchema, body);
@@ -46,7 +57,11 @@ export async function handleInventoryCommand(method: string, segments: string[],
 
   if (method === "POST" && resource === "purchases") {
     const input = parse(inventoryPurchaseSchema, body);
-    const entity = await withSerializableTransaction((tx) => registerInventoryPurchase(tx, scope, input));
+    const entity = await withSerializableTransaction(async (tx) => {
+      const supplier = input.supplierId ? await tx.inventorySupplier.findFirst({ where: { id: input.supplierId, tenantId: scope.tenantId, branchId: scope.branchId, active: true } }) : null;
+      if (input.supplierId && !supplier) throw new AppError("NOT_FOUND", 404, "Proveedor no disponible en esta sucursal.");
+      return registerInventoryPurchase(tx, scope, { ...input, supplierName: supplier?.name ?? input.supplierName });
+    });
     await audit(scope, "CREATE", "InventoryPurchase", entity.id, { code: entity.code, totalCents: entity.totalCents });
     return { ok: true, id: entity.id, message: `Compra ${entity.code} registrada y stock actualizado.` };
   }

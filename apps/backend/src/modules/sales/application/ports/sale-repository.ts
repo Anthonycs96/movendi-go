@@ -2,7 +2,7 @@ import type { CommercialSnapshot, SaleLineSnapshot } from "../../domain/sale";
 import type { PaymentAllocation } from "../../domain/payments";
 
 export type SaleScope = { tenantId: string; branchId: string };
-export type SaleOrigin = { kind: "ORDER" | "APPOINTMENT" | "RETAIL"; id: string };
+export type SaleOrigin = { kind: "ORDER" | "APPOINTMENT" | "RETAIL" | "SALON"; id: string };
 export type RecordSaleInput = {
   origin: SaleOrigin;
   code: string;

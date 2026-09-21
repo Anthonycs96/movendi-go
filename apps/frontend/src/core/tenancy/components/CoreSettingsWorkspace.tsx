@@ -50,6 +50,10 @@ const commonPermissions: PermissionOption[] = [
 const industryPermissions: Record<string, PermissionOption[]> = {
   MINIMARKET: [["minimarket:cash:read","Ver cajas"],["minimarket:cash:open","Abrir caja"],["minimarket:cash:close","Cerrar caja"],["minimarket:cash:movement","Ingresar o retirar efectivo"],["minimarket:purchases:write","Recibir compras"],["minimarket:counts:write","Finalizar conteos y ajustes"],["minimarket:prices:write","Modificar precios de presentaciones"],["minimarket:promotions:write", "Administrar promociones"], ["minimarket:suppliers:write", "Administrar proveedores"], ["minimarket:payables:read", "Ver cuentas por pagar"], ["minimarket:payables:write", "Registrar y pagar crédito"], ["minimarket:transfers:write", "Despachar y recibir transferencias"], ["minimarket:cash:manage", "Supervisar cajas de otros cajeros"], ["minimarket:catalog:read", "Ver catálogo"], ["minimarket:catalog:write", "Administrar catálogo"], ["minimarket:sales:read", "Ver ventas"], ["minimarket:sales:write", "Cobrar ventas"], ["minimarket:refunds:write", "Devolver ventas"], ["minimarket:cash:write", "Operar caja"], ["minimarket:cash:approve", "Aprobar diferencias de caja"], ["minimarket:reports:read", "Ver resultados"]].map(([value, label]) => ({ value, label, group: "Minimarket" })),
   BARBERSHOP: [
+    { value: "barbershop:reports:read", label: "Ver reportes y comisiones", group: "Gestión" },
+    { value: "barbershop:commissions:write", label: "Liquidar comisiones", group: "Gestión" },
+    { value: "barbershop:discounts:write", label: "Aplicar descuentos manuales", group: "Caja" },
+    { value: "barbershop:refunds:write", label: "Devolver ventas", group: "Caja" },
     {
       value: "barbershop:appointments:read",
       label: "Ver agenda y citas",

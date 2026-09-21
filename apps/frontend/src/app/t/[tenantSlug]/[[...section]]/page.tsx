@@ -35,7 +35,7 @@ export default async function TenantSectionPage({ params, searchParams }: Tenant
   if (session.enabledModules.length && !session.enabledModules.includes(section)) notFound();
   if (!hasPermission(session.permissions, navItem?.permission)) notFound();
   if (industry === "barbershop") {
-    return <PageContainer><BarbershopWorkspace section={section} data={workspace.data} core={workspace.core} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;
+    return <PageContainer><BarbershopWorkspace key={`${session.tenantId}:${session.branchId}:${session.userId}`} section={section} data={workspace.data} core={workspace.core} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;
   }
   if (industry === "restaurant") {
     return <PageContainer><RestaurantWorkspace key={`${session.tenantId}:${session.branchId}`} section={section} data={workspace.data} core={workspace.core} permissions={session.permissions} platformAdmin={session.platformRole === "SUPER_ADMIN"} /></PageContainer>;

@@ -7,8 +7,8 @@ import { join, resolve, sep } from "node:path";
 // A fresh loopback-only cluster and separate generated client. Never uses DATABASE_URL.
 const root = resolve(import.meta.dirname, "..");
 const selection = process.argv[2] ?? "all";
-if (!["all", "inventory", "sales", "cash", "minimarket", "invoicing", "printing"].includes(selection)) throw new Error("Suite PostgreSQL desconocida.");
-const suites = selection === "all" ? ["inventory", "sales", "cash", "minimarket", "invoicing", "printing"] : [selection];
+if (!["all", "inventory", "sales", "cash", "minimarket", "invoicing", "printing", "barbershop"].includes(selection)) throw new Error("Suite PostgreSQL desconocida.");
+const suites = selection === "all" ? ["inventory", "sales", "cash", "minimarket", "invoicing", "printing", "barbershop"] : [selection];
 // Keep the schema under the workspace so Prisma resolves this project's client.
 const temporaryRoot = join(root, "node_modules");
 const directory = await mkdtemp(join(temporaryRoot, ".inventory-pg-"));

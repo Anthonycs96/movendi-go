@@ -1,4 +1,5 @@
 import { handleMinimarketCommand } from "@/modules/minimarket/server/commands";
+import { salonPermission, salonSectionFor, assertSalonModule } from "@/modules/barbershop/server/access";
 import { assertMinimarketAccess, minimarketPermission, minimarketSection } from "@/modules/minimarket/server/access";
 import { prisma } from "@/core/database/prisma";
 import { AppError, errorResponse } from "@/core/auth/errors";
@@ -16,13 +17,7 @@ type Context = { params: Promise<{ segments: string[] }> };
 
 function requiredPermission(moduleName: string, resource: string, method: string, action?: string) {
   if (moduleName === "minimarket") return minimarketPermission(resource, method, action);
-  if (moduleName === "barbershop") {
-    if (resource === "customers") return method === "GET" ? "customers:read" : "customers:write";
-    if (resource === "staff" || resource === "schedules") return method === "GET" ? "barbershop:team:read" : "barbershop:team:write";
-    if (resource === "services") return method === "GET" ? "services:read" : "services:write";
-    if (resource === "appointments") return method === "GET" ? "barbershop:appointments:read" : "barbershop:appointments:write";
-    if (resource === "cash") return "barbershop:cash:write";
-  }
+  if (moduleName === "barbershop") return salonPermission(resource, method, action);
   if (moduleName === "restaurant") {
     if (resource === "orders" && action === "checkout") return "restaurant:cash:write";
     if (resource === "sales" && ["electronic-document", "credit-note"].includes(action ?? "")) return "restaurant:sunat:write";
@@ -97,6 +92,7 @@ async function handle(request: Request, context: Context) {
       const permission = ["GET", "HEAD"].includes(request.method) ? "inventory:read" : "inventory:write";
       const inventorySession = await requireSession(permission);
       assertRestaurantModule(inventorySession, "inventory");
+      if (inventorySession.tenantType === "BARBERSHOP") assertSalonModule(inventorySession, "inventory");
       if (inventorySession.tenantType === "MINIMARKET") throw new AppError("RETAIL_INVENTORY_REQUIRED", 409, "Usa Inventario de Minimarket para conservar la trazabilidad de lotes.");
       const scope = await requireTenantScope(permission);
       if (!["GET", "HEAD"].includes(request.method)) await assertTenantWriteEntitlement(scope.tenantId);
@@ -107,6 +103,7 @@ async function handle(request: Request, context: Context) {
     const expectedType = moduleName === "barbershop" ? "BARBERSHOP" : moduleName === "restaurant" ? "RESTAURANT" : moduleName === "transport" ? "TRANSPORT" : moduleName === "minimarket" ? "MINIMARKET" : null;
     if (!expectedType) throw new AppError("NOT_FOUND", 404, "Módulo no encontrado.");
     if (session.tenantType !== expectedType) throw new AppError("MODULE_ACCESS_DENIED", 403, "Este módulo no está habilitado para tu empresa.");
+    if (moduleName === "barbershop") assertSalonModule(session, salonSectionFor(resource, segments[3]));
     if (moduleName === "minimarket") assertMinimarketAccess(session, minimarketSection(resource, request.method), minimarketPermission(resource, request.method, segments[3]));
     if (moduleName === "restaurant") assertRestaurantModule(session, restaurantOperationModule(resource, segments[3]));
     if (!["GET", "HEAD"].includes(request.method)) await assertTenantWriteEntitlement(session.tenantId, moduleName !== "restaurant" && consumesMonthlyOperation(moduleName, resource, request.method, id));

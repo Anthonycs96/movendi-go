@@ -34,6 +34,7 @@ export const inventoryMovementSchema = z.object({
 
 const purchaseLine = z.object({ itemId: z.string().min(1), quantity, unitCost: money });
 export const inventoryPurchaseSchema = z.object({
+  supplierId: z.string().min(1).optional(),
   supplierName: z.string().trim().min(2).max(160),
   documentNumber: text(80),
   purchasedAt: z.coerce.date().optional(),

@@ -1,4 +1,5 @@
 "use client";
+import { SupplierDirectory } from "./SupplierDirectory";
 
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -359,7 +360,7 @@ function LinesEditor({
   );
 }
 
-function PurchaseDialog({ items }: { items: InventoryItemDto[] }) {
+function PurchaseDialog({ items, suppliers = [] }: { items: InventoryItemDto[]; suppliers?: InventoryData["suppliers"] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -367,20 +368,28 @@ function PurchaseDialog({ items }: { items: InventoryItemDto[] }) {
   const [lines, setLines] = useState<Line[]>([
     { itemId: "", quantity: "", unitCost: "" },
   ]);
+  const purchaseRequest = useRef<{ signature: string; key: string } | null>(null);
+  const submitting = useRef(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
     const form = new FormData(event.currentTarget);
     setPending(true);
     setError("");
     try {
-      await send("/api/operations/inventory/purchases", {
-        supplierName: form.get("supplierName"),
+      const payload = {
+        supplierId: form.get("supplierId") || undefined,
+        supplierName: suppliers.find((s) => s.id === form.get("supplierId"))?.name ?? form.get("supplierName"),
         documentNumber: form.get("documentNumber"),
         purchasedAt: form.get("purchasedAt") || undefined,
         notes: form.get("notes"),
-        idempotencyKey: crypto.randomUUID(),
         lines,
-      });
+      };
+      const signature = JSON.stringify(payload);
+      if (purchaseRequest.current?.signature !== signature) purchaseRequest.current = { signature, key: crypto.randomUUID() };
+      await send("/api/operations/inventory/purchases", { ...payload, idempotencyKey: purchaseRequest.current.key });
+      purchaseRequest.current = null;
       setOpen(false);
       setLines([{ itemId: "", quantity: "", unitCost: "" }]);
       router.refresh();
@@ -392,6 +401,7 @@ function PurchaseDialog({ items }: { items: InventoryItemDto[] }) {
       );
     } finally {
       setPending(false);
+      submitting.current = false;
     }
   }
   return (
@@ -430,7 +440,7 @@ function PurchaseDialog({ items }: { items: InventoryItemDto[] }) {
           onSubmit={submit}
         >
           <Field label="Proveedor">
-            <Input required name="supplierName" />
+            {suppliers.length ? <Select name="supplierId" required><option value="">Selecciona proveedor</option>{suppliers.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name} · {s.documentNumber}</option>)}</Select> : <Input required name="supplierName" />}
           </Field>
           <Field label="Documento">
             <Input
@@ -731,12 +741,13 @@ export function InventoryWorkspace({
         actions={
           canWrite ? <div className="inventory-actions">
             <MovementForm items={activeItems} />
-            <PurchaseDialog items={activeItems} />
+            <PurchaseDialog items={activeItems} suppliers={data.suppliers} />
             {tenantType === "RESTAURANT" ? <SaleReturnDialog data={data} currency={currency} locale={locale} /> : null}
             <ItemForm />
           </div> : null
         }
       />
+      {tenantType === "BARBERSHOP" ? <SupplierDirectory suppliers={data.suppliers ?? []} canWrite={canWrite} /> : null}
       <div className="stats-grid stats-grid--four">
         <StatCard
           label="Artículos activos"

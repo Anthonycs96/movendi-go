@@ -11,6 +11,12 @@ function atLocalDay(offsetDays: number, hour: number, minute = 0) {
 }
 
 async function clearDatabase() {
+  await prisma.salonSaleLine.deleteMany();
+  await prisma.salonSale.deleteMany();
+  await prisma.salonProduct.deleteMany();
+  await prisma.serviceSupply.deleteMany();
+  await prisma.serviceStaff.deleteMany();
+  await prisma.staffTimeBlock.deleteMany();
   await prisma.fiscalJob.deleteMany();
   await prisma.fiscalConfiguration.deleteMany();
   await prisma.restaurantMenuImport.deleteMany();

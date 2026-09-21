@@ -82,7 +82,7 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
     await next.click();
     await expect(dialog.getByRole("heading", { name: "Módulos", exact: true })).toBeVisible();
     for (const label of ["Inventario", "Clientes", "Promociones", "Reportes"]) {
-      const checkbox = dialog.getByRole("checkbox", { name: label, exact: true });
+      const checkbox = dialog.getByRole("checkbox", { name: new RegExp(`^${label}(?: Esencial)?$`) });
       if (!await checkbox.isChecked()) await dialog.locator(".setup-module-grid label").filter({ hasText: new RegExp(`^${label}$`) }).click();
       await expect(checkbox).toBeChecked();
     }
@@ -270,7 +270,7 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
     await navigate(page, "inventory");
     await expect(page.getByRole("row").filter({ hasText: ingredient })).toContainText("107 KG");
     await navigate(page, "reports");
-    await expect(page.locator(".stat-card").filter({ hasText: "Ventas totales" })).toContainText("40.00");
+    await expect(page.locator(".stat-card").filter({ hasText: "Ventas vigentes" })).toContainText("40.00");
     await expect(page.locator(".report-panel").filter({ hasText: "Productos más vendidos" })).toContainText(product);
     await expect(page.locator(".report-trend__column")).toHaveCount(30);
     const today = new Intl.DateTimeFormat("es-PE", { timeZone: "America/Lima", day: "2-digit", month: "short" }).format(new Date()).replace(".", "");
@@ -323,7 +323,7 @@ test.describe.serial("Restaurante operable exclusivamente desde frontend", () =>
     await navigate(page, "inventory");
     await expect(page.getByRole("row").filter({ hasText: ingredient })).toContainText("107 KG");
     await navigate(page, "reports");
-    await expect(page.locator(".stat-card").filter({ hasText: "Ventas totales" })).toContainText("0.00");
+    await expect(page.locator(".stat-card").filter({ hasText: "Ventas vigentes" })).toContainText("0.00");
   });
 
 });

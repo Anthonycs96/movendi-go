@@ -1,0 +1,19 @@
+.stack { display: grid; gap: 18px; min-width: 0; }
+.stack td small, .receipt small { display: block; color: var(--text-secondary, #64748b); margin-top: 3px; }
+.panel { padding: 22px; min-width: 0; }
+.panel h3 { margin: 0 0 10px; }
+.muted { color: var(--text-secondary, #64748b); font-size: 14px; }
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 18px; }
+.line { display: grid; grid-template-columns: minmax(130px,2fr) minmax(100px,1fr) 75px auto; gap: 10px; align-items: end; border-bottom: 1px solid var(--border-color, #e2e8f0); padding: 12px 0; }
+.line small { display: block; }
+.total { font-size: 24px; font-weight: 750; padding: 16px 0; }
+.checks { display: flex; gap: 12px; flex-wrap: wrap; }
+.receipt { padding: 20px; display: grid; gap: 10px; }
+.receiptRow { display: flex; justify-content: space-between; gap: 16px; }
+.notice { padding: 14px; background: var(--surface-secondary, #f1f5f9); border-radius: 12px; }
+.error { color: #b91c1c; }
+.steps { display: flex; flex-wrap: wrap; gap: 10px; list-style: none; padding: 0; }
+.steps a { display: block; border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 14px; }
+@media(max-width:700px) { .grid { grid-template-columns: 1fr; } .panel { padding: 14px; } .line { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } .toolbar > * { max-width: 100%; } }
+@media print { :global(body *) { visibility: hidden; } .receipt, .receipt * { visibility: visible; } .receipt { position: absolute; inset: 0; color: black; background: white; } .receipt button { display: none; } }

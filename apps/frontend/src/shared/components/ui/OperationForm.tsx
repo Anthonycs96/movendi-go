@@ -53,7 +53,7 @@ export function OperationForm({ title, description, endpoint, method = "POST", t
     const formData = new FormData(form);
     try {
       let body = transform ? transform(formData) : Object.fromEntries(formData.entries());
-      if (/\/restaurant\/cash(?:\/[^/]+\/movement)?$/.test(endpoint) && body && typeof body === "object") {
+      if (/\/(restaurant|barbershop)\/cash(?:\/[^/]+\/movement)?$/.test(endpoint) && body && typeof body === "object") {
         const payload = JSON.stringify(body);
         if (operationRequest.current?.payload !== payload) operationRequest.current = { payload, key: requestKey() };
         body = { ...body, idempotencyKey: operationRequest.current.key };

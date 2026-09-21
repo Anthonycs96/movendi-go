@@ -1,6 +1,7 @@
 export type InventoryPurchaseLine = { itemId: string; quantity: number; unitCostCents: number; totalCents: number };
 
 export type InventoryPurchaseDraft = {
+  supplierId?: string | null;
   code: string;
   supplierName: string;
   documentNumber: string | null;

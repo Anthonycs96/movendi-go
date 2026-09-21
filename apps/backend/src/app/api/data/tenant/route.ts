@@ -1,4 +1,5 @@
 import { getMinimarketData } from "@/modules/minimarket/server/data";
+import { salonSectionPermissions, assertSalonModule } from "@/modules/barbershop/server/access";
 import { assertMinimarketAccess, minimarketSections } from "@/modules/minimarket/server/access";
 import { AppError, errorResponse } from "@/core/auth/errors";
 import { requireSession, toSessionView } from "@/core/auth/session";
@@ -35,6 +36,12 @@ export async function GET(request: Request) {
     const searchParams = new URL(request.url).searchParams;
     const requestedSection = searchParams.get("section") ?? (session.tenantType === "MINIMARKET" ? Object.keys(minimarketSections).find((section) => session.enabledModules.includes(section) && hasPermission(session.permissions, minimarketSections[section])) ?? "pos" : null);
     if (session.tenantType === "MINIMARKET") assertMinimarketAccess(session, requestedSection ?? "dashboard");
+    if (session.tenantType === "BARBERSHOP") {
+      assertSalonModule(session, requestedSection ?? "dashboard");
+      const required = salonSectionPermissions[requestedSection ?? "dashboard"];
+      if (!required) throw new AppError("NOT_FOUND", 404, "Sección no encontrada.");
+      if (!hasPermission(session.permissions, required)) throw new AppError("FORBIDDEN", 403, "No tienes permiso para consultar esta sección.");
+    }
     if (session.tenantType === "RESTAURANT") {
       assertRestaurantModule(session, requestedSection ?? "dashboard");
       const required = restaurantSectionPermissions[requestedSection ?? "dashboard"];
@@ -47,8 +54,8 @@ export async function GET(request: Request) {
     if (requestedSection === "inventory" && !hasPermission(session.permissions, "inventory:read")) throw new AppError("FORBIDDEN", 403, "No tienes permiso para consultar el inventario.");
     const [branches, core, industryData, inventoryModule] = await Promise.all([
       prisma.branch.findMany({ where: { tenantId: session.tenantId, active: true, ...(session.tenantType === "MINIMARKET" && !hasPermission(session.permissions, "settings:write") ? { id: session.branchId } : {}) }, orderBy: { createdAt: "asc" }, select: { id: true, name: true } }),
-      getCoreTenantData(scope, session.tenantType === "MINIMARKET" ? requestedSection === "settings" : !requestedSection || requestedSection === "settings"),
-      session.tenantType === "BARBERSHOP" ? getBarbershopData(scope, requestedSection) : session.tenantType === "RESTAURANT" ? getRestaurantData(scope, requestedSection === "reports" ? restaurantReportPeriod : undefined, requestedSection) : session.tenantType === "MINIMARKET" ? getMinimarketData(scope, requestedSection ?? "dashboard", searchParams) : getTransportData(scope, transportSection, transportQuery),
+      getCoreTenantData(scope, session.tenantType === "BARBERSHOP" ? hasPermission(session.permissions, "settings:write") && (!requestedSection || requestedSection === "settings") : session.tenantType === "MINIMARKET" ? requestedSection === "settings" : !requestedSection || requestedSection === "settings"),
+      session.tenantType === "BARBERSHOP" ? getBarbershopData(scope, requestedSection ?? (session.permissions.includes("*") ? null : "dashboard")) : session.tenantType === "RESTAURANT" ? getRestaurantData(scope, requestedSection === "reports" ? restaurantReportPeriod : undefined, requestedSection) : session.tenantType === "MINIMARKET" ? getMinimarketData(scope, requestedSection ?? "dashboard", searchParams) : getTransportData(scope, transportSection, transportQuery),
       requestedSection === "inventory" && session.tenantType !== "MINIMARKET" ? getInventoryWorkspaceData(scope, session.tenantType) : Promise.resolve(null),
     ]);
     const data = inventoryModule ? { ...industryData, inventoryModule } : industryData;
